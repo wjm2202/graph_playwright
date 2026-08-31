@@ -1,4 +1,4 @@
-# salesforce_playwright
+# graph_playwright
 
 Plan-first, multi-actor Playwright testing for Salesforce (and its downstream
 systems, e.g. Siebel). Processes are drawn as **graphs** in a visual planner;
