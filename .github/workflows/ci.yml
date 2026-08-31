@@ -5,7 +5,11 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    # Both names deliberately: this repo's default branch is master, while
+    # main is the convention much tooling assumes. Listing both means a
+    # rename never silently kills CI (it already did once — five commits
+    # landed with zero workflow runs because this said [main] alone).
+    branches: [main, master]
   pull_request:
 
 jobs:
