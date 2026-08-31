@@ -1,0 +1,96 @@
+name: Bug report
+description: Something behaves differently than it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before anything else: **never paste credentials, tokens, TOTP seeds or
+        `.env` contents here.** `npm run doctor` reports what's wired using
+        variable *names* only — that output is safe to share, and is usually
+        the most useful thing in the report.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The failing command and its output.
+      placeholder: |
+        $ npm test
+        ...
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >
+        Smallest sequence that shows it. A cut-down `.graph.json` (with real
+        names replaced) is worth more than a description.
+      placeholder: |
+        1. npm run planner
+        2. Load ...
+        3. Click ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part
+      options:
+        - Planner / check panel
+        - Process graph schema, walker or merge-back
+        - Recorder pipeline (record → distill → generate)
+        - Cast, auth ladder, TOTP or session policies
+        - Oracles / assertions
+        - Test data (seeding, factory, sweep)
+        - ADO import or grillme gap engine
+        - CI, tooling or docs
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      description: "`git rev-parse --short HEAD`"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version (`node -v`), and browser if relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Doctor output (for anything org-dependent)
+      description: >
+        `GRAPH_DOCTOR=all npm run doctor` — names only, no values. Skip this
+        if the problem doesn't involve a real org.
+      render: shell
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Confirmation
+      options:
+        - label: I've checked this report contains no credentials, tokens or secrets.
+          required: true

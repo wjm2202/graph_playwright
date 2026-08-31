@@ -1,0 +1,57 @@
+name: Feature or improvement
+description: Something the project should be able to do and can't yet
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What can't you do today? Describe the situation, not the solution —
+        the best features here came from someone's actual blocked afternoon.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: Optional. A rough shape is fine; so is "no idea, but here's the pain".
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part it touches
+      options:
+        - Planner / check panel
+        - Process graph schema, walker or merge-back
+        - Recorder pipeline (record → distill → generate)
+        - Cast, auth ladder, TOTP or session policies
+        - Oracles / assertions
+        - Test data (seeding, factory, sweep)
+        - ADO import or grillme gap engine
+        - A new system beyond Salesforce/Siebel
+        - CI, tooling or docs
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: proof
+    attributes:
+      label: How we'd know it works
+      description: >
+        What would the test assert? Everything here ships with tests, so this
+        question is worth answering early — it often reshapes the feature.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contributing
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I'd be up for opening a PR (CONTRIBUTING.md has the ground rules).
+          required: false
