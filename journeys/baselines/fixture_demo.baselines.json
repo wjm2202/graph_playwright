@@ -1,0 +1,42 @@
+{
+  "journey": "fixture_demo",
+  "windowSize": 20,
+  "steps": {
+    "0:main/recordPage.open": {
+      "n": 1,
+      "samples": [
+        11
+      ],
+      "meanMs": 11,
+      "p95Ms": 11,
+      "updated": "2026-08-30"
+    },
+    "1:main/form.fill": {
+      "n": 1,
+      "samples": [
+        14
+      ],
+      "meanMs": 14,
+      "p95Ms": 14,
+      "updated": "2026-08-30"
+    },
+    "2:main/combobox.select": {
+      "n": 1,
+      "samples": [
+        70
+      ],
+      "meanMs": 70,
+      "p95Ms": 70,
+      "updated": "2026-08-30"
+    },
+    "3:main/modal.save": {
+      "n": 1,
+      "samples": [
+        45
+      ],
+      "meanMs": 45,
+      "p95Ms": 45,
+      "updated": "2026-08-30"
+    }
+  }
+}

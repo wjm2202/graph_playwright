@@ -1,0 +1,108 @@
+{
+  "batch": "04",
+  "description": "Authentication and session patterns (founding doc section 4 + the multi-persona config shape from 8.2). Contains the ordered auth-strategy hierarchy as a single payload procedure. Hub: hub_sf_auth.",
+  "atoms": [
+    {
+      "atom": "v1.procedure.sf_auth__strategy_hierarchy",
+      "payload": "[V-M] Ordered auth strategy for Salesforce Playwright, best first: 1) Token injection — obtain an OAuth/CLI access token, exchange via frontdoor.jsp?sid= or UI Bridge /services/oauth2/singleaccess; fastest, no MFA, no login-form flake. 2) UI login exactly once in a Playwright 'setup' project, persist context.storageState, reuse everywhere — the universal fallback when tokens are unavailable. 3) Per-test UI login — last resort, reserved for testing the login experience itself. The ordering IS the recommendation: prefer 1, fall back to 2, never do 3 for ordinary journeys."
+    },
+    {
+      "atom": "v1.fact.frontdoor_jsp__mechanics",
+      "payload": "[V-O] Classic frontdoor: GET https://<instance>/secur/frontdoor.jsp?sid=<accessToken>&retURL=<relativePath> establishes a UI session from a token. The token must be an OAuth access token with web/full scope, a SOAP login session id, or Apex UserInfo.getSessionId(). Still documented as working (May 2026) but Salesforce recommends the single-use UI Bridge replacement for new implementations — deprecation pressure is tracked by state atom v1.state.frontdoor_sid__status__deprecation_pressure_dt_2026_08_30."
+    },
+    {
+      "atom": "v1.fact.ui_bridge_singleaccess__mechanics",
+      "payload": "[V-O] UI Bridge API (the modern token-injection path): POST the access_token to /services/oauth2/singleaccess on the org's My Domain OR on the Experience Cloud site domain; the response is {\"frontdoor_uri\": \"...frontdoor.jsp?otp=...\"}. The URI is valid for at most 1 minute and usable exactly once. Not supported on login.salesforce.com / test.salesforce.com. The user must NOT have the 'API Only User' permission. The site-domain variant is the clean programmatic portal login."
+    },
+    {
+      "atom": "v1.fact.sf_cli_auth__url_only_flow",
+      "payload": "[V-O] CLI-based auth: sf org display --json yields accessToken + instanceUrl for token injection. sf org open --url-only mints a ready-made login URL, but since Aug 2025 those URLs are single-use and expire in 60 seconds — consume immediately inside the setup project, persist the resulting session via storageState, and never cache or share the URL across workers or runs."
+    },
+    {
+      "atom": "v1.fact.api_only_users__ui_bridge_blocked",
+      "payload": "[V-M] Since Spring '26, API-only users can no longer bridge into UI sessions via frontdoor. UI test users must be real UI-capable users, not API-only integration users — provision dedicated UI test users and keep the API-only permission off them."
+    },
+    {
+      "atom": "v1.fact.portal_frontdoor__session_caveat",
+      "payload": "[V-O/V-M] Experience Cloud caveat: community-user API session ids are not reliably accepted by classic frontdoor.jsp (SAML SSO was the historical workaround). For programmatic portal login use UI Bridge singleaccess on the SITE domain; magic links (passwordless email login) are an alternative channel for external users."
+    },
+    {
+      "atom": "v1.procedure.storage_state__setup_pattern",
+      "payload": "[V-O] storageState discipline: authenticate once in globalSetup or a 'setup' project that other projects list in dependencies; save via context.storageState({path}); dependent projects reference the file through use.storageState. Guest/unauthenticated projects use an explicit empty state: storageState: {cookies: [], origins: []}. Sessions expire — set generous session timeouts on test users and validate/refresh saved state when a run may outlive it."
+    },
+    {
+      "atom": "v1.fact.storage_state__scope__per_persona_per_domain",
+      "payload": "[V-O/INF] One storageState file per persona per domain. Salesforce sid cookies are domain-scoped: the org domains (*.my.salesforce.com / *.lightning.force.com) and the portal domain (*.my.site.com) are separate sessions, and a login sets two sid cookies (main + content domain). A portal actor and an org actor therefore need separate storage states even when they represent the same human scenario."
+    },
+    {
+      "atom": "v1.procedure.worker_auth__parallel_isolation",
+      "payload": "[V-O] Worker-scoped auth for parallel runs: a worker-scoped fixture keyed on testInfo.parallelIndex maps worker N to dedicated test user N and file .auth/worker-N.json. Shape: test.extend<{}, {workerStorageState: string}> with storageState delegating to workerStorageState; the worker fixture logs in as user #parallelIndex via frontdoor once, saves context.storageState to the worker file, and every test in that worker reuses it. Prevents cross-worker server-side data collisions under fullyParallel."
+    },
+    {
+      "atom": "v1.fact.mfa_waiver__exempt_permission",
+      "payload": "[V-O] The sanctioned MFA exemption for automation is the 'Waive Multi-Factor Authentication for Exempt Users' permission — Salesforce explicitly lists test-automation accounts as an exempt use case. Behavior is subject to change as MFA enforcement evolves; re-verify at each release."
+    },
+    {
+      "atom": "v1.fact.mfa_ui_login_setting__naming_trap",
+      "payload": "[V-O] Naming trap: 'Multi-Factor Authentication for User Interface Logins' is the per-user opt-IN switch, not an exemption — removing it does NOT waive MFA for the user. The actual waiver is the separate 'Waive Multi-Factor Authentication for Exempt Users' permission. Confusing these two produces intermittent MFA prompts in CI."
+    },
+    {
+      "atom": "v1.fact.identity_verification__trusted_ips",
+      "payload": "[V-O] 'Verify Your Identity' email challenges fire on logins from untrusted IPs and will stall headless automation. Add CI runner IPs to Trusted IP Ranges (Setup -> Network Access) and/or the profile's login IP ranges so automation logins skip the challenge."
+    },
+    {
+      "atom": "v1.fact.ci_org_auth__jwt_bearer",
+      "payload": "[V-M] Headless CI org auth (for data/metadata APIs — not the browser session): JWT bearer flow via sf org login jwt --client-id <id> --jwt-key-file <key> --username <user> --instance-url <url>. Requires a connected app + certificate; the Salesforce-recommended CI mechanism."
+    },
+    {
+      "atom": "v1.fact.ci_org_auth__sfdx_auth_url",
+      "payload": "[V-M] Alternative headless CI auth without a connected app: sf org login sfdx-url, feeding the sfdxAuthUrl value obtained from sf org display --verbose --json, stored as a CI secret. Simpler setup than JWT; secret rotation happens by re-exporting the URL."
+    },
+    {
+      "atom": "v1.fact.sfdx_cli__maintained__false",
+      "payload": "[V-M] The legacy sfdx CLI executable is unmaintained since 2023. Use sf (CLI v2) commands for all org auth and automation: sf org display, sf org login jwt, sf org login sfdx-url, sf org open. Any guide still showing sfdx commands is dated."
+    },
+    {
+      "atom": "v1.procedure.multi_persona_auth__project_shape",
+      "payload": "[V-O] Multi-persona Playwright config shape: one 'setup' project performs token injection per role and writes .auth/<role>.json; then one Playwright project per persona (admin, customer, partner, guest, ...) sets use.storageState to its role file and declares dependencies: ['setup']; the guest project uses the explicit empty state. Personas map 1:1 to storage states; portal personas get site-domain states, org personas get org-domain states."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.procedure.sf_auth__strategy_hierarchy", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.frontdoor_jsp__mechanics", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.ui_bridge_singleaccess__mechanics", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.sf_cli_auth__url_only_flow", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.api_only_users__ui_bridge_blocked", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.portal_frontdoor__session_caveat", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.portal_frontdoor__session_caveat", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.procedure.storage_state__setup_pattern", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.storage_state__scope__per_persona_per_domain", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.procedure.worker_auth__parallel_isolation", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.mfa_waiver__exempt_permission", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.mfa_ui_login_setting__naming_trap", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.identity_verification__trusted_ips", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.ci_org_auth__jwt_bearer", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.ci_org_auth__sfdx_auth_url", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.fact.sfdx_cli__maintained__false", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.procedure.multi_persona_auth__project_shape", "target": "v1.other.hub_sf_auth" },
+    { "type": "references", "source": "v1.procedure.sf_auth__strategy_hierarchy", "target": "v1.fact.frontdoor_jsp__mechanics" },
+    { "type": "references", "source": "v1.procedure.sf_auth__strategy_hierarchy", "target": "v1.fact.ui_bridge_singleaccess__mechanics" },
+    { "type": "references", "source": "v1.procedure.sf_auth__strategy_hierarchy", "target": "v1.procedure.storage_state__setup_pattern" },
+    { "type": "references", "source": "v1.fact.ui_bridge_singleaccess__mechanics", "target": "v1.fact.frontdoor_jsp__mechanics" },
+    { "type": "references", "source": "v1.fact.sf_cli_auth__url_only_flow", "target": "v1.procedure.storage_state__setup_pattern" },
+    { "type": "references", "source": "v1.fact.sf_cli_auth__url_only_flow", "target": "v1.fact.sfdx_cli__maintained__false" },
+    { "type": "constrains", "source": "v1.fact.api_only_users__ui_bridge_blocked", "target": "v1.fact.frontdoor_jsp__mechanics" },
+    { "type": "constrains", "source": "v1.fact.api_only_users__ui_bridge_blocked", "target": "v1.fact.ui_bridge_singleaccess__mechanics" },
+    { "type": "constrains", "source": "v1.fact.portal_frontdoor__session_caveat", "target": "v1.fact.frontdoor_jsp__mechanics" },
+    { "type": "references", "source": "v1.fact.portal_frontdoor__session_caveat", "target": "v1.fact.ui_bridge_singleaccess__mechanics" },
+    { "type": "constrains", "source": "v1.fact.storage_state__scope__per_persona_per_domain", "target": "v1.procedure.storage_state__setup_pattern" },
+    { "type": "depends_on", "source": "v1.procedure.worker_auth__parallel_isolation", "target": "v1.procedure.storage_state__setup_pattern" },
+    { "type": "constrains", "source": "v1.fact.mfa_ui_login_setting__naming_trap", "target": "v1.fact.mfa_waiver__exempt_permission" },
+    { "type": "references", "source": "v1.fact.identity_verification__trusted_ips", "target": "v1.fact.mfa_waiver__exempt_permission" },
+    { "type": "references", "source": "v1.fact.ci_org_auth__jwt_bearer", "target": "v1.fact.sfdx_cli__maintained__false" },
+    { "type": "references", "source": "v1.fact.ci_org_auth__sfdx_auth_url", "target": "v1.fact.ci_org_auth__jwt_bearer" },
+    { "type": "depends_on", "source": "v1.procedure.multi_persona_auth__project_shape", "target": "v1.procedure.storage_state__setup_pattern" },
+    { "type": "references", "source": "v1.procedure.multi_persona_auth__project_shape", "target": "v1.fact.storage_state__scope__per_persona_per_domain" },
+    { "type": "references", "source": "v1.procedure.multi_persona_auth__project_shape", "target": "v1.fact.ui_bridge_singleaccess__mechanics" }
+  ]
+}

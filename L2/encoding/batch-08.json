@@ -1,0 +1,160 @@
+{
+  "batch": "08",
+  "description": "Test architecture, data engineering, environments, CI (founding doc section 9) and ecosystem reference (section 11). Two decision atoms dual-hubbed into the resident v1.other.hub_decisions. Hubs: hub_sf_architecture, hub_sf_ecosystem.",
+  "atoms": [
+    {
+      "atom": "v1.procedure.sf_pom__class_based_baseline",
+      "payload": "[V-O] Structural baseline: class-based Page Object Model — readonly Locator fields initialized in the constructor, intent-level action methods (createAccount(name), submitExpense(data)), no assertions buried in page objects. This is the Playwright-official baseline pattern; Salesforce specifics layer on top of it, they do not replace it."
+    },
+    {
+      "atom": "v1.procedure.sf_fixtures__composition_pattern",
+      "payload": "[V-M] Use Playwright fixtures (test.extend<{accountPage: AccountPage}>) for composition and dependency injection of page objects and utilities into tests — not inheritance hierarchies. Worker-scoped fixtures own per-worker resources (auth state, API clients); test-scoped fixtures own pages and data refs."
+    },
+    {
+      "atom": "v1.procedure.sf_component_objects__cpom",
+      "payload": "[V-M] Component objects (CPOM): reusable wrappers for Lightning base components — combobox, lookup, datatable, modal, toast, VF iframe — each accepting a Page or a scoping Locator. This is the specific recommendation for Lightning's awkward pieces: page objects compose component objects instead of re-implementing widget mechanics per page."
+    },
+    {
+      "atom": "v1.fact.pom_over_utam__decision",
+      "payload": "[S — direct practitioner report, 2025] Decision: plain class-based POM + Playwright + TypeScript chosen OVER UTAM (UTAM updates lag Salesforce releases, custom components still need hand-written JSON page objects, longevity doubts) and over AI-agent testing tools. Adopted for this project: thin owned layer, no UTAM, no heavyweight framework."
+    },
+    {
+      "atom": "v1.fact.sf_repo_layout__convention",
+      "payload": "[S] Repo layout convention: tests/, pages/, utils/ (auth, test data), config/ (per-env: sandbox/uat), fixtures/, .env (git-ignored), playwright.config.ts. This project's src/ mirrors it: src/auth, src/components, src/pages, src/api, src/fixtures."
+    },
+    {
+      "atom": "v1.fact.serenity_js__playwright_support",
+      "payload": "[V-O] Screenplay-pattern alternative: Serenity/JS actively supports Playwright Test (v3.41.x as of Aug 2026) — a viable choice for teams preferring screenplay over POM. Not adopted in this project; recorded as the known alternative."
+    },
+    {
+      "atom": "v1.fact.test_data__creation_channel__api",
+      "payload": "[V-M] The strongest consensus in the Salesforce testing space: create, query, and clean test data via API; use the UI only for the behavior actually under test; deep-link straight to /lightning/r/<Object>/<Id>/view instead of click-navigating. UI-created data is slow, flaky, and couples every journey to the create forms."
+    },
+    {
+      "atom": "v1.fact.jsforce_v3__capabilities",
+      "payload": "[V-O] jsforce v3 (3.10.x): TypeScript-native (drop @types/jsforce), requires Node >= 18, covers REST/SOQL/Bulk/Streaming/Metadata/Tooling APIs, typed queries via conn.query<T>(soql); a lighter jsforce-node build exists for Node-only use. The default Salesforce API client for TypeScript test suites."
+    },
+    {
+      "atom": "v1.fact.rest_seeding__apirequestcontext_alternative",
+      "payload": "[V-M] jsforce-free alternative: Playwright's built-in APIRequestContext -> POST /services/oauth2/token (client-credentials or username-password grant) -> POST /services/data/vXX.X/sobjects/<SObject>. Keeps the test repo dependency-light; this project's SalesforceApi uses this shape with children-first teardown."
+    },
+    {
+      "atom": "v1.fact.composite_tree_api__atomic_seeding",
+      "payload": "[V-M] The Composite sObject Tree API creates a whole parent-child record graph (e.g. Account + Contacts + Opportunity) in ONE atomic API call that counts as a single call against org limits — the ideal scenario-seeding primitive for journey tests."
+    },
+    {
+      "atom": "v1.procedure.test_data__cleanup_patterns",
+      "payload": "[V-M] Coexisting cleanup patterns: delete-in-teardown by captured record Id (children first for FK safety); unique-per-run prefix + a periodic API sweeper (E2E_<runid>_...) that removes strays from crashed runs; disposable org for full resets. Under concurrency: shared fixtures create READ-ONLY data only; anything mutable is created per-test or per-worker."
+    },
+    {
+      "atom": "v1.procedure.dual_layer_assertion__ui_plus_soql",
+      "payload": "[S, strongly endorsed] Dual-layer assertion: act in the UI, then assert the persisted state via SOQL/API — catches silent save failures and validation-rule reverts that a success toast cannot; optionally also intercept the UI's own REST save response (expect 201 / success:true). The UI says it happened; the org proves it happened."
+    },
+    {
+      "atom": "v1.fact.org_coupled_config__failure_vector",
+      "payload": "[V-M] Org-coupled configuration is a recognized failure vector: record types, validation rules, picklist values, and profile-conditional layouts differ per org. Tests must run under the profile they claim to test, and expected values must derive from the test user's locale/timezone (Salesforce stores UTC and renders per-user), never from the CI machine clock. Pin test-user locale/timezone; cover ICU locale formats when they are in play."
+    },
+    {
+      "atom": "v1.fact.scratch_orgs__e2e_fit",
+      "payload": "[V-O/V-M] Scratch orgs are made for CI/CD but poor for realistic-data E2E: org limits, slow creation, empty data. Scratch Org Snapshots (GA Summer '24) amortize setup cost. Use scratch orgs for package/deployment validation, not for journey E2E."
+    },
+    {
+      "atom": "v1.fact.e2e_environment__dominant_practice__persistent_sandbox",
+      "payload": "[V-M, partially synthesized] Decision + dominant practice: run UI E2E against a persistent dedicated test sandbox with API-seeded, per-worker-isolated data; keep scratch orgs for package validation. Adopted as this project's environment strategy."
+    },
+    {
+      "atom": "v1.procedure.preview_sandbox__release_diffing",
+      "payload": "[V-O] Keep one sandbox on PREVIEW each release cycle (it receives the seasonal release ~4-5 weeks early). Run the suite on preview AND non-preview and diff the failures — the diff separates Salesforce release breakage from your own regressions before the release reaches production orgs."
+    },
+    {
+      "atom": "v1.procedure.ci_sharding__blob_reports",
+      "payload": "[V-O/V-M] CI scale-out: playwright test --shard=i/n via a GitHub Actions matrix; each shard emits a blob report; merge-reports combines them into one HTML/JSON report. Sizing: 2-4 workers per standard 2-vCPU runner. Cadence: smoke suite on PR, full regression nightly; persist traces/videos/Salesforce debug logs as CI artifacts."
+    },
+    {
+      "atom": "v1.procedure.ci_retries__flake_policy",
+      "payload": "[V-M/S] Config policy: retries: process.env.CI ? 2 : 0; trace: 'on-first-retry'. The flaky-test list is a backlog, not noise — reproduce with --repeat-each=20 and only count a fix when 20/20 pass. The trace viewer is the single most valuable Salesforce debugging tool: DOM snapshots + network + console per action show exactly which XHR was pending when an assertion failed."
+    },
+    {
+      "atom": "v1.fact.parallel_safety__preconditions",
+      "payload": "[V-M] Parallel workers against one shared org are safe ONLY with: one test user per worker + unique record naming + no cross-test data reads. Serial mode is legitimate when tests mutate shared org state. fullyParallel interacts surprisingly with serial suites — set the parallelism mode deliberately per project, not by default."
+    },
+    {
+      "atom": "v1.fact.test_pyramid__e2e_scope__journeys_only",
+      "payload": "[V-M] Test pyramid placement for Salesforce: LWC JS logic -> Jest/sfdx-lwc-jest (local, mocked wire adapters). Server logic -> Apex tests (the deployment gate). Flows -> Flow Builder tests (limits: no screen flows, no async paths, no delete triggers, <= 200 tests per flow), so screen-flow journeys still need UI E2E. Playwright E2E -> critical user journeys ONLY, chosen by business value + regression risk. Do not re-prove Apex/Jest-covered logic through the UI. Durable invariant."
+    },
+    {
+      "atom": "v1.fact.utam__playwright_adapter__none",
+      "payload": "[V-O] UTAM is Salesforce's JSON page-object framework; its JS runtime binds to WebdriverIO ONLY — no Playwright adapter exists. Cadence is slow (utam-java last Jun 2025; salesforce-pageobjects npm v12 Jul 2026); practitioners question its longevity and note official page objects lag Salesforce releases. Do not plan a Playwright suite around UTAM."
+    },
+    {
+      "atom": "v1.fact.sf_playwright_oss__dominant_framework__none",
+      "payload": "[V-M] No dominant open-source Playwright-Salesforce framework or npm helper library exists as of Aug 2026 — the field is blog guides + in-house layers. This is a verified NEGATIVE finding: do not search for 'the standard framework'; roll a thin owned layer (POM + component objects + fixtures) instead."
+    },
+    {
+      "atom": "v1.fact.sf_playwright__reference_repos",
+      "payload": "[V-O/V-M] Repos worth studying: salesforce/codeceptjs-bdd (official; Playwright driver + LWC shadow support), OliverAHolmes/salesforce-playwright (scratch-org setup via frontdoor), dawiddiwad/checkmate (@xoxoai/checkmate/salesforce; Playwright 1.60 + AI fixture, active Aug 2026), trailheadapps/ebikes-lwc (canonical Experience Cloud sample app; UTAM/WDIO E2E in-repo), robocorp/salesforce-lightning-playwright-examples (Python; locator ideas), TestLeafInc/playwright-salesforce (Java patterns), sfdx-browserforce-plugin (org-setup automation, Playwright-based since v6)."
+    },
+    {
+      "atom": "v1.fact.sf_testing_vendors__landscape",
+      "payload": "[V-M] Commercial Salesforce-testing landscape: Provar (metadata-driven, SF-native), Copado Robotic Testing (self-healing, Robot Framework), AccelQ (no-code AI), Testim/Tricentis (hybrid), TestZeus Hercules (OSS AI agent), ZeroStep (natural-language Playwright layer marketed at Salesforce). Context for build-vs-buy conversations; none replaces the owned thin layer for code-first teams."
+    },
+    {
+      "atom": "v1.fact.sf_playwright__practitioner_canon",
+      "payload": "[V-M] Practitioner canon (most-cited sources): himanshuai.substack.com 2026 complete guide, cassandrahl.com POM-vs-UTAM evaluation report, testrigtechnologies.com setup guide, Abhijeet Vaikar's jsforce data guide, desplega.ai shadow-DOM deep dive, Gearset tooling comparison. The full deduplicated source list lives in founding doc section 16."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.procedure.sf_pom__class_based_baseline", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.procedure.sf_fixtures__composition_pattern", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.procedure.sf_component_objects__cpom", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.pom_over_utam__decision", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.pom_over_utam__decision", "target": "v1.other.hub_decisions" },
+    { "type": "member_of", "source": "v1.fact.sf_repo_layout__convention", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.serenity_js__playwright_support", "target": "v1.other.hub_sf_ecosystem" },
+    { "type": "member_of", "source": "v1.fact.test_data__creation_channel__api", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.jsforce_v3__capabilities", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.rest_seeding__apirequestcontext_alternative", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.composite_tree_api__atomic_seeding", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.procedure.test_data__cleanup_patterns", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.procedure.dual_layer_assertion__ui_plus_soql", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.org_coupled_config__failure_vector", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.scratch_orgs__e2e_fit", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.e2e_environment__dominant_practice__persistent_sandbox", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.e2e_environment__dominant_practice__persistent_sandbox", "target": "v1.other.hub_decisions" },
+    { "type": "member_of", "source": "v1.procedure.preview_sandbox__release_diffing", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.procedure.ci_sharding__blob_reports", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.procedure.ci_retries__flake_policy", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.parallel_safety__preconditions", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.test_pyramid__e2e_scope__journeys_only", "target": "v1.other.hub_sf_architecture" },
+    { "type": "member_of", "source": "v1.fact.utam__playwright_adapter__none", "target": "v1.other.hub_sf_ecosystem" },
+    { "type": "member_of", "source": "v1.fact.sf_playwright_oss__dominant_framework__none", "target": "v1.other.hub_sf_ecosystem" },
+    { "type": "member_of", "source": "v1.fact.sf_playwright__reference_repos", "target": "v1.other.hub_sf_ecosystem" },
+    { "type": "member_of", "source": "v1.fact.sf_testing_vendors__landscape", "target": "v1.other.hub_sf_ecosystem" },
+    { "type": "member_of", "source": "v1.fact.sf_playwright__practitioner_canon", "target": "v1.other.hub_sf_ecosystem" },
+    { "type": "references", "source": "v1.procedure.sf_component_objects__cpom", "target": "v1.procedure.combobox__select_pattern" },
+    { "type": "references", "source": "v1.procedure.sf_component_objects__cpom", "target": "v1.procedure.datatable__row_cell_pattern" },
+    { "type": "references", "source": "v1.procedure.sf_component_objects__cpom", "target": "v1.procedure.sf_pom__class_based_baseline" },
+    { "type": "references", "source": "v1.procedure.sf_fixtures__composition_pattern", "target": "v1.procedure.worker_auth__parallel_isolation" },
+    { "type": "derived_from", "source": "v1.fact.pom_over_utam__decision", "target": "v1.fact.utam__playwright_adapter__none" },
+    { "type": "references", "source": "v1.fact.pom_over_utam__decision", "target": "v1.fact.sf_playwright_oss__dominant_framework__none" },
+    { "type": "references", "source": "v1.fact.sf_repo_layout__convention", "target": "v1.procedure.sf_pom__class_based_baseline" },
+    { "type": "references", "source": "v1.fact.serenity_js__playwright_support", "target": "v1.procedure.sf_pom__class_based_baseline" },
+    { "type": "references", "source": "v1.fact.test_data__creation_channel__api", "target": "v1.fact.jsforce_v3__capabilities" },
+    { "type": "references", "source": "v1.fact.rest_seeding__apirequestcontext_alternative", "target": "v1.fact.jsforce_v3__capabilities" },
+    { "type": "references", "source": "v1.fact.composite_tree_api__atomic_seeding", "target": "v1.fact.test_data__creation_channel__api" },
+    { "type": "depends_on", "source": "v1.procedure.test_data__cleanup_patterns", "target": "v1.fact.test_data__creation_channel__api" },
+    { "type": "references", "source": "v1.procedure.dual_layer_assertion__ui_plus_soql", "target": "v1.procedure.path_stage__completion_pattern" },
+    { "type": "references", "source": "v1.procedure.dual_layer_assertion__ui_plus_soql", "target": "v1.fact.test_data__creation_channel__api" },
+    { "type": "references", "source": "v1.fact.org_coupled_config__failure_vector", "target": "v1.fact.profiles_permsets__dom_effect" },
+    { "type": "references", "source": "v1.fact.org_coupled_config__failure_vector", "target": "v1.procedure.datepicker__fill_pattern" },
+    { "type": "derived_from", "source": "v1.fact.e2e_environment__dominant_practice__persistent_sandbox", "target": "v1.fact.scratch_orgs__e2e_fit" },
+    { "type": "references", "source": "v1.procedure.preview_sandbox__release_diffing", "target": "v1.fact.org_types__test_targeting" },
+    { "type": "references", "source": "v1.procedure.preview_sandbox__release_diffing", "target": "v1.fact.salesforce_releases__cadence_and_risk" },
+    { "type": "references", "source": "v1.procedure.ci_retries__flake_policy", "target": "v1.procedure.sf_flake__root_cause_map" },
+    { "type": "references", "source": "v1.fact.parallel_safety__preconditions", "target": "v1.procedure.worker_auth__parallel_isolation" },
+    { "type": "references", "source": "v1.fact.parallel_safety__preconditions", "target": "v1.fact.sf_test_isolation__problem_locus__server_side" },
+    { "type": "references", "source": "v1.fact.test_pyramid__e2e_scope__journeys_only", "target": "v1.fact.sf_playwright__five_pillars" },
+    { "type": "references", "source": "v1.fact.sf_playwright__reference_repos", "target": "v1.fact.utam__playwright_adapter__none" },
+    { "type": "references", "source": "v1.fact.sf_testing_vendors__landscape", "target": "v1.fact.sf_playwright_oss__dominant_framework__none" }
+  ]
+}

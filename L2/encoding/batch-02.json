@@ -1,0 +1,112 @@
+{
+  "batch": "02",
+  "description": "Platform glossary (founding doc section 2.1): the language of the application — org model, UI frameworks, metadata concepts, record-page anatomy. Mostly 2-segment facet facts with self-contained payloads; hub: hub_sf_platform.",
+  "atoms": [
+    {
+      "atom": "v1.fact.salesforce_org__definition",
+      "payload": "[V-O] A Salesforce org is one customer's isolated instance: data + metadata + users. Tests always target a specific org, and org shape (config, metadata, licenses, enabled features) determines the DOM that renders — the same object page can differ per org, app, profile, and record type."
+    },
+    {
+      "atom": "v1.fact.org_types__test_targeting",
+      "payload": "[V-O] Org types: production (live), sandbox (refreshable copy of production), scratch org (ephemeral CLI-created org). UI automation normally targets sandboxes or dedicated test orgs, never production. Preview sandboxes receive the next seasonal release ~4-5 weeks early — the release-diffing lever."
+    },
+    {
+      "atom": "v1.fact.lex__definition",
+      "payload": "[V-O] Lightning Experience (LEX) is the modern Salesforce SPA UI, built on the Aura framework with LWC and Aura components coexisting on the same pages. Salesforce Classic is the legacy server-rendered UI and still underlies some Setup screens, which appear inside LEX as iframes."
+    },
+    {
+      "atom": "v1.fact.lwc_vs_aura__dom_rendering",
+      "payload": "[V-O] LWC (Lightning Web Components) is the modern standards-based framework and renders into shadow trees (synthetic today in LEX, native incoming). Aura components are the legacy framework and render plain light DOM with no shadow roots. Durable invariant: Aura = light DOM, LWC = shadow tree, except light-DOM LWCs that opt out via lwc:render-mode='light'."
+    },
+    {
+      "atom": "v1.fact.base_components__definition",
+      "payload": "[V-O] Base components are the lightning-* namespace shipped by Salesforce (lightning-input, lightning-combobox, lightning-datatable, lightning-button, lightning-spinner, ...). Each implements an SLDS blueprint. Their custom-element tag names are the component's public identity and serve as legitimate locator anchors (e.g. page.locator('lightning-combobox'))."
+    },
+    {
+      "atom": "v1.fact.slds__definition",
+      "payload": "[V-O] SLDS (Salesforce Lightning Design System) defines blueprint HTML/CSS: slds-* utility/state classes and ARIA roles. SLDS 2 ('Cosmos' theme, GA Winter '26) keeps the class names but changes computed styles and adds dark mode — visual baselines are theme-dependent even though selectors keep working."
+    },
+    {
+      "atom": "v1.fact.slds__aria_compliant__true",
+      "payload": "[V-M] SLDS blueprints are ARIA-compliant, and Salesforce rarely changes accessible names because its own accessibility compliance depends on them. This is why role + accessible-name locators (getByRole('button', {name:'Save'})) are the durable locator interface for Salesforce UI: role locators query the composed tree and survive both release churn and the synthetic-to-native shadow migration."
+    },
+    {
+      "atom": "v1.fact.sobject_model__terminology",
+      "payload": "[V-O] Object = table, Record = row, Field = column. Custom objects and fields carry the __c suffix. Field API names are the stable identifiers behind translatable labels — prefer API names over labels wherever they surface in DOM attributes or URLs."
+    },
+    {
+      "atom": "v1.fact.record_pages__flexipage_variability",
+      "payload": "[V-O] Record pages are FlexiPages: component layouts built in Lightning App Builder and assigned per org/app/profile/record type — the same object can render entirely different components for different users. Major cause of cross-org and cross-profile test drift: a 'missing' element is often a FlexiPage assignment difference, not a bug."
+    },
+    {
+      "atom": "v1.fact.dynamic_forms__dom_impact",
+      "payload": "[V-O] Page layouts / compact layouts / Dynamic Forms control field arrangement. Dynamic Forms places fields as individual FlexiPage components, which changes record-detail DOM structure versus the classic Record Detail component — field locators must not assume a single detail-panel structure across orgs."
+    },
+    {
+      "atom": "v1.fact.record_ui_regions__vocabulary",
+      "payload": "[V-O] Record-page regions: highlights panel (top-of-record summary strip with compact-layout fields + action buttons), related lists (child-record components), Path (chevron stage bar with 'Mark Stage as Complete'), utility bar (docked footer panels that can overlay the page and intercept clicks — a click-interception flake source). Labels repeat across these regions, so locators must scope to a region container."
+    },
+    {
+      "atom": "v1.fact.quick_actions__modal_behavior",
+      "payload": "[V-O] Quick actions / global actions are configured buttons that launch create/edit/flow/LWC modals. Most create/edit flows tests exercise are quick actions opening role='dialog' modals — scope all interaction to the dialog while it is open."
+    },
+    {
+      "atom": "v1.fact.setup_ui__iframe_caveat",
+      "payload": "[V-O] Setup / Object Manager is the admin area under /lightning/setup/... Many Setup screens are Classic pages rendered inside iframes — use frameLocator to reach them and expect classic stable-id DOM inside the frame."
+    },
+    {
+      "atom": "v1.fact.list_views__url_pattern",
+      "payload": "[V-O] List views are saved filterable tables, deep-linkable at /lightning/o/<Object>/list?filterName=<ViewName>. The list-view component was rewritten as LWC in Summer '25 — internals churned; keep to role/row/data-label locators."
+    },
+    {
+      "atom": "v1.fact.profiles_permsets__dom_effect",
+      "payload": "[V-M] Profiles and permission sets determine which tabs, objects, fields, and buttons EXIST in the DOM for the test user. Locator failures are frequently permission/config failures, not selector bugs — check profile, permission sets, and FlexiPage assignment before rewriting a selector."
+    },
+    {
+      "atom": "v1.fact.record_types_picklists__rendering",
+      "payload": "[V-O] Record types drive per-object layout variants and picklist value sets. A picklist renders as lightning-combobox (NOT a native <select> — selectOption() does not apply); a lookup renders as a combobox-style search input with an async-populated listbox."
+    },
+    {
+      "atom": "v1.fact.visualforce__iframe_rendering",
+      "payload": "[V-M] Visualforce is the legacy page framework. Inside LEX, VF pages appear as cross-origin iframes on the separate VF domain; inside is classic DOM with stable developer-authored ids. Reach it via page.frameLocator('iframe[title*=\"...\"]') or iframe[name^='vfFrameId']; classic locator rules apply inside."
+    },
+    {
+      "atom": "v1.fact.salesforce_releases__cadence_and_risk",
+      "payload": "[V-O] Salesforce ships three seasonal releases per year (Spring ~Feb, Summer ~Jun, Winter ~Oct) plus patches; each can change component internals without notice — Salesforce explicitly reserves that right. Durable planning fact: budget locator maintenance for 3 releases/year and re-verify volatile state atoms at each release boundary."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.fact.salesforce_org__definition", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.org_types__test_targeting", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.lex__definition", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.lwc_vs_aura__dom_rendering", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.base_components__definition", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.slds__definition", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.slds__aria_compliant__true", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.slds__aria_compliant__true", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.fact.sobject_model__terminology", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.record_pages__flexipage_variability", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.dynamic_forms__dom_impact", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.record_ui_regions__vocabulary", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.quick_actions__modal_behavior", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.setup_ui__iframe_caveat", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.list_views__url_pattern", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.profiles_permsets__dom_effect", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.record_types_picklists__rendering", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.visualforce__iframe_rendering", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.salesforce_releases__cadence_and_risk", "target": "v1.other.hub_sf_platform" },
+    { "type": "references", "source": "v1.fact.org_types__test_targeting", "target": "v1.fact.salesforce_org__definition" },
+    { "type": "references", "source": "v1.fact.lex__definition", "target": "v1.fact.lwc_vs_aura__dom_rendering" },
+    { "type": "references", "source": "v1.fact.base_components__definition", "target": "v1.fact.slds__definition" },
+    { "type": "derived_from", "source": "v1.fact.slds__aria_compliant__true", "target": "v1.fact.slds__definition" },
+    { "type": "references", "source": "v1.fact.record_pages__flexipage_variability", "target": "v1.fact.profiles_permsets__dom_effect" },
+    { "type": "references", "source": "v1.fact.dynamic_forms__dom_impact", "target": "v1.fact.record_pages__flexipage_variability" },
+    { "type": "references", "source": "v1.fact.record_types_picklists__rendering", "target": "v1.fact.base_components__definition" },
+    { "type": "references", "source": "v1.fact.setup_ui__iframe_caveat", "target": "v1.fact.visualforce__iframe_rendering" },
+    { "type": "references", "source": "v1.fact.list_views__url_pattern", "target": "v1.fact.lwc_vs_aura__dom_rendering" },
+    { "type": "references", "source": "v1.fact.sobject_model__terminology", "target": "v1.fact.salesforce_org__definition" },
+    { "type": "references", "source": "v1.fact.record_ui_regions__vocabulary", "target": "v1.fact.record_pages__flexipage_variability" },
+    { "type": "references", "source": "v1.fact.quick_actions__modal_behavior", "target": "v1.fact.record_ui_regions__vocabulary" },
+    { "type": "references", "source": "v1.fact.salesforce_releases__cadence_and_risk", "target": "v1.fact.org_types__test_targeting" }
+  ]
+}

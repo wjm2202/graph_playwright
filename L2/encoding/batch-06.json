@@ -1,0 +1,95 @@
+{
+  "batch": "06",
+  "description": "Lightning component interaction recipes (founding doc section 7) and flake control (section 10). Hubs: hub_sf_components; flake atoms go to hub_sf_antipatterns.",
+  "atoms": [
+    {
+      "atom": "v1.procedure.combobox__select_pattern",
+      "payload": "[V-O blueprint / V-M pattern] lightning-combobox (picklists) is NOT a native <select>; selectOption() does not work. Pattern: await page.getByLabel(label).click(); await page.getByRole('option', {name: option, exact: true}).click(). Rendered DOM: trigger with role='combobox' + aria-expanded, popup [role='listbox'] > [role='option']. Scope to the owning container (dialog, tabpanel) when the label repeats on the page."
+    },
+    {
+      "atom": "v1.procedure.lookup__typeahead_pattern",
+      "payload": "[V-M] Lookup / typeahead fields: click the combobox trigger, fill(searchText), let the async search populate the listbox, then click the matching role='option'. Playwright's auto-wait on the option click absorbs the search XHR — no explicit network wait needed. Do not assert listbox contents before the option click; the click IS the synchronization point."
+    },
+    {
+      "atom": "v1.procedure.modal__dialog_scoping",
+      "payload": "[V-M] Modals: scope every locator to page.getByRole('dialog') while the modal is open (const dialog = page.getByRole('dialog'); dialog.getByLabel(...)). After save, assert the dialog is hidden — await expect(page.getByRole('dialog')).toBeHidden() — before asserting any downstream state; the close is the transaction boundary."
+    },
+    {
+      "atom": "v1.procedure.datatable__row_cell_pattern",
+      "payload": "[V-O] Datatable: locate rows via getByRole('row', {name: /distinctive text/}), cells within a row via [data-label='ColumnLabel']; grid variants use role='grid' and role='gridcell'. Datatable internals are under active performance rework — expect churn; stay on roles and data-label, never internal structure."
+    },
+    {
+      "atom": "v1.procedure.datepicker__fill_pattern",
+      "payload": "[S] Date picker: fill() the input directly with a locale-formatted date string, then press Escape to close the calendar overlay — do not click through the calendar grid (slow, locale-fragile, and the grid layout churns). The test user's pinned locale determines the accepted format."
+    },
+    {
+      "atom": "v1.procedure.file_upload__set_input_files",
+      "payload": "[V-M mechanism] File upload: bypass the drag-drop surface entirely; call locator('input[type=\"file\"]').setInputFiles(filePath) on the hidden input, then assert the '1 of 1 file uploaded' confirmation text before closing the dialog."
+    },
+    {
+      "atom": "v1.procedure.rich_text__contenteditable_target",
+      "payload": "[S] Rich text editor: target [contenteditable='true'] inside lightning-input-rich-text and fill/type there — not on the host element, whose fill silently does nothing."
+    },
+    {
+      "atom": "v1.procedure.tabs__activate_then_assert",
+      "payload": "[S] Tabs: click role='tab', then assert the corresponding role='tabpanel' is visible BEFORE touching fields inside it — inactive panels may not be rendered at all (lazy render), so locators into an unactivated panel resolve to nothing."
+    },
+    {
+      "atom": "v1.procedure.vf_iframe__frame_locator",
+      "payload": "[V-M] Visualforce embedded in LEX: page.frameLocator('iframe[title*=\"...\"]') or page.frameLocator('iframe[name^=\"vfFrameId\"]'), then locate inside. The frame content is classic DOM with stable developer-authored ids — classic locator rules (ids allowed) apply inside the frame only."
+    },
+    {
+      "atom": "v1.procedure.path_stage__completion_pattern",
+      "payload": "[S] Path stage completion: click the target stage chevron, click 'Mark as Complete' / 'Mark Stage as Complete', assert the success toast immediately, then verify the persisted StageName via SOQL — the toast alone does not prove the stage stuck (validation rules can revert)."
+    },
+    {
+      "atom": "v1.fact.lightning_input__label_resolution",
+      "payload": "[V-M] lightning-input hosts a native <input> inside its (synthetic) shadow root, and getByLabel() resolves through to it — label-based fill works on Lightning form fields with no shadow gymnastics. The same holds for most lightning-* form controls because their blueprints wire label-for correctly."
+    },
+    {
+      "atom": "v1.procedure.sf_flake__root_cause_map",
+      "payload": "[V-M] Flake root-cause -> fix map for Salesforce Playwright: racing the render -> web-first assertions + spinner waits. Toast raced past -> assert immediately (4.8s window). Stale handles after re-render -> never store handles; locators re-resolve. Data collisions -> unique per-run names + per-worker users + API cleanup. Session expiry mid-run -> generous session timeout + state validation/refresh. Login flake -> token injection, never per-test UI login. Diagnose by matching the failure signature to this table BEFORE adding timeouts anywhere."
+    },
+    {
+      "atom": "v1.fact.sf_test_isolation__problem_locus__server_side",
+      "payload": "[V-O] Playwright already isolates browser state per test (fresh context every test). In Salesforce the real isolation problem is SERVER-SIDE org data shared across tests and workers — records, list views, personal settings, locks. Solve with per-worker users, unique record naming, and API cleanup; browser-profile tricks cannot help."
+    },
+    {
+      "atom": "v1.fact.coordinate_clicks__viable__false",
+      "payload": "[S] Never click by coordinates on Salesforce UI: WCAG 2.2 work (Summer '25) made modals reflow at zoom levels, so pixel positions shift across zoom/viewport/theme. Click locators, not points; if a click needs coordinates, the locator is wrong."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.procedure.combobox__select_pattern", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.lookup__typeahead_pattern", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.modal__dialog_scoping", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.datatable__row_cell_pattern", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.datepicker__fill_pattern", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.file_upload__set_input_files", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.rich_text__contenteditable_target", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.tabs__activate_then_assert", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.vf_iframe__frame_locator", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.path_stage__completion_pattern", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.fact.lightning_input__label_resolution", "target": "v1.other.hub_sf_components" },
+    { "type": "member_of", "source": "v1.procedure.sf_flake__root_cause_map", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.sf_test_isolation__problem_locus__server_side", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.coordinate_clicks__viable__false", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "references", "source": "v1.procedure.combobox__select_pattern", "target": "v1.fact.record_types_picklists__rendering" },
+    { "type": "references", "source": "v1.procedure.combobox__select_pattern", "target": "v1.procedure.sf_locators__container_scoping" },
+    { "type": "references", "source": "v1.procedure.lookup__typeahead_pattern", "target": "v1.procedure.combobox__select_pattern" },
+    { "type": "references", "source": "v1.procedure.modal__dialog_scoping", "target": "v1.fact.quick_actions__modal_behavior" },
+    { "type": "references", "source": "v1.procedure.modal__dialog_scoping", "target": "v1.procedure.sf_locators__container_scoping" },
+    { "type": "references", "source": "v1.procedure.datatable__row_cell_pattern", "target": "v1.fact.api_name_attributes__locator_value" },
+    { "type": "references", "source": "v1.procedure.datepicker__fill_pattern", "target": "v1.fact.lightning_input__label_resolution" },
+    { "type": "references", "source": "v1.procedure.vf_iframe__frame_locator", "target": "v1.fact.visualforce__iframe_rendering" },
+    { "type": "references", "source": "v1.procedure.path_stage__completion_pattern", "target": "v1.fact.toast__autodismiss_timing" },
+    { "type": "references", "source": "v1.fact.lightning_input__label_resolution", "target": "v1.fact.playwright_locators__pierce_open_shadow_dom__true" },
+    { "type": "references", "source": "v1.procedure.tabs__activate_then_assert", "target": "v1.fact.console_tabs__lazy_dom" },
+    { "type": "references", "source": "v1.procedure.sf_flake__root_cause_map", "target": "v1.procedure.sf_waits__condition_playbook" },
+    { "type": "references", "source": "v1.procedure.sf_flake__root_cause_map", "target": "v1.fact.toast__autodismiss_timing" },
+    { "type": "references", "source": "v1.procedure.sf_flake__root_cause_map", "target": "v1.fact.locator_handles__reresolve_semantics" },
+    { "type": "references", "source": "v1.procedure.sf_flake__root_cause_map", "target": "v1.procedure.sf_auth__strategy_hierarchy" },
+    { "type": "references", "source": "v1.fact.sf_test_isolation__problem_locus__server_side", "target": "v1.procedure.worker_auth__parallel_isolation" },
+    { "type": "references", "source": "v1.fact.coordinate_clicks__viable__false", "target": "v1.procedure.sf_locators__stability_ranking" }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "journey": "fixture_demo",
+  "description": "Generated from a recording (pipeline v1, 2026-08-30). Review before trusting; raw steps must be named.",
+  "actors": {
+    "main": "sales_user"
+  },
+  "steps": [
+    {
+      "actor": "main",
+      "do": "recordPage.open",
+      "with": {
+        "sobject": "Account",
+        "id": "001FIXTURE0000001"
+      }
+    },
+    {
+      "actor": "main",
+      "do": "form.fill",
+      "with": {
+        "label": "Amount",
+        "value": "4999"
+      }
+    },
+    {
+      "actor": "main",
+      "do": "combobox.select",
+      "with": {
+        "label": "Stage",
+        "option": "Closed Won"
+      }
+    },
+    {
+      "actor": "main",
+      "do": "modal.save",
+      "with": {
+        "button": "Save",
+        "settle": "aura"
+      }
+    }
+  ]
+}

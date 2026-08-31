@@ -1,0 +1,94 @@
+{
+  "$schema": "./src/personas/personas.schema.json",
+  "org": {
+    "instanceUrlEnv": "SF_INSTANCE_URL"
+  },
+  "sites": {
+    "portal": {
+      "urlEnv": "SF_SITE_URL"
+    },
+    "siebel": {
+      "urlEnv": "SIEBEL_URL"
+    }
+  },
+  "personas": {
+    "admin": {
+      "kind": "internal",
+      "role": "System Administrator",
+      "profile": "System Administrator",
+      "usernameEnv": "SF_ADMIN_USERNAME",
+      "passwordEnv": "SF_ADMIN_PASSWORD",
+      "tokenEnv": "SF_ADMIN_TOKEN",
+      "auth": "frontdoor",
+      "poolSize": 1,
+      "totpEnv": "SF_ADMIN_TOTP_SECRET"
+    },
+    "sales_user": {
+      "kind": "internal",
+      "role": "Sales User",
+      "profile": "Standard User",
+      "permissionSets": [],
+      "usernameEnv": "SF_SALES_USERNAME",
+      "passwordEnv": "SF_SALES_PASSWORD",
+      "tokenEnv": "SF_SALES_TOKEN",
+      "auth": "frontdoor",
+      "poolSize": 1,
+      "totpEnv": "SF_SALES_TOTP_SECRET"
+    },
+    "portal_user": {
+      "kind": "portal",
+      "site": "portal",
+      "license": "Customer Community Plus",
+      "usernameEnv": "SF_PORTAL_USERNAME",
+      "passwordEnv": "SF_PORTAL_PASSWORD",
+      "tokenEnv": "SF_PORTAL_TOKEN",
+      "auth": "singleaccess",
+      "poolSize": 1,
+      "totpEnv": "SF_PORTAL_TOTP_SECRET"
+    },
+    "guest": {
+      "kind": "guest",
+      "site": "portal"
+    },
+    "lead_creator": {
+      "kind": "internal",
+      "role": "Lead Creator",
+      "usernameEnv": "SF_LEAD_CREATOR_USERNAME",
+      "passwordEnv": "SF_LEAD_CREATOR_PASSWORD",
+      "tokenEnv": "SF_LEAD_CREATOR_TOKEN",
+      "auth": "frontdoor",
+      "poolSize": 1,
+      "totpEnv": "SF_LEAD_CREATOR_TOTP_SECRET"
+    },
+    "lead_approver": {
+      "kind": "internal",
+      "role": "Lead Approver",
+      "usernameEnv": "SF_LEAD_APPROVER_USERNAME",
+      "passwordEnv": "SF_LEAD_APPROVER_PASSWORD",
+      "tokenEnv": "SF_LEAD_APPROVER_TOKEN",
+      "auth": "frontdoor",
+      "poolSize": 1,
+      "totpEnv": "SF_LEAD_APPROVER_TOTP_SECRET"
+    },
+    "credit_approver": {
+      "kind": "internal",
+      "role": "Credit Approver",
+      "usernameEnv": "SF_CREDIT_APPROVER_USERNAME",
+      "passwordEnv": "SF_CREDIT_APPROVER_PASSWORD",
+      "tokenEnv": "SF_CREDIT_APPROVER_TOKEN",
+      "auth": "frontdoor",
+      "poolSize": 1,
+      "totpEnv": "SF_CREDIT_APPROVER_TOTP_SECRET"
+    },
+    "siebel_admin": {
+      "kind": "internal",
+      "role": "Siebel Administrator",
+      "site": "siebel",
+      "usernameEnv": "SIEBEL_ADMIN_USERNAME",
+      "passwordEnv": "SIEBEL_ADMIN_PASSWORD",
+      "auth": "ui",
+      "poolSize": 1,
+      "totpEnv": "SIEBEL_ADMIN_TOTP_SECRET"
+    }
+  }
+}

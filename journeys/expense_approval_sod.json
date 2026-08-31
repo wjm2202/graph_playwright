@@ -1,0 +1,34 @@
+{
+  "journey": "expense_approval_sod",
+  "description": "Segregation of duties: sales user submits an expense, only admin approves; the submitter is PROVEN unable to approve their own record (UI + API). Reference journey — step catalog entries land with the first real-org run.",
+  "actors": {
+    "submitter": "sales_user",
+    "approver": "admin"
+  },
+  "invariants": [
+    { "rule": "distinctActors", "actors": ["submitter", "approver"] }
+  ],
+  "seed": [
+    { "ref": "acct", "sobject": "Account", "fields": { "Name": "{unique:SodAcct}" } }
+  ],
+  "steps": [
+    {
+      "actor": "submitter",
+      "do": "expense.submit",
+      "with": { "account": "{ref:acct.id}", "amount": 4999 },
+      "expect": { "toast": "submitted" }
+    },
+    { "deny": { "actor": "submitter", "capability": "expense.approve", "target": "{ref:acct.id}" } },
+    {
+      "actor": "approver",
+      "do": "expense.approve",
+      "with": { "account": "{ref:acct.id}" },
+      "timing": { "notBefore": "prevStep", "maxDurationMs": 30000 }
+    },
+    {
+      "actor": "approver",
+      "do": "expense.verify",
+      "with": { "account": "{ref:acct.id}", "expectApprover": "admin" }
+    }
+  ]
+}

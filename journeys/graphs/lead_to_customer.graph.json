@@ -1,0 +1,337 @@
+{
+  "schema": "process-graph/2",
+  "id": "lead_to_customer",
+  "title": "Lead to customer, verified in Siebel",
+  "systems": {
+    "sf": {
+      "label": "Salesforce UAT",
+      "kind": "salesforce",
+      "urlEnv": "SF_INSTANCE_URL"
+    },
+    "siebel": {
+      "label": "Siebel",
+      "kind": "siebel",
+      "urlEnv": "SIEBEL_URL",
+      "sessionPolicy": {
+        "maxConcurrent": 1
+      }
+    }
+  },
+  "actors": {
+    "lead_creator": "lead_creator",
+    "lead_approver": "lead_approver",
+    "credit_approver": "credit_approver",
+    "customer_approver": "sales_user",
+    "siebel_admin": "siebel_admin"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "label": ""
+    },
+    {
+      "id": "sess_sf_lead_creator",
+      "type": "session",
+      "label": "Salesforce · lead_creator",
+      "system": "sf",
+      "actor": "lead_creator",
+      "account": {
+        "usernameEnv": "SF_LEAD_CREATOR_USERNAME"
+      }
+    },
+    {
+      "id": "sess_sf_lead_approver",
+      "type": "session",
+      "label": "Salesforce · lead_approver",
+      "system": "sf",
+      "actor": "lead_approver",
+      "account": {
+        "usernameEnv": "SF_LEAD_APPROVER_USERNAME"
+      }
+    },
+    {
+      "id": "sess_sf_credit_approver",
+      "type": "session",
+      "label": "Salesforce · credit_approver",
+      "system": "sf",
+      "actor": "credit_approver",
+      "account": {
+        "usernameEnv": "SF_CREDIT_APPROVER_USERNAME"
+      }
+    },
+    {
+      "id": "sess_sf_customer_approver",
+      "type": "session",
+      "label": "Salesforce · customer_approver",
+      "system": "sf",
+      "actor": "customer_approver",
+      "account": {
+        "usernameEnv": "SF_SALES_USERNAME"
+      }
+    },
+    {
+      "id": "sess_siebel_admin",
+      "type": "session",
+      "label": "Siebel · siebel_admin",
+      "system": "siebel",
+      "actor": "siebel_admin",
+      "account": {
+        "usernameEnv": "SIEBEL_ADMIN_USERNAME"
+      },
+      "snapshot": {
+        "status": "planned"
+      }
+    },
+    {
+      "id": "lead",
+      "type": "data",
+      "label": "Lead record",
+      "expects": [
+        {
+          "id": "lead_created",
+          "kind": "api.record_exists",
+          "target": "Lead",
+          "after": "lead.create",
+          "note": "lead row persisted"
+        },
+        {
+          "id": "lead_potential",
+          "kind": "api.field_equals",
+          "target": "Lead",
+          "value": "Status=Potential",
+          "after": "lead.progress_to_potential",
+          "note": "progressed by the approver"
+        },
+        {
+          "id": "credit_approved",
+          "kind": "api.field_equals",
+          "target": "Lead",
+          "value": "Credit_Status__c=Approved",
+          "after": "credit.check",
+          "note": "credit check outcome persisted"
+        }
+      ]
+    },
+    {
+      "id": "customer",
+      "type": "data",
+      "label": "Customer record",
+      "expects": [
+        {
+          "id": "customer_created",
+          "kind": "api.record_exists",
+          "target": "Account",
+          "after": "lead.approve_to_customer",
+          "note": "conversion produced the customer account"
+        },
+        {
+          "id": "conversion_toast",
+          "kind": "ui.toast",
+          "value": "converted",
+          "after": "lead.approve_to_customer",
+          "note": "UI confirms the conversion"
+        }
+      ]
+    },
+    {
+      "id": "customer_siebel",
+      "type": "data",
+      "label": "Customer record (Siebel)",
+      "notes": "created by the SF→Siebel API integration when the customer is approved — no human session involved"
+    },
+    {
+      "id": "chk_customer",
+      "type": "checkpoint",
+      "label": "Customer exists in Siebel",
+      "expects": [
+        {
+          "id": "customer_in_siebel",
+          "kind": "api.record_exists",
+          "target": "Customer",
+          "note": "in Siebel = pass; missing = the SF→Siebel integration failed",
+          "timeoutMs": 120000,
+          "pollMs": 5000
+        },
+        {
+          "id": "endpoint_traffic",
+          "kind": "log.traffic",
+          "target": "log_gateway",
+          "value": "create_customer_v2",
+          "timeoutMs": 60000,
+          "pollMs": 5000,
+          "draft": true,
+          "note": "draft — confirm the log system + search term"
+        }
+      ]
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "label": ""
+    },
+    {
+      "id": "api_create_customer_v2",
+      "type": "api",
+      "label": "create_customer_v2",
+      "endpoint": {
+        "method": "POST",
+        "path": "/services/apexrest/create_customer_v2"
+      }
+    },
+    {
+      "id": "db_siebel",
+      "type": "db",
+      "label": "Siebel DB",
+      "notes": "NOT queryable until confirmed — verify via Siebel UI (siebel_admin) or the gateway logs"
+    },
+    {
+      "id": "log_gateway",
+      "type": "logger",
+      "label": "API gateway logs"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "start",
+      "to": "sess_sf_lead_creator",
+      "type": "login_as",
+      "data": {
+        "auth": "frontdoor"
+      }
+    },
+    {
+      "id": "e2",
+      "from": "sess_sf_lead_creator",
+      "to": "lead",
+      "type": "does",
+      "label": "create lead",
+      "data": {
+        "catalog": "lead.create"
+      }
+    },
+    {
+      "id": "e3",
+      "from": "sess_sf_lead_creator",
+      "to": "sess_sf_lead_approver",
+      "type": "login_as",
+      "data": {
+        "auth": "frontdoor"
+      }
+    },
+    {
+      "id": "e4",
+      "from": "sess_sf_lead_approver",
+      "to": "lead",
+      "type": "does",
+      "label": "progress to potential lead",
+      "data": {
+        "catalog": "lead.progress_to_potential"
+      }
+    },
+    {
+      "id": "e5",
+      "from": "sess_sf_lead_approver",
+      "to": "sess_sf_credit_approver",
+      "type": "login_as",
+      "data": {
+        "auth": "frontdoor"
+      }
+    },
+    {
+      "id": "e6",
+      "from": "sess_sf_credit_approver",
+      "to": "lead",
+      "type": "does",
+      "label": "credit check",
+      "data": {
+        "catalog": "credit.check"
+      }
+    },
+    {
+      "id": "e7",
+      "from": "sess_sf_credit_approver",
+      "to": "sess_sf_customer_approver",
+      "type": "login_as",
+      "data": {
+        "auth": "frontdoor"
+      }
+    },
+    {
+      "id": "e8",
+      "from": "sess_sf_customer_approver",
+      "to": "customer",
+      "type": "does",
+      "label": "approve to customer",
+      "data": {
+        "catalog": "lead.approve_to_customer"
+      }
+    },
+    {
+      "id": "e9",
+      "from": "sess_sf_customer_approver",
+      "to": "lead",
+      "type": "touches"
+    },
+    {
+      "id": "e10",
+      "from": "sess_sf_customer_approver",
+      "to": "sess_siebel_admin",
+      "type": "login_as",
+      "data": {
+        "auth": "ui"
+      }
+    },
+    {
+      "id": "e11",
+      "from": "sess_siebel_admin",
+      "to": "customer_siebel",
+      "type": "does",
+      "label": "check customer created",
+      "data": {
+        "catalog": "siebel.check_customer"
+      }
+    },
+    {
+      "id": "e12",
+      "from": "sess_siebel_admin",
+      "to": "chk_customer",
+      "type": "asserts"
+    },
+    {
+      "id": "e13",
+      "from": "chk_customer",
+      "to": "end",
+      "type": "next"
+    },
+    {
+      "id": "e_api",
+      "from": "customer",
+      "to": "api_create_customer_v2",
+      "type": "handoff",
+      "label": "API replication SF → Siebel"
+    },
+    {
+      "id": "e_api2",
+      "from": "api_create_customer_v2",
+      "to": "customer_siebel",
+      "type": "handoff",
+      "label": "creates"
+    },
+    {
+      "id": "e_api3",
+      "from": "api_create_customer_v2",
+      "to": "db_siebel",
+      "type": "touches",
+      "label": "writes"
+    },
+    {
+      "id": "e_api4",
+      "from": "api_create_customer_v2",
+      "to": "log_gateway",
+      "type": "touches",
+      "label": "logged in"
+    }
+  ]
+}

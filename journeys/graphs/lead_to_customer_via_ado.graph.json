@@ -1,0 +1,228 @@
+{
+  "schema": "process-graph/2",
+  "id": "lead_to_customer_via_ado",
+  "title": "Lead to customer via ADO",
+  "systems": {
+    "sf": {
+      "label": "Salesforce",
+      "kind": "salesforce"
+    },
+    "siebel": {
+      "label": "Siebel",
+      "kind": "siebel",
+      "sessionPolicy": {
+        "maxConcurrent": 1
+      }
+    }
+  },
+  "actors": {
+    "lead_creator": "lead_creator",
+    "lead_approver": "lead_approver",
+    "credit_approver": "credit_approver",
+    "salesforce_user": "salesforce_user",
+    "siebel_admin": "siebel_admin"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "label": ""
+    },
+    {
+      "id": "sess_lead_creator",
+      "type": "session",
+      "label": "Salesforce · lead_creator",
+      "system": "sf",
+      "actor": "lead_creator"
+    },
+    {
+      "id": "lead",
+      "type": "data",
+      "label": "Lead record",
+      "expects": [
+        {
+          "id": "check_lead_record_is_created",
+          "after": "e_do_1",
+          "draft": true,
+          "note": "draft from ADO — confirm once (planner: draft? button)",
+          "kind": "api.record_exists",
+          "target": "Lead"
+        }
+      ]
+    },
+    {
+      "id": "sess_lead_approver",
+      "type": "session",
+      "label": "Salesforce · lead_approver",
+      "system": "sf",
+      "actor": "lead_approver"
+    },
+    {
+      "id": "scr_1",
+      "type": "screen",
+      "label": "progress the lead to potential lead",
+      "expects": [
+        {
+          "id": "check_toast_shows_lead_updat",
+          "after": "e_do_2",
+          "draft": true,
+          "note": "draft from ADO — confirm once (planner: draft? button)",
+          "kind": "ui.toast",
+          "value": "Lead updated"
+        }
+      ]
+    },
+    {
+      "id": "sess_credit_approver",
+      "type": "session",
+      "label": "Salesforce · credit_approver",
+      "system": "sf",
+      "actor": "credit_approver"
+    },
+    {
+      "id": "scr_2",
+      "type": "screen",
+      "label": "do the credit check",
+      "expects": [
+        {
+          "id": "check_credit_check_screen_sho",
+          "after": "e_do_3",
+          "draft": true,
+          "note": "draft from ADO — confirm once (planner: draft? button)",
+          "kind": "ui.text",
+          "value": "Credit check screen shows Approved"
+        }
+      ]
+    },
+    {
+      "id": "sess_salesforce_user",
+      "type": "session",
+      "label": "Salesforce · salesforce_user",
+      "system": "sf",
+      "actor": "salesforce_user"
+    },
+    {
+      "id": "customer",
+      "type": "data",
+      "label": "Customer record",
+      "expects": [
+        {
+          "id": "check_customer_record_is_crea",
+          "after": "e_do_4",
+          "draft": true,
+          "note": "draft from ADO — confirm once (planner: draft? button)",
+          "kind": "api.record_exists",
+          "target": "Customer"
+        },
+        {
+          "id": "check_customer_record_exists",
+          "after": "e_do_5",
+          "draft": true,
+          "note": "draft from ADO — confirm once (planner: draft? button)",
+          "kind": "api.record_exists",
+          "target": "Customer"
+        }
+      ]
+    },
+    {
+      "id": "sess_siebel_admin",
+      "type": "session",
+      "label": "Siebel · siebel_admin",
+      "system": "siebel",
+      "actor": "siebel_admin"
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "label": ""
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_login_1",
+      "from": "start",
+      "to": "sess_lead_creator",
+      "type": "login_as"
+    },
+    {
+      "id": "e_do_1",
+      "from": "sess_lead_creator",
+      "to": "lead",
+      "type": "does",
+      "label": "create a lead",
+      "data": {
+        "catalog": "lead.create"
+      }
+    },
+    {
+      "id": "e_login_2",
+      "from": "sess_lead_creator",
+      "to": "sess_lead_approver",
+      "type": "login_as"
+    },
+    {
+      "id": "e_do_2",
+      "from": "sess_lead_approver",
+      "to": "scr_1",
+      "type": "does",
+      "label": "progress the lead to potential lead",
+      "data": {
+        "catalog": "lead.progress"
+      }
+    },
+    {
+      "id": "e_login_3",
+      "from": "sess_lead_approver",
+      "to": "sess_credit_approver",
+      "type": "login_as"
+    },
+    {
+      "id": "e_do_3",
+      "from": "sess_credit_approver",
+      "to": "scr_2",
+      "type": "does",
+      "label": "do the credit check",
+      "data": {
+        "catalog": "scr_2.do"
+      }
+    },
+    {
+      "id": "e_login_4",
+      "from": "sess_credit_approver",
+      "to": "sess_salesforce_user",
+      "type": "login_as"
+    },
+    {
+      "id": "e_do_4",
+      "from": "sess_salesforce_user",
+      "to": "customer",
+      "type": "does",
+      "label": "approve to customer",
+      "data": {
+        "catalog": "customer.approve"
+      }
+    },
+    {
+      "id": "e_login_5",
+      "from": "sess_salesforce_user",
+      "to": "sess_siebel_admin",
+      "type": "login_as"
+    },
+    {
+      "id": "e_do_5",
+      "from": "sess_siebel_admin",
+      "to": "customer",
+      "type": "does",
+      "label": "check the customer is created",
+      "data": {
+        "catalog": "customer.check"
+      }
+    },
+    {
+      "id": "e_end",
+      "from": "sess_siebel_admin",
+      "to": "end",
+      "type": "next"
+    }
+  ]
+}

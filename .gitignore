@@ -1,0 +1,12 @@
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+.auth/
+.env
+recordings/
+*.log
+
+# runtime data + OS noise (S15)
+.DS_Store
+journeys/telemetry.jsonl

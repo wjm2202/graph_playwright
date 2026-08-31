@@ -1,0 +1,7 @@
+{
+  "_comment": "Field classification for captured form fills. label → 'business' | 'identity' | 'identity_email' | { \"class\": ..., \"fake\": \"person.lastName\" }. Overrides and extends the built-in defaults (src/data/dictionary.ts). When the pipeline flags a heuristic classification, confirm it here once and it is silent forever.",
+  "credit status": "business",
+  "lead status": "business",
+  "rating": "business",
+  "industry": "business"
+}

@@ -1,0 +1,69 @@
+{
+  "batch": "10",
+  "description": "Volatile release-tracked facts (founding doc section 13) as v1.state.* atoms with _dt_2026_08_30 suffixes. Each payload names the condition that obsoletes it; on change: mint a new dated state atom + supersedes edge + tombstone the old one in the same checkpoint. Hub: hub_sf_volatile.",
+  "atoms": [
+    {
+      "atom": "v1.state.base_components__shadow_mode__synthetic_dt_2026_08_30",
+      "payload": "[V-O, as of 2026-08-30] Base lightning-* components run in SYNTHETIC shadow DOM; mixed shadow mode is still Beta and does not cover base components. OBSOLETED WHEN: a release note announces native shadow for base components or synthetic-shadow retirement — that flip instantly breaks XPath-on-LEX accidents and scope-attribute assumptions; tombstone this atom, mint the successor, and re-audit every locator suite for XPath/structure remnants."
+    },
+    {
+      "atom": "v1.state.frontdoor_sid__status__deprecation_pressure_dt_2026_08_30",
+      "payload": "[V-O, verified May 2026] frontdoor.jsp?sid= still works; Salesforce recommends the single-use UI Bridge (singleaccess) for new implementations; no dated retirement announced. OBSOLETED WHEN: a retirement date is announced or sid= injection starts failing — then move all auth builders to UI Bridge and tombstone this atom."
+    },
+    {
+      "atom": "v1.state.lws__fleet_status__mixed_dt_2026_08_30",
+      "payload": "[V-O, as of 2026-08-30] LWS is default in new orgs but automatic enablement of older orgs was postponed — the fleet is mixed, so the org's LWS toggle must be pinned and recorded as a test-environment variable per target org. OBSOLETED WHEN: Salesforce completes auto-enablement (release note) — then LWS can be assumed everywhere and this atom tombstoned."
+    },
+    {
+      "atom": "v1.state.aura_network__signature__churning_dt_2026_08_30",
+      "payload": "[V-O, as of 2026-08-30] Boxcar disablement + HTTP/2 rollout are actively changing /aura network signatures release-over-release. Any waitForResponse URL/shape assumption needs re-verification each seasonal release. OBSOLETED WHEN: the performance program stabilizes (no network-shape items in two consecutive release notes) — then relax to normal release vigilance."
+    },
+    {
+      "atom": "v1.state.slds2__ga_status__winter26_dt_2026_08_30",
+      "payload": "[V-M, as of 2026-08-30] SLDS 2 ('Cosmos' theme) goes GA Winter '26: same slds-* class names, different computed styles, plus dark mode — visual baselines become theme-dependent. OBSOLETED WHEN: GA lands and target orgs adopt it — then re-baseline all visual tests per theme, verify slds-* state-marker classes still render, and supersede this atom with the post-GA state."
+    },
+    {
+      "atom": "v1.state.sf_cdn__provider_migration__cloudflare_dt_2026_08_30",
+      "payload": "[S, as of 2026-08-30] The Salesforce CDN is migrating to Cloudflare during 2026 — relevant to CI egress allowlists and portal cache behavior (stale-LWC symptoms may shift). OBSOLETED WHEN: migration completes or is confirmed abandoned — update CI allowlist guidance and tombstone."
+    },
+    {
+      "atom": "v1.state.sf_org_open_urls__lifetime__single_use_60s_dt_2026_08_30",
+      "payload": "[V-O, behavior since Aug 2025] sf org open --url-only URLs are single-use and expire in 60 seconds — consume immediately in the setup project, persist the session via storageState, never cache or share the URL across workers. OBSOLETED WHEN: forcedotcom/cli release notes change the lifetime/reuse behavior — update auth builders and supersede."
+    },
+    {
+      "atom": "v1.state.toolchain__version_pins__aug_2026_dt_2026_08_30",
+      "payload": "[V-O, Aug 2026] Toolchain version pins: Playwright ~1.6x, jsforce 3.10.x, Serenity/JS 3.41.x, UTAM salesforce-pageobjects npm v12. OBSOLETED BY: any major-version bump — re-verify API assumptions (Playwright locator engine + auth/storageState APIs, jsforce typings) and supersede with a new dated pin atom rather than editing this one."
+    },
+    {
+      "atom": "v1.state.experience_delivery__status__discontinued_dt_2026_08_30",
+      "payload": "[S, as of 2026-08-30] Experience Delivery (Beta) is discontinued effective Winter '27 — do not build portal test infrastructure or performance assumptions on it. OBSOLETED WHEN: Winter '27 ships and the discontinuation is final — the claim becomes plain history; tombstone the state atom."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.state.base_components__shadow_mode__synthetic_dt_2026_08_30", "target": "v1.other.hub_sf_volatile" },
+    { "type": "member_of", "source": "v1.state.frontdoor_sid__status__deprecation_pressure_dt_2026_08_30", "target": "v1.other.hub_sf_volatile" },
+    { "type": "member_of", "source": "v1.state.lws__fleet_status__mixed_dt_2026_08_30", "target": "v1.other.hub_sf_volatile" },
+    { "type": "member_of", "source": "v1.state.aura_network__signature__churning_dt_2026_08_30", "target": "v1.other.hub_sf_volatile" },
+    { "type": "member_of", "source": "v1.state.slds2__ga_status__winter26_dt_2026_08_30", "target": "v1.other.hub_sf_volatile" },
+    { "type": "member_of", "source": "v1.state.sf_cdn__provider_migration__cloudflare_dt_2026_08_30", "target": "v1.other.hub_sf_volatile" },
+    { "type": "member_of", "source": "v1.state.sf_org_open_urls__lifetime__single_use_60s_dt_2026_08_30", "target": "v1.other.hub_sf_volatile" },
+    { "type": "member_of", "source": "v1.state.toolchain__version_pins__aug_2026_dt_2026_08_30", "target": "v1.other.hub_sf_volatile" },
+    { "type": "member_of", "source": "v1.state.experience_delivery__status__discontinued_dt_2026_08_30", "target": "v1.other.hub_sf_volatile" },
+    { "type": "references", "source": "v1.state.base_components__shadow_mode__synthetic_dt_2026_08_30", "target": "v1.fact.lex_shadow_dom__synthetic_polyfill" },
+    { "type": "references", "source": "v1.state.base_components__shadow_mode__synthetic_dt_2026_08_30", "target": "v1.fact.mixed_shadow_mode__definition" },
+    { "type": "constrains", "source": "v1.state.base_components__shadow_mode__synthetic_dt_2026_08_30", "target": "v1.fact.xpath__pierces_shadow_dom__false" },
+    { "type": "references", "source": "v1.state.frontdoor_sid__status__deprecation_pressure_dt_2026_08_30", "target": "v1.fact.frontdoor_jsp__mechanics" },
+    { "type": "references", "source": "v1.state.frontdoor_sid__status__deprecation_pressure_dt_2026_08_30", "target": "v1.fact.ui_bridge_singleaccess__mechanics" },
+    { "type": "references", "source": "v1.state.lws__fleet_status__mixed_dt_2026_08_30", "target": "v1.fact.lws__replaced_locker" },
+    { "type": "references", "source": "v1.state.aura_network__signature__churning_dt_2026_08_30", "target": "v1.fact.lex_network__shape_churn" },
+    { "type": "constrains", "source": "v1.state.aura_network__signature__churning_dt_2026_08_30", "target": "v1.procedure.aura_response_wait__surgical_pattern" },
+    { "type": "references", "source": "v1.state.slds2__ga_status__winter26_dt_2026_08_30", "target": "v1.fact.slds__definition" },
+    { "type": "constrains", "source": "v1.state.slds2__ga_status__winter26_dt_2026_08_30", "target": "v1.fact.a11y_visual_checks__inclusion__recommended" },
+    { "type": "references", "source": "v1.state.sf_cdn__provider_migration__cloudflare_dt_2026_08_30", "target": "v1.procedure.portal_blank__four_suspects" },
+    { "type": "references", "source": "v1.state.sf_org_open_urls__lifetime__single_use_60s_dt_2026_08_30", "target": "v1.fact.sf_cli_auth__url_only_flow" },
+    { "type": "constrains", "source": "v1.state.sf_org_open_urls__lifetime__single_use_60s_dt_2026_08_30", "target": "v1.procedure.storage_state__setup_pattern" },
+    { "type": "references", "source": "v1.state.toolchain__version_pins__aug_2026_dt_2026_08_30", "target": "v1.fact.jsforce_v3__capabilities" },
+    { "type": "references", "source": "v1.state.toolchain__version_pins__aug_2026_dt_2026_08_30", "target": "v1.fact.serenity_js__playwright_support" },
+    { "type": "references", "source": "v1.state.experience_delivery__status__discontinued_dt_2026_08_30", "target": "v1.fact.lwr_sites__platform_limits" }
+  ]
+}

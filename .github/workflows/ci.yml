@@ -1,0 +1,27 @@
+# S17 — CI: the same three gates a local dev runs, so the standards enforce
+# themselves. No org secrets here — unit + harness + record are green with no
+# .env by design (e2e specs self-skip).
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test --project=unit --project=harness --project=record
+        env:
+          CI: 'true'

@@ -1,0 +1,116 @@
+{
+  "batch": "07",
+  "description": "Experience Cloud portal testing (founding doc sections 2.2 + 8): frameworks, Aura vs LWR runtimes, publish model, guest/external access, licenses, portal auth, the four-suspects diagnostic, error pages, limits. Hub: hub_sf_portals.",
+  "atoms": [
+    {
+      "atom": "v1.fact.experience_sites__frameworks",
+      "payload": "[V-O] An Experience Cloud site ('community'/'portal') is built on one of three frameworks: Salesforce Tabs + Visualforce (classic), Aura templates (Customer Service, Partner Central, Help Center, Customer Account Portal, Build Your Own), or LWR templates (Build Your Own (LWR), Microsite (LWR)). Identify the framework FIRST — it determines rendering model, shadow mode, URL shape, data endpoints, and publish semantics."
+    },
+    {
+      "atom": "v1.fact.aura_sites__runtime_profile",
+      "payload": "[V-M] Aura Experience sites: server-rendered per request; LWC runs with SYNTHETIC shadow; pages live under the /s/ path; data flows through the .../s/sfsites/aura XHR endpoint; per-persona rendering via audience targeting (profile/permission/domain-based)."
+    },
+    {
+      "atom": "v1.fact.lwr_sites__runtime_profile",
+      "payload": "[V-M] LWR Experience sites: pre-compiled at publish into static CDN-cached snapshots that hydrate in the browser; NATIVE shadow DOM (or light DOM); no /s/ URL segment by default; ~50% faster than Aura sites; data via webruntime endpoints; EVERY LWC change requires republish to become visible; per-persona rendering via visibility rules (User/Contact/Account record fields) + component variations."
+    },
+    {
+      "atom": "v1.fact.aura_vs_lwr__locator_parity",
+      "payload": "[V-M] Playwright role/text/data-* locators work identically on Aura and LWR sites — open-shadow piercing covers synthetic and native shadow alike. What differs between the runtimes is rendering model, publish semantics, URLs, caching, and data endpoints — NOT locator strategy. Write one locator vocabulary for both."
+    },
+    {
+      "atom": "v1.fact.experience_cloud__deploy_equals_publish__false",
+      "payload": "[V-M] Deploy does NOT equal publish on Experience Cloud: Experience Builder changes and metadata deploys are invisible on the live site until someone clicks Publish. On LWR, every LWC change needs a republish. A green deployment pipeline with an unpublished site is the number-one 'my change is not there' cause. Durable invariant."
+    },
+    {
+      "atom": "v1.fact.guest_users__access_model",
+      "payload": "[V-O] Guest user = unauthenticated visitor, backed by a per-site guest user profile. ZERO record access by default (secure guest access); record access only via dedicated guest sharing rules; sharing sets do NOT apply to guests. Missing permissions render components silently empty — no error is shown or logged client-side."
+    },
+    {
+      "atom": "v1.fact.guest_access_failure__symptom__silently_empty",
+      "payload": "[V-M] When a guest or external persona lacks object permissions or record sharing, portal components render SILENTLY EMPTY — no error, no console noise. Portal specs must therefore assert both PRESENCE (authorized personas) and ABSENCE (unauthorized personas) of the same components; emptiness is a first-class assertion target, and record visibility is the UI expression of the license/sharing model. Durable invariant."
+    },
+    {
+      "atom": "v1.fact.external_licenses__capability_matrix",
+      "payload": "[V-O] External license types: Customer Community (no roles, no sharing rules — sharing sets only), Customer Community Plus (roles up to 3 per account, sharing rules, reports), Partner Community (adds leads/opportunities/PRM), plus External Apps, External Identity, Channel Account. Member-based vs login-based pricing affects test-account economics: login-based licenses make per-worker account pools costly."
+    },
+    {
+      "atom": "v1.fact.sharing_sets__mechanics",
+      "payload": "[V-O] Sharing sets grant high-volume external users access to records whose Account or Contact lookup matches the user's own account/contact — record-level access without role hierarchy. NOT available to guest users; and a sharing set on a child object does not grant access to the parent account record."
+    },
+    {
+      "atom": "v1.fact.persona_rendering__audience_mechanisms",
+      "payload": "[V-M] The same portal page renders different components per persona: Aura sites via audience targeting (profile/permission/domain), LWR sites via visibility rules + component variations. Persona-conditional rendering is a direct assertion target — run the same spec under every persona and assert the expected composition, not just one persona's view."
+    },
+    {
+      "atom": "v1.fact.enhanced_domains__cookie_scoping",
+      "payload": "[V-O] Enhanced domains (enforced Winter '24): all Experience sites live on https://<mydomain>.my.site.com. Portal session cookies are domain-scoped and separate from org-domain sessions (*.my.salesforce.com / *.lightning.force.com) — hence one storageState per domain, and portal logins never leak into org contexts or vice versa."
+    },
+    {
+      "atom": "v1.procedure.portal_auth__per_persona",
+      "payload": "[V-O/V-M] Portal auth by persona type: GUEST -> no auth, but pin publish + CDN state before asserting anything. INTERNAL ADMIN (org side) -> sf org open --url-only frontdoor URL (single-use, 60s). EXTERNAL customer/partner -> OAuth access token POSTed to /services/oauth2/singleaccess on the SITE domain (official path), or UI login form once -> storageState (universal fallback), or magic link. Config: one setup project per role writes .auth/<role>.json; one Playwright project per persona (customer, partner, guest-with-empty-state) declares dependencies: ['setup']."
+    },
+    {
+      "atom": "v1.procedure.portal_blank__four_suspects",
+      "payload": "[V-M steps / S ordering] When a portal test 'sees nothing', check in this order before touching the selector: 1) UNPUBLISHED CHANGES — deploy does not publish; LWR needs republish per LWC change. 2) CDN/BROWSER CACHE — the org settings 'Enable secure and persistent browser caching' and 'CDN for Lightning Component framework' serve stale LWC after successful deploys; fresh browser contexts fix the browser half but NOT the CDN edge. 3) GUEST/PERSONA OBJECT PERMISSIONS — guest profile CRUD on the objects involved. 4) SHARING RULES / SHARING SETS — record-level access; sharing sets never cover guests, and child-object sharing sets do not grant parent-account access. Only after clearing all four, suspect the locator."
+    },
+    {
+      "atom": "v1.fact.portal_error_pages__assertion_targets",
+      "payload": "[V-O] 'Down for maintenance' on a portal has known causes: inactive Site Guest User, exceeded limits, DNS issues, or a platform incident. Assert against maintenance / Service Not Available pages explicitly so infrastructure states fail with a precise message instead of masquerading as element-not-found. SNA pages are brandable — never assume the default copy."
+    },
+    {
+      "atom": "v1.fact.lwr_sites__platform_limits",
+      "payload": "[V-M/S] LWR site limits: 500 routes maximum (keep under ~250 for headroom); merge fields do not work in URLs; no generic record pages exist. Experience Delivery (Beta) is discontinued Winter '27 — do not build test infrastructure on it."
+    },
+    {
+      "atom": "v1.procedure.self_registration__test_notes",
+      "payload": "[V-M] Self-registration testing: registration pages are flow-driven; the guest profile must have the flow listed in 'Enabled Flow Access'; the SalesforceLabs Configurable Self-Registration LWC is a common concrete test target. Guest flows cannot be flow-debugged as guest ([V-O]) — they must be published and exercised for real, which pushes guest journeys toward UI E2E rather than flow tests."
+    },
+    {
+      "atom": "v1.fact.portal_a11y__per_persona_axe",
+      "payload": "[V-M] Run @axe-core/playwright per persona on portals — page composition differs per audience, so accessibility state is persona-specific. Automated checks catch roughly half of WCAG issues; treat them as a smoke layer, not proof of compliance."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.fact.experience_sites__frameworks", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.aura_sites__runtime_profile", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.lwr_sites__runtime_profile", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.aura_vs_lwr__locator_parity", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.experience_cloud__deploy_equals_publish__false", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.guest_users__access_model", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.guest_access_failure__symptom__silently_empty", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.external_licenses__capability_matrix", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.sharing_sets__mechanics", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.persona_rendering__audience_mechanisms", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.enhanced_domains__cookie_scoping", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.procedure.portal_auth__per_persona", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.procedure.portal_auth__per_persona", "target": "v1.other.hub_sf_auth" },
+    { "type": "member_of", "source": "v1.procedure.portal_blank__four_suspects", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.portal_error_pages__assertion_targets", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.lwr_sites__platform_limits", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.procedure.self_registration__test_notes", "target": "v1.other.hub_sf_portals" },
+    { "type": "member_of", "source": "v1.fact.portal_a11y__per_persona_axe", "target": "v1.other.hub_sf_portals" },
+    { "type": "references", "source": "v1.fact.aura_sites__runtime_profile", "target": "v1.fact.lex_shadow_dom__synthetic_polyfill" },
+    { "type": "references", "source": "v1.fact.aura_sites__runtime_profile", "target": "v1.fact.aura_network__boxcar_batching" },
+    { "type": "references", "source": "v1.fact.lwr_sites__runtime_profile", "target": "v1.fact.lwr_sites__native_shadow__true" },
+    { "type": "references", "source": "v1.fact.lwr_sites__runtime_profile", "target": "v1.fact.hydration__silent_noop_risk" },
+    { "type": "references", "source": "v1.fact.experience_sites__frameworks", "target": "v1.fact.visualforce__iframe_rendering" },
+    { "type": "derived_from", "source": "v1.fact.aura_vs_lwr__locator_parity", "target": "v1.fact.playwright_locators__pierce_open_shadow_dom__true" },
+    { "type": "derived_from", "source": "v1.fact.guest_access_failure__symptom__silently_empty", "target": "v1.fact.guest_users__access_model" },
+    { "type": "references", "source": "v1.fact.external_licenses__capability_matrix", "target": "v1.fact.sharing_sets__mechanics" },
+    { "type": "references", "source": "v1.fact.persona_rendering__audience_mechanisms", "target": "v1.fact.aura_sites__runtime_profile" },
+    { "type": "references", "source": "v1.fact.persona_rendering__audience_mechanisms", "target": "v1.fact.lwr_sites__runtime_profile" },
+    { "type": "references", "source": "v1.fact.enhanced_domains__cookie_scoping", "target": "v1.fact.storage_state__scope__per_persona_per_domain" },
+    { "type": "depends_on", "source": "v1.procedure.portal_auth__per_persona", "target": "v1.fact.ui_bridge_singleaccess__mechanics" },
+    { "type": "references", "source": "v1.procedure.portal_auth__per_persona", "target": "v1.fact.sf_cli_auth__url_only_flow" },
+    { "type": "references", "source": "v1.procedure.portal_auth__per_persona", "target": "v1.procedure.multi_persona_auth__project_shape" },
+    { "type": "references", "source": "v1.procedure.portal_auth__per_persona", "target": "v1.fact.enhanced_domains__cookie_scoping" },
+    { "type": "derived_from", "source": "v1.procedure.portal_blank__four_suspects", "target": "v1.fact.experience_cloud__deploy_equals_publish__false" },
+    { "type": "derived_from", "source": "v1.procedure.portal_blank__four_suspects", "target": "v1.fact.guest_users__access_model" },
+    { "type": "derived_from", "source": "v1.procedure.portal_blank__four_suspects", "target": "v1.fact.sharing_sets__mechanics" },
+    { "type": "references", "source": "v1.procedure.portal_blank__four_suspects", "target": "v1.fact.lwr_sites__runtime_profile" },
+    { "type": "references", "source": "v1.fact.portal_error_pages__assertion_targets", "target": "v1.fact.guest_users__access_model" },
+    { "type": "references", "source": "v1.procedure.self_registration__test_notes", "target": "v1.fact.guest_users__access_model" },
+    { "type": "references", "source": "v1.fact.portal_a11y__per_persona_axe", "target": "v1.fact.persona_rendering__audience_mechanisms" }
+  ]
+}

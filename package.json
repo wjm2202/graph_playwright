@@ -1,0 +1,45 @@
+{
+  "name": "salesforce-playwright",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plan-first, multi-actor Playwright testing for Salesforce: process graphs, a visual planner, record-once replay, and self-painting results",
+  "scripts": {
+    "test": "playwright test --project=unit --project=harness",
+    "test:unit": "playwright test --project=unit",
+    "test:harness": "playwright test --project=harness",
+    "test:e2e": "playwright test --project=e2e",
+    "test:all": "playwright test",
+    "record": "playwright test --project=record tests/record/record.spec.ts --headed",
+    "pipeline": "playwright test --project=record tests/record/pipeline.spec.ts",
+    "sweep": "SWEEP=1 playwright test --project=record tests/record/sweep.spec.ts",
+    "graph:spec": "playwright test --project=record tests/record/make-graph-spec.spec.ts",
+    "doctor": "playwright test --project=record tests/record/doctor.spec.ts",
+    "labour": "node tools/labour.mjs",
+    "ado:import": "playwright test --project=record tests/record/ado-import.spec.ts",
+    "grillme": "playwright test --project=record tests/record/grillme.spec.ts",
+    "report": "playwright show-report",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "validate:encoding": "node L2/encoding/validate.mjs",
+    "build:planner": "node tools/build-planner.mjs",
+    "planner": "node tools/serve-planner.mjs"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^10.6.0",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^22.0.0",
+    "cytoscape": "^3.34.2",
+    "cytoscape-dagre": "^4.0.1",
+    "cytoscape-edgehandles": "^4.0.1",
+    "dagre": "^0.8.5",
+    "dotenv": "^16.4.5",
+    "eslint": "^10.9.1",
+    "lodash": "^4.18.1",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.68.0"
+  },
+  "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=18"
+  }
+}

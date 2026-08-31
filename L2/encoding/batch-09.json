@@ -1,0 +1,149 @@
+{
+  "batch": "09",
+  "description": "The 20 consolidated anti-patterns (founding doc section 12), one atom each, numbered in payloads. Encoded LAST-but-one so their constrains/derived_from edges can target the procedures and facts from batches 02-08. Hub: hub_sf_antipatterns. 3-segment names are deliberate conflict gates: a future claim of the opposite value must collide.",
+  "atoms": [
+    {
+      "atom": "v1.fact.generated_ids__locator_use__banned",
+      "payload": "[V-M] Anti-pattern 1: never locate by generated ids (#input-42, Aura globalIds like 940:1376;a) — they regenerate every render and are per-component-scoped under native shadow. Use role/label/text first, API-name attributes second."
+    },
+    {
+      "atom": "v1.fact.xpath__locator_use__banned",
+      "payload": "[V-O] Anti-pattern 2: no XPath at all on Salesforce UI — structurally brittle AND blind to shadow roots. It works on LEX today only through the synthetic-shadow accident and will silently return zero matches as subtrees flip to native shadow."
+    },
+    {
+      "atom": "v1.fact.wait_for_timeout__use__banned",
+      "payload": "[V-M] Anti-pattern 3: ban waitForTimeout and all fixed sleeps; every wait must name the app-visible condition it awaits (spinner count 0, toast visible, dialog hidden, heading rendered). Sleeps are simultaneously too slow (pad green runs) and too short (flake under load)."
+    },
+    {
+      "atom": "v1.fact.ui_test_data__creation__banned",
+      "payload": "[V-M] Anti-pattern 4: never create test data through the UI — slow, flaky, and couples every journey to the create forms. Seed via API (jsforce / REST / Composite Tree), deep-link to the record, use the UI only for the behavior under test."
+    },
+    {
+      "atom": "v1.fact.record_ids__hardcoding__banned",
+      "payload": "[V-M] Anti-pattern 5: never hardcode record ids — they are org-specific and environment-fragile. Create records per run or resolve ids by query at runtime, and pass them through refs/fixtures."
+    },
+    {
+      "atom": "v1.fact.parallel_workers__shared_users__banned",
+      "payload": "[V-O] Anti-pattern 6: one dedicated test user per parallel worker — a user shared across workers collides on server-side state (record locks, list views, recents, personal settings) and produces unreproducible flake."
+    },
+    {
+      "atom": "v1.fact.test_personas__profile_fidelity__required",
+      "payload": "[S] Anti-pattern 7: run each test under the profile/persona it claims to test — rendering is role-based (FlexiPages, audience targeting, permissions), so admin-run tests validate an admin UI that real users never see."
+    },
+    {
+      "atom": "v1.fact.test_user_locale__pinning__required",
+      "payload": "[V-M] Anti-pattern 8: pin test-user timezone and locale, and compute expected values from THEM — Salesforce stores UTC and renders per-user. Deriving expectations from the CI machine clock/locale is a latent off-by-a-day and number-format bug."
+    },
+    {
+      "atom": "v1.fact.per_test_ui_login__use__banned",
+      "payload": "[V-M] Anti-pattern 9: log in once and reuse the session (token injection + storageState) — the single biggest speed and flake win. Per-test UI login is banned except when the login experience itself is the thing under test."
+    },
+    {
+      "atom": "v1.fact.credentials__hardcoding__banned",
+      "payload": "[S] Anti-pattern 10: secrets live in vault/CI secrets/.env (git-ignored) — never hardcoded in specs, personas.json, or committed config. personas.json carries env-var NAMES only (usernameEnv); values are resolved at setup time."
+    },
+    {
+      "atom": "v1.fact.record_naming__unique_run_prefix__required",
+      "payload": "[V-M] Anti-pattern 11: every created record carries a unique run prefix (E2E_<runid>_...) and a periodic API sweeper deletes strays from crashed runs. Unique naming makes parallel runs collision-safe and makes cleanup queryable."
+    },
+    {
+      "atom": "v1.fact.ui_only_assertions__sufficient__false",
+      "payload": "[S] Anti-pattern 12: assert both sides — UI state AND persisted API/SOQL state. A success toast can lie: validation rules and async processes can revert or block the save after the toast renders. UI-only assertions are insufficient for any state-changing action."
+    },
+    {
+      "atom": "v1.fact.a11y_visual_checks__inclusion__recommended",
+      "payload": "[S/V-M] Anti-pattern 13 (omission): add accessibility checks (@axe-core/playwright) and visual regression to the suite — seasonal releases change rendering without breaking function, and SLDS 2 introduces theme variance. Keep visual baselines per theme."
+    },
+    {
+      "atom": "v1.fact.vf_iframes__in_lex__expected",
+      "payload": "[V-M] Anti-pattern 14 (expectation): expect Visualforce iframes inside Lightning pages — cross-origin frames with classic DOM. Reach them with frameLocator; treating frame content as missing page content is a diagnosis error."
+    },
+    {
+      "atom": "v1.fact.locator_definitions__duplication__banned",
+      "payload": "[V-M] Anti-pattern 15: locators live in exactly one place (page object or component object) and maintenance is budgeted for 3 Salesforce releases/year. Scattered duplicate locators turn each release into a suite-wide hunt."
+    },
+    {
+      "atom": "v1.fact.toast_assertions__timing__immediate",
+      "payload": "[V-O] Anti-pattern 16: assert toasts immediately after the triggering action — platform toasts auto-dismiss at 4.8s (9.6s with a link); any intervening step makes the toast assertion a race."
+    },
+    {
+      "atom": "v1.fact.unscoped_locators__strict_mode__violation",
+      "payload": "[V-M] Anti-pattern 17: scope locators to containers (dialog, tabpanel, row) — Salesforce repeats labels and button names across page regions; unscoped locators either throw strict-mode violations or silently hit the wrong region's control."
+    },
+    {
+      "atom": "v1.fact.portal_specs__persona_coverage__both_sides",
+      "payload": "[V-M] Anti-pattern 18: on portals, run the same spec under EVERY persona and assert presence AND absence — persona-conditional rendering plus silent-empty guest failures mean a portal is only proven when unauthorized personas are shown NOT to see/do things. Absence assertions are the anti-gaming half of portal coverage."
+    },
+    {
+      "atom": "v1.fact.locator_failures__first_suspect__permissions",
+      "payload": "[V-M] Anti-pattern 19: a locator failure is often a permissions/config failure in disguise — check profile, permission sets, and FlexiPage assignment BEFORE rewriting the selector; the element may genuinely not exist for that user."
+    },
+    {
+      "atom": "v1.fact.infra_error_pages__assertions__first_class",
+      "payload": "[V-O] Anti-pattern 20: treat maintenance / Service Not Available pages as first-class assertion targets so infrastructure states fail with a precise message ('site is down') instead of masquerading as element-not-found three steps later."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.fact.generated_ids__locator_use__banned", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.xpath__locator_use__banned", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.wait_for_timeout__use__banned", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.ui_test_data__creation__banned", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.record_ids__hardcoding__banned", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.parallel_workers__shared_users__banned", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.test_personas__profile_fidelity__required", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.test_user_locale__pinning__required", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.per_test_ui_login__use__banned", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.credentials__hardcoding__banned", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.record_naming__unique_run_prefix__required", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.ui_only_assertions__sufficient__false", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.a11y_visual_checks__inclusion__recommended", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.vf_iframes__in_lex__expected", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.locator_definitions__duplication__banned", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.toast_assertions__timing__immediate", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.unscoped_locators__strict_mode__violation", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.portal_specs__persona_coverage__both_sides", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.locator_failures__first_suspect__permissions", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "member_of", "source": "v1.fact.infra_error_pages__assertions__first_class", "target": "v1.other.hub_sf_antipatterns" },
+    { "type": "constrains", "source": "v1.fact.generated_ids__locator_use__banned", "target": "v1.procedure.sf_locators__stability_ranking" },
+    { "type": "derived_from", "source": "v1.fact.generated_ids__locator_use__banned", "target": "v1.fact.lightning_element_ids__generated_per_render" },
+    { "type": "derived_from", "source": "v1.fact.generated_ids__locator_use__banned", "target": "v1.fact.aura_global_ids__runtime_unique__true" },
+    { "type": "constrains", "source": "v1.fact.xpath__locator_use__banned", "target": "v1.procedure.sf_locators__stability_ranking" },
+    { "type": "derived_from", "source": "v1.fact.xpath__locator_use__banned", "target": "v1.fact.xpath__pierces_shadow_dom__false" },
+    { "type": "constrains", "source": "v1.fact.wait_for_timeout__use__banned", "target": "v1.procedure.sf_waits__condition_playbook" },
+    { "type": "references", "source": "v1.fact.wait_for_timeout__use__banned", "target": "v1.fact.networkidle__valid_on_lex__false" },
+    { "type": "constrains", "source": "v1.fact.ui_test_data__creation__banned", "target": "v1.procedure.test_data__cleanup_patterns" },
+    { "type": "derived_from", "source": "v1.fact.ui_test_data__creation__banned", "target": "v1.fact.test_data__creation_channel__api" },
+    { "type": "constrains", "source": "v1.fact.record_ids__hardcoding__banned", "target": "v1.procedure.test_data__cleanup_patterns" },
+    { "type": "references", "source": "v1.fact.record_ids__hardcoding__banned", "target": "v1.fact.composite_tree_api__atomic_seeding" },
+    { "type": "constrains", "source": "v1.fact.parallel_workers__shared_users__banned", "target": "v1.procedure.ci_sharding__blob_reports" },
+    { "type": "references", "source": "v1.fact.parallel_workers__shared_users__banned", "target": "v1.procedure.worker_auth__parallel_isolation" },
+    { "type": "derived_from", "source": "v1.fact.parallel_workers__shared_users__banned", "target": "v1.fact.sf_test_isolation__problem_locus__server_side" },
+    { "type": "constrains", "source": "v1.fact.test_personas__profile_fidelity__required", "target": "v1.procedure.multi_persona_auth__project_shape" },
+    { "type": "derived_from", "source": "v1.fact.test_personas__profile_fidelity__required", "target": "v1.fact.profiles_permsets__dom_effect" },
+    { "type": "constrains", "source": "v1.fact.test_user_locale__pinning__required", "target": "v1.procedure.dual_layer_assertion__ui_plus_soql" },
+    { "type": "derived_from", "source": "v1.fact.test_user_locale__pinning__required", "target": "v1.fact.org_coupled_config__failure_vector" },
+    { "type": "constrains", "source": "v1.fact.per_test_ui_login__use__banned", "target": "v1.procedure.storage_state__setup_pattern" },
+    { "type": "derived_from", "source": "v1.fact.per_test_ui_login__use__banned", "target": "v1.procedure.sf_auth__strategy_hierarchy" },
+    { "type": "constrains", "source": "v1.fact.credentials__hardcoding__banned", "target": "v1.procedure.multi_persona_auth__project_shape" },
+    { "type": "constrains", "source": "v1.fact.record_naming__unique_run_prefix__required", "target": "v1.procedure.test_data__cleanup_patterns" },
+    { "type": "references", "source": "v1.fact.record_naming__unique_run_prefix__required", "target": "v1.fact.parallel_safety__preconditions" },
+    { "type": "constrains", "source": "v1.fact.ui_only_assertions__sufficient__false", "target": "v1.procedure.sf_waits__condition_playbook" },
+    { "type": "references", "source": "v1.fact.ui_only_assertions__sufficient__false", "target": "v1.procedure.dual_layer_assertion__ui_plus_soql" },
+    { "type": "references", "source": "v1.fact.a11y_visual_checks__inclusion__recommended", "target": "v1.fact.slds__definition" },
+    { "type": "references", "source": "v1.fact.a11y_visual_checks__inclusion__recommended", "target": "v1.fact.portal_a11y__per_persona_axe" },
+    { "type": "references", "source": "v1.fact.vf_iframes__in_lex__expected", "target": "v1.procedure.vf_iframe__frame_locator" },
+    { "type": "constrains", "source": "v1.fact.locator_definitions__duplication__banned", "target": "v1.procedure.sf_pom__class_based_baseline" },
+    { "type": "references", "source": "v1.fact.locator_definitions__duplication__banned", "target": "v1.procedure.sf_locators__single_definition_point" },
+    { "type": "constrains", "source": "v1.fact.toast_assertions__timing__immediate", "target": "v1.procedure.sf_waits__condition_playbook" },
+    { "type": "derived_from", "source": "v1.fact.toast_assertions__timing__immediate", "target": "v1.fact.toast__autodismiss_timing" },
+    { "type": "constrains", "source": "v1.fact.unscoped_locators__strict_mode__violation", "target": "v1.procedure.combobox__select_pattern" },
+    { "type": "references", "source": "v1.fact.unscoped_locators__strict_mode__violation", "target": "v1.procedure.sf_locators__container_scoping" },
+    { "type": "constrains", "source": "v1.fact.portal_specs__persona_coverage__both_sides", "target": "v1.procedure.portal_auth__per_persona" },
+    { "type": "derived_from", "source": "v1.fact.portal_specs__persona_coverage__both_sides", "target": "v1.fact.guest_access_failure__symptom__silently_empty" },
+    { "type": "references", "source": "v1.fact.portal_specs__persona_coverage__both_sides", "target": "v1.fact.persona_rendering__audience_mechanisms" },
+    { "type": "derived_from", "source": "v1.fact.locator_failures__first_suspect__permissions", "target": "v1.fact.profiles_permsets__dom_effect" },
+    { "type": "references", "source": "v1.fact.locator_failures__first_suspect__permissions", "target": "v1.procedure.portal_blank__four_suspects" },
+    { "type": "derived_from", "source": "v1.fact.infra_error_pages__assertions__first_class", "target": "v1.fact.portal_error_pages__assertion_targets" },
+    { "type": "constrains", "source": "v1.fact.infra_error_pages__assertions__first_class", "target": "v1.procedure.sf_waits__condition_playbook" }
+  ]
+}

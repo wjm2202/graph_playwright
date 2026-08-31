@@ -1,0 +1,90 @@
+{
+  "batch": "05",
+  "description": "Locator strategy (founding doc section 5) and waiting strategy (section 6). The stability ranking and the wait playbook are single ordered-payload procedures. Hubs: hub_sf_locators, hub_sf_waits.",
+  "atoms": [
+    {
+      "atom": "v1.procedure.sf_locators__stability_ranking",
+      "payload": "[V-M] Locator stability ranking for Salesforce UI, most to least stable: 1) data-testid / data-* on components YOU own (getByTestId; attribute configurable via testIdAttribute) — unavailable on standard Salesforce UI. 2) Role + accessible name: getByRole('button', {name: 'Save'}) — the durable interface. 3) Field/object API names in attributes: [field-name='Industry'], [data-target-selection-name='sfdc.RecordField.Account.Name'], datatable [data-label='...']. 4) Custom-element tag anchors: page.locator('lightning-combobox'), records-record-layout-item, filtered by hasText. 5) Label text: getByLabel('Amount') — stable per org, breaks under i18n/renames. 6) SLDS classes ONLY as coarse state markers (.slds-spinner, .slds-modal_open, .slds-notify_toast), never as element identifiers (Summer '25 removed deprecated classes; SLDS 2 re-themes). 7) NEVER: generated ids, LWC scope attributes, positional nth-child, deep combinators into base-component internals, any XPath."
+    },
+    {
+      "atom": "v1.fact.data_testid__standard_ui_available__false",
+      "payload": "[V-M] data-testid attributes are NOT available on standard Salesforce UI — it is a closed ecosystem where you cannot annotate Salesforce-owned components. getByTestId applies only to your own custom LWCs. For everything Salesforce ships, plan around role + accessible name and API-name attributes instead."
+    },
+    {
+      "atom": "v1.fact.api_name_attributes__locator_value",
+      "payload": "[S exact attrs / V-M principle] Field and object API names surface in DOM attributes and are release- and i18n-stable: [field-name='Industry'] and [data-target-selection-name='sfdc.RecordField.Account.Name'] on record fields, [data-label='ColumnLabel'] on datatable cells. API names survive label renames and translations — prefer them over label text wherever they are present."
+    },
+    {
+      "atom": "v1.procedure.sf_locators__container_scoping",
+      "payload": "[V-O mechanism / S pattern] Scope locators to containers to satisfy Playwright strict mode — Salesforce repeats labels and buttons across regions (highlights panel vs details tab vs related lists vs modals). Patterns: page.getByRole('tabpanel', {name: 'Details'}).getByLabel('Phone'); scope ALL modal interaction to page.getByRole('dialog'). A strict-mode violation on Salesforce usually means missing container scoping, not a wrong locator."
+    },
+    {
+      "atom": "v1.fact.locator_handles__reresolve_semantics",
+      "payload": "[V-O] Playwright locators are lazy and re-resolved at every action — immune to the Lightning re-renders that invalidate stored element handles (Selenium's stale-element failure mode). Never store resolved element handles; always act through the locator. This re-resolution is Playwright's structural advantage on re-render-happy Lightning."
+    },
+    {
+      "atom": "v1.procedure.sf_locators__single_definition_point",
+      "payload": "[V-M] Define every locator in exactly one place (a page object or component object) so each seasonal release's churn is a localized diff instead of a suite-wide hunt. Pair with the maintenance budget: 3 Salesforce releases per year will each move something."
+    },
+    {
+      "atom": "v1.fact.networkidle__valid_on_lex__false",
+      "payload": "[V-O/V-M] waitForLoadState('networkidle') is discouraged by Playwright and structurally wrong on LEX: boxcar gaps produce false-ready (idle while work is queued) and continuous beacons/hidden-tab traffic produce never-ready (timeout). Some practitioner guides still use it as a pragmatic first settle; the strict position replaces it entirely with app-visible-state assertions."
+    },
+    {
+      "atom": "v1.procedure.sf_waits__condition_playbook",
+      "payload": "[V-M] The primary wait tool is auto-retrying web-first assertions on app-visible state. Target content: await expect(page.getByRole('heading', {name: recordName})).toBeVisible(). Spinners gone: await expect(region.locator('.slds-spinner')).toHaveCount(0, {timeout: 30000}). Toast: await expect(page.locator('.slds-notify_toast')).toContainText(/was (created|saved)/i). Modal closed: await expect(page.getByRole('dialog')).toBeHidden({timeout: 15000}). Rule: every wait names the app-visible condition it awaits."
+    },
+    {
+      "atom": "v1.procedure.aura_response_wait__surgical_pattern",
+      "payload": "[V-M] Surgical network wait for Aura actions: set up const responsePromise = page.waitForResponse(r => r.url().includes('/aura') && r.request().method() === 'POST') BEFORE triggering the action, then await it after. On portals match /sfsites\\/aura/. Wait on URL + status only — never assert boxcar payload internals (the envelope is opaque and multiplexes unrelated actions)."
+    },
+    {
+      "atom": "v1.fact.toast__autodismiss_timing",
+      "payload": "[V-O] Platform toasts auto-dismiss after 4.8 seconds (9.6 seconds when they contain a link). Assert toasts immediately after the triggering action, or the assertion races the dismissal and flakes."
+    },
+    {
+      "atom": "v1.fact.lex_navigation__pushstate_semantics",
+      "payload": "[INF] LEX navigations are pushState SPA transitions, not document loads. page.waitForURL() works for asserting arrival, but load-state events do not correspond to content readiness — wait for content (heading, region, record data), never for load events."
+    },
+    {
+      "atom": "v1.fact.console_tabs__lazy_dom",
+      "payload": "[S] Console apps: inactive workspace tabs have NO DOM at all until activated (Summer '25 lazy-load). After activating a console tab, wait for a unique element inside the newly activated tab before interacting — asserting on stale content from the previous tab is a classic console flake."
+    },
+    {
+      "atom": "v1.fact.hydration__silent_noop_risk",
+      "payload": "[V-M] Hydration risk (especially on LWR sites, which serve static snapshots that hydrate): an element can exist in the DOM before its event listeners attach, so an early click is a silent no-op — no error, nothing happens. Wait for a real readiness indicator (interactive response, aria state change, content update), never mere element presence, before the first interaction."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.procedure.sf_locators__stability_ranking", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.fact.data_testid__standard_ui_available__false", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.fact.api_name_attributes__locator_value", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.procedure.sf_locators__container_scoping", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.fact.locator_handles__reresolve_semantics", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.procedure.sf_locators__single_definition_point", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.fact.networkidle__valid_on_lex__false", "target": "v1.other.hub_sf_waits" },
+    { "type": "member_of", "source": "v1.procedure.sf_waits__condition_playbook", "target": "v1.other.hub_sf_waits" },
+    { "type": "member_of", "source": "v1.procedure.aura_response_wait__surgical_pattern", "target": "v1.other.hub_sf_waits" },
+    { "type": "member_of", "source": "v1.fact.toast__autodismiss_timing", "target": "v1.other.hub_sf_waits" },
+    { "type": "member_of", "source": "v1.fact.lex_navigation__pushstate_semantics", "target": "v1.other.hub_sf_waits" },
+    { "type": "member_of", "source": "v1.fact.console_tabs__lazy_dom", "target": "v1.other.hub_sf_waits" },
+    { "type": "member_of", "source": "v1.fact.hydration__silent_noop_risk", "target": "v1.other.hub_sf_waits" },
+    { "type": "references", "source": "v1.procedure.sf_locators__stability_ranking", "target": "v1.fact.slds__aria_compliant__true" },
+    { "type": "references", "source": "v1.procedure.sf_locators__stability_ranking", "target": "v1.fact.xpath__pierces_shadow_dom__false" },
+    { "type": "references", "source": "v1.procedure.sf_locators__stability_ranking", "target": "v1.fact.data_testid__standard_ui_available__false" },
+    { "type": "references", "source": "v1.procedure.sf_locators__stability_ranking", "target": "v1.fact.api_name_attributes__locator_value" },
+    { "type": "references", "source": "v1.procedure.sf_locators__stability_ranking", "target": "v1.fact.base_component_internals__churn" },
+    { "type": "references", "source": "v1.fact.api_name_attributes__locator_value", "target": "v1.fact.sobject_model__terminology" },
+    { "type": "references", "source": "v1.procedure.sf_locators__container_scoping", "target": "v1.fact.record_ui_regions__vocabulary" },
+    { "type": "references", "source": "v1.procedure.sf_locators__container_scoping", "target": "v1.fact.quick_actions__modal_behavior" },
+    { "type": "references", "source": "v1.procedure.sf_locators__single_definition_point", "target": "v1.fact.salesforce_releases__cadence_and_risk" },
+    { "type": "derived_from", "source": "v1.fact.networkidle__valid_on_lex__false", "target": "v1.fact.lex_network__never_quiescent__true" },
+    { "type": "derived_from", "source": "v1.fact.networkidle__valid_on_lex__false", "target": "v1.fact.aura_network__boxcar_batching" },
+    { "type": "references", "source": "v1.procedure.sf_waits__condition_playbook", "target": "v1.fact.toast__autodismiss_timing" },
+    { "type": "references", "source": "v1.procedure.sf_waits__condition_playbook", "target": "v1.procedure.sf_locators__stability_ranking" },
+    { "type": "depends_on", "source": "v1.procedure.aura_response_wait__surgical_pattern", "target": "v1.fact.aura_network__boxcar_batching" },
+    { "type": "references", "source": "v1.procedure.aura_response_wait__surgical_pattern", "target": "v1.fact.lex_network__shape_churn" },
+    { "type": "references", "source": "v1.fact.hydration__silent_noop_risk", "target": "v1.fact.lwr_sites__native_shadow__true" },
+    { "type": "references", "source": "v1.fact.lex_navigation__pushstate_semantics", "target": "v1.fact.lex_network__never_quiescent__true" }
+  ]
+}

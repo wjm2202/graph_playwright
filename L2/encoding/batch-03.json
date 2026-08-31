@@ -1,0 +1,111 @@
+{
+  "batch": "03",
+  "description": "Platform internals that drive test behavior (founding doc sections 3 + related section 14 invariants): shadow DOM state of the world, generated-ID architecture, LWS security, Aura network model, iframes. Contains the conflict-gated shadow-DOM value facts including xpath__pierces_shadow_dom__false. Hub: hub_sf_platform.",
+  "atoms": [
+    {
+      "atom": "v1.fact.lex_shadow_dom__synthetic_polyfill",
+      "payload": "[V-O] LEX and Aura-template Experience sites use synthetic shadow DOM by default: the @lwc/synthetic-shadow polyfill. 'Shadow' content actually lives in the main document carrying obfuscated scope attributes (lwc-...-host style). Never select on those scope attributes — they are build artifacts that change per build/release."
+    },
+    {
+      "atom": "v1.fact.mixed_shadow_mode__definition",
+      "payload": "[V-O] Mixed shadow mode = opt-in native shadow DOM via static shadowSupportMode='native' on an LWC. Still Beta as of Aug 2026, and base lightning-* components are NOT yet supported in native mode — a stock org renders base components in synthetic shadow. Current enablement status is tracked by the dated state atom v1.state.base_components__shadow_mode__synthetic_dt_2026_08_30."
+    },
+    {
+      "atom": "v1.fact.lwr_sites__native_shadow__true",
+      "payload": "[V-O] LWR (Lightning Web Runtime) Experience sites use NATIVE shadow DOM, and components can opt into light DOM (lwc:render-mode='light'), which is reachable by plain querySelector. Contrast: LEX and Aura sites are synthetic-shadow. Consequence: shadow-related tricks that accidentally work on LEX fail on LWR."
+    },
+    {
+      "atom": "v1.fact.playwright_locators__pierce_open_shadow_dom__true",
+      "payload": "[V-O] Playwright CSS/role/text locators pierce open shadow roots by default — synthetic and native alike; closed shadow roots are unsupported. Durable invariant: this piercing is the mechanism that makes semantic locators survive the synthetic-to-native shadow migration unchanged."
+    },
+    {
+      "atom": "v1.fact.xpath__pierces_shadow_dom__false",
+      "payload": "[V-O] XPath does NOT pierce shadow roots in Playwright (XPath has no shadow-DOM semantics at all). On LEX today XPath happens to work only because synthetic shadow content really lives in the light DOM; the moment a subtree flips to native shadow the same XPath silently returns zero matches — no error. Combined with structural brittleness this makes XPath suites doubly doomed on Salesforce. Durable invariant."
+    },
+    {
+      "atom": "v1.fact.css_light_engine__purpose",
+      "payload": "[V-O] Playwright's css:light selector engine restricts a query to light DOM when shadow piercing is undesirable — e.g. disambiguating a host element from content projected into it. Rarely needed on Salesforce; the default piercing behavior is usually what you want."
+    },
+    {
+      "atom": "v1.fact.base_component_internals__churn",
+      "payload": "[V-O] Salesforce began changing base-component internal markup for native-shadow readiness in Summer '23 (e.g. a new wrapper div[part] inside the shadow boundary) and explicitly warns that implementations relying on CSS combinators into component internals will fail. Never write selectors that cross into lightning-* internals; treat the tag boundary + ARIA surface as the public API."
+    },
+    {
+      "atom": "v1.fact.aura_global_ids__runtime_unique__true",
+      "payload": "[V-O] Aura components bake runtime-unique globalIds into DOM ids (e.g. id='940:1376;a'), regenerated per render. Official Salesforce docs say never rely on them. Any locator containing such an id is broken by design."
+    },
+    {
+      "atom": "v1.fact.lightning_element_ids__generated_per_render",
+      "payload": "[V-M] Lightning auto-generates element ids (input-42, combobox-button-171, ...) that change every render. In native shadow, ids are additionally scoped per component, so document-unique-id selection is architecturally impossible. Never locate by DOM id anywhere in Salesforce UI."
+    },
+    {
+      "atom": "v1.fact.selector_breakage__seasonal_rate",
+      "payload": "[S] Practitioner audits report ~20-30% selector breakage per seasonal release in structure-coupled suites (deep CSS / XPath). The official positions align: Salesforce may change component markup every release; Playwright documents structural CSS/XPath selectors as brittle by design. Semantic locators are the mitigation, not tighter structural selectors."
+    },
+    {
+      "atom": "v1.fact.lws__replaced_locker",
+      "payload": "[V-O] Lightning Web Security (LWS) replaced Lightning Locker: per-namespace JS sandboxes applying 'distortions' to native APIs. Default in orgs created Winter '23+, GA everywhere since Summer '23, but automatic enablement of older orgs was postponed — the 2026 fleet is mixed. The org's LWS toggle is a test-environment variable worth pinning and recording per target org."
+    },
+    {
+      "atom": "v1.fact.lws__playwright_impact",
+      "payload": "[V-O/V-M] LWS enforces shadowRoot.mode === 'closed' as seen by in-sandbox COMPONENT code (Spring '24), but Playwright's locator engine runs outside those sandboxes via CDP and continues to pierce LEX shadow trees normally. LWS constrains component code, not the automation driver — locator strategy is unaffected by LWS."
+    },
+    {
+      "atom": "v1.fact.page_evaluate__lws_caveat",
+      "payload": "[INF, grounded] page.evaluate() runs in the page's main world, where synthetic-shadow polyfill patches and platform globals live — results may differ from what locators see, and LWS distortions shape what component code observes. Keep in-page JS minimal; prefer locators and network assertions. On LWR sites, do not attempt shadow-bypass CSS tricks like :host-context() — LWS blocks them ([S])."
+    },
+    {
+      "atom": "v1.fact.aura_network__boxcar_batching",
+      "payload": "[V-O] Aura batches server actions via boxcar'ing: one POST to /aura (Experience sites: /s/sfsites/aura, variants /aura and /sfsites/aura, optionally behind a custom site path prefix) multiplexes many actions. The body is form-encoded with a JSON 'message' envelope — batched and effectively opaque. Durable invariant: wait on URL/status of these requests; never assert boxcar payload internals."
+    },
+    {
+      "atom": "v1.fact.lex_network__never_quiescent__true",
+      "payload": "[V-O] LEX never reliably reaches network quiescence: hidden-tab components keep issuing requests and telemetry beacons run continuously, while boxcar gaps can also produce deceptive silence. Durable invariant: any wait strategy premised on 'network idle' is structurally wrong on LEX — both false-ready and never-ready failure modes exist."
+    },
+    {
+      "atom": "v1.fact.lex_network__shape_churn",
+      "payload": "[V-O] Salesforce's performance program actively changes the network shape (HTTP/2 rollout, boxcar disablement for component delivery, preloading). Request-pattern-keyed waits are fragile release-over-release — key waits to coarse URL families (/aura) and app-visible state, never to precise request sequences or counts."
+    },
+    {
+      "atom": "v1.fact.lex_iframes__inventory",
+      "payload": "[V-O/V-M] Iframed surfaces inside LEX: Visualforce pages (cross-origin, classic stable-id DOM inside), some Classic Setup screens, email template previews, dashboards, Lightning Out 2.0 embeds (iframe + shadow + postMessage), and lightning:container components. Use frameLocator for all of them and expect different DOM rules inside each frame type."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.fact.lex_shadow_dom__synthetic_polyfill", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.mixed_shadow_mode__definition", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.lwr_sites__native_shadow__true", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.playwright_locators__pierce_open_shadow_dom__true", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.playwright_locators__pierce_open_shadow_dom__true", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.fact.xpath__pierces_shadow_dom__false", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.xpath__pierces_shadow_dom__false", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.fact.css_light_engine__purpose", "target": "v1.other.hub_sf_locators" },
+    { "type": "member_of", "source": "v1.fact.base_component_internals__churn", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.aura_global_ids__runtime_unique__true", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.lightning_element_ids__generated_per_render", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.selector_breakage__seasonal_rate", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.lws__replaced_locker", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.lws__playwright_impact", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.page_evaluate__lws_caveat", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.aura_network__boxcar_batching", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.lex_network__never_quiescent__true", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.lex_network__never_quiescent__true", "target": "v1.other.hub_sf_waits" },
+    { "type": "member_of", "source": "v1.fact.lex_network__shape_churn", "target": "v1.other.hub_sf_platform" },
+    { "type": "member_of", "source": "v1.fact.lex_iframes__inventory", "target": "v1.other.hub_sf_platform" },
+    { "type": "references", "source": "v1.fact.mixed_shadow_mode__definition", "target": "v1.fact.lex_shadow_dom__synthetic_polyfill" },
+    { "type": "references", "source": "v1.fact.lwr_sites__native_shadow__true", "target": "v1.fact.lex_shadow_dom__synthetic_polyfill" },
+    { "type": "references", "source": "v1.fact.xpath__pierces_shadow_dom__false", "target": "v1.fact.playwright_locators__pierce_open_shadow_dom__true" },
+    { "type": "derived_from", "source": "v1.fact.xpath__pierces_shadow_dom__false", "target": "v1.fact.lex_shadow_dom__synthetic_polyfill" },
+    { "type": "references", "source": "v1.fact.css_light_engine__purpose", "target": "v1.fact.playwright_locators__pierce_open_shadow_dom__true" },
+    { "type": "references", "source": "v1.fact.base_component_internals__churn", "target": "v1.fact.base_components__definition" },
+    { "type": "references", "source": "v1.fact.lightning_element_ids__generated_per_render", "target": "v1.fact.aura_global_ids__runtime_unique__true" },
+    { "type": "derived_from", "source": "v1.fact.selector_breakage__seasonal_rate", "target": "v1.fact.base_component_internals__churn" },
+    { "type": "references", "source": "v1.fact.selector_breakage__seasonal_rate", "target": "v1.fact.salesforce_releases__cadence_and_risk" },
+    { "type": "depends_on", "source": "v1.fact.lws__playwright_impact", "target": "v1.fact.lws__replaced_locker" },
+    { "type": "references", "source": "v1.fact.page_evaluate__lws_caveat", "target": "v1.fact.lws__replaced_locker" },
+    { "type": "references", "source": "v1.fact.page_evaluate__lws_caveat", "target": "v1.fact.lex_shadow_dom__synthetic_polyfill" },
+    { "type": "references", "source": "v1.fact.lex_network__shape_churn", "target": "v1.fact.aura_network__boxcar_batching" },
+    { "type": "references", "source": "v1.fact.lex_iframes__inventory", "target": "v1.fact.visualforce__iframe_rendering" },
+    { "type": "references", "source": "v1.fact.lex_iframes__inventory", "target": "v1.fact.setup_ui__iframe_caveat" }
+  ]
+}

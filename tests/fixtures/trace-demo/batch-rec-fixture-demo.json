@@ -1,0 +1,22 @@
+{
+  "batch": "rec-fixture_demo",
+  "description": "Settle contracts harvested from the 'fixture_demo' recording (pipeline v1). REVIEW BEFORE PUBLISHING — the pipeline never checkpoints directly.",
+  "atoms": [
+    {
+      "atom": "v1.procedure.step_modal_save__settle_contract",
+      "payload": "[REC v1 2026-08-30] Settle contract for step-catalog capability 'modal.save': trigger the action, then settle on a POST to the aura URL family (observed burst of 1; bursts are evidence, never assertion targets). Wait pattern: arm waitForResponse on the family BEFORE the trigger, await it after, then assert app-visible state. networkidle is banned on LEX. Re-verify each seasonal release; on churn mint successor + supersedes + tombstone."
+    }
+  ],
+  "edges": [
+    {
+      "type": "member_of",
+      "source": "v1.procedure.step_modal_save__settle_contract",
+      "target": "v1.other.hub_sf_waits"
+    },
+    {
+      "type": "references",
+      "source": "v1.procedure.step_modal_save__settle_contract",
+      "target": "v1.procedure.aura_response_wait__surgical_pattern"
+    }
+  ]
+}

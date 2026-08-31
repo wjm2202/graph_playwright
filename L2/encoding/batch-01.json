@@ -1,0 +1,76 @@
+{
+  "batch": "01",
+  "description": "Foundation: domain atom, 11 SF hubs, five-pillars overview. Must be checkpointed FIRST — all later batches edge into these hubs. The domain atom is the graph root and deliberately has no member_of (documented exception in ATOM-SCHEMA.md).",
+  "atoms": [
+    {
+      "atom": "v1.domain.salesforce_testing",
+      "payload": "Domain: Salesforce Lightning + Experience Cloud UI test engineering with Playwright/TypeScript. Covers platform internals (shadow DOM, Aura/LWC, network model), auth/session strategy, locator + wait strategy, component interaction patterns, portal (Experience Cloud) testing, test architecture/data/CI, anti-patterns, ecosystem reference, and volatile release-tracked state. Source corpus: salesforce_playwright/L2/FOUNDING-DOCUMENT.md (2026-08-30, ~130 sources, every claim confidence-marked [V-O]=official docs, [V-M]=2+ independent sources, [S]=single practitioner source, [INF]=grounded inference). Project goal: L2 substrate + Playwright starter enabling 50% faster Salesforce test-project creation."
+    },
+    {
+      "atom": "v1.other.hub_sf_platform",
+      "payload": "Hub: Salesforce platform vocabulary and internals that drive test behavior — org model, LEX vs Classic, LWC vs Aura rendering, shadow DOM state of the world, generated-ID architecture, LWS security, Aura network model (boxcar), iframe inventory, release cadence. Sources: founding doc sections 2.1, 3, 14."
+    },
+    {
+      "atom": "v1.other.hub_sf_auth",
+      "payload": "Hub: authentication and session patterns for Salesforce Playwright testing — token injection (frontdoor.jsp, UI Bridge singleaccess), sf CLI flows, storageState discipline (one state per persona per domain), per-worker user isolation, MFA exemption, trusted IP ranges, headless CI org auth (JWT bearer, sfdxAuthUrl). Source: founding doc section 4."
+    },
+    {
+      "atom": "v1.other.hub_sf_locators",
+      "payload": "Hub: locator strategy for Salesforce UI — stability ranking (own data-testid > role+accessible name > API-name attributes > custom-element tags > label text > SLDS classes as state markers only > never generated ids/XPath/deep structure), container scoping for strict mode, locator re-resolution semantics, single-definition-point discipline. Source: founding doc section 5."
+    },
+    {
+      "atom": "v1.other.hub_sf_waits",
+      "payload": "Hub: waiting strategy for Lightning — web-first auto-retrying assertions on app-visible state (spinner gone, toast shown, dialog hidden, heading rendered), surgical waitForResponse on /aura family, toast timing, pushState navigation semantics, hydration risk, why networkidle and fixed timeouts are structurally wrong on LEX. Source: founding doc section 6."
+    },
+    {
+      "atom": "v1.other.hub_sf_components",
+      "payload": "Hub: interaction recipes for Lightning base components under Playwright — combobox/picklist, lookup/typeahead, modal, datatable, date picker, file upload, rich text, tabs, Path stage completion, Visualforce iframes, lightning-input label resolution. Source: founding doc section 7."
+    },
+    {
+      "atom": "v1.other.hub_sf_portals",
+      "payload": "Hub: Experience Cloud (community/portal) testing — Aura vs LWR runtime differences, deploy-vs-publish model, guest/external persona access model, licenses and sharing, portal auth per persona, the blank-page four-suspects diagnostic, error/maintenance pages, LWR limits, self-registration, per-persona accessibility. Sources: founding doc sections 2.2, 8."
+    },
+    {
+      "atom": "v1.other.hub_sf_architecture",
+      "payload": "Hub: test architecture and engineering — class-based POM + component objects + fixture composition, data-via-API seeding/teardown (jsforce v3, REST, Composite Tree), dual-layer UI+SOQL assertions, environment strategy (persistent sandbox, scratch orgs, preview diffing), CI sharding/retries/artifacts, parallel-safety preconditions, test-pyramid placement. Source: founding doc section 9."
+    },
+    {
+      "atom": "v1.other.hub_sf_antipatterns",
+      "payload": "Hub: bans and constraints for Salesforce Playwright testing — the 20 consolidated anti-patterns (no XPath, no generated-id locators, no waitForTimeout, no UI-created data, no hardcoded record ids, no shared users across workers, no per-test UI login, no unscoped locators, assert both UI and persisted state, etc.) plus the flake root-cause map. Anti-pattern atoms carry constrains edges to the procedures they limit. Sources: founding doc sections 10, 12."
+    },
+    {
+      "atom": "v1.other.hub_sf_ecosystem",
+      "payload": "Hub: tooling and ecosystem reference — UTAM status (WebdriverIO-only, no Playwright adapter), the verified absence of a dominant OSS Playwright-Salesforce framework, reference repos worth studying, commercial vendor landscape, practitioner canon. Source: founding doc section 11."
+    },
+    {
+      "atom": "v1.other.hub_sf_volatile",
+      "payload": "Hub: volatile release-tracked Salesforce facts stored as v1.state.* atoms carrying _dt_YYYY_MM_DD suffixes. Discipline: re-verify each seasonal release (Spring ~Feb, Summer ~Jun, Winter ~Oct); on change, mint a new dated state atom, add a supersedes edge to the old one, and tombstone the old one in the same checkpoint. Each state payload names the condition that obsoletes it. Source: founding doc section 13."
+    },
+    {
+      "atom": "v1.other.hub_sf_journeys",
+      "payload": "Hub: multi-actor journey procedures (segregation-of-duties flows: submit/approve/audit with first-class deny steps) to be encoded from journeys/*.json per docs/multi-actor-orchestration-design.md section 3.2. Naming design: v1.procedure.journey_<id>__definition (payload = compact single-line journey JSON), v1.fact.journey_<id>__coverage (roles/objects covered, for coverage queries), v1.procedure.step_<catalog_id>__contract for step-catalog entries. Deliberately EMPTY until project step 3 — minted now so journey batches have a stable hub endpoint."
+    },
+    {
+      "atom": "v1.fact.sf_playwright__five_pillars",
+      "payload": "[V-M] The five pillars of successful Salesforce Lightning Playwright testing: 1) auth by token injection (frontdoor/UI Bridge) + storageState reuse, never per-test UI login; 2) semantic locators (role/label/text/API-name attributes) — never generated ids, never XPath; 3) condition-based waiting on app-visible state — never networkidle, never fixed sleeps; 4) data via API, UI only for the behavior under test, deep-link to records; 5) thin owned architecture (class POM + component objects composed via fixtures) — no dominant off-the-shelf framework exists, teams roll their own layer. Dominant risk horizon: synthetic-to-native shadow DOM migration, SLDS 2 theming, 3 seasonal releases/year churning component internals, frontdoor sid deprecation pressure. Founding doc section 1."
+    }
+  ],
+  "edges": [
+    { "type": "member_of", "source": "v1.other.hub_sf_platform", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_auth", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_locators", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_waits", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_components", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_portals", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_architecture", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_antipatterns", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_ecosystem", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_volatile", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.other.hub_sf_journeys", "target": "v1.domain.salesforce_testing" },
+    { "type": "member_of", "source": "v1.fact.sf_playwright__five_pillars", "target": "v1.other.hub_sf_architecture" },
+    { "type": "references", "source": "v1.fact.sf_playwright__five_pillars", "target": "v1.other.hub_sf_auth" },
+    { "type": "references", "source": "v1.fact.sf_playwright__five_pillars", "target": "v1.other.hub_sf_locators" },
+    { "type": "references", "source": "v1.fact.sf_playwright__five_pillars", "target": "v1.other.hub_sf_waits" },
+    { "type": "references", "source": "v1.fact.sf_playwright__five_pillars", "target": "v1.other.hub_sf_volatile" }
+  ]
+}

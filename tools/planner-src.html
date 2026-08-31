@@ -1,0 +1,1306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Process planner</title>
+<style>
+  :root { --bg:#14161a; --panel:#1d2026; --line:#31353d; --text:#e8e9eb; --muted:#9aa0a8; --accent:#5aa9e6; --danger:#e2604f; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.45 -apple-system, Segoe UI, sans-serif; }
+  header { display:flex; gap:6px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header .title { font-weight:600; margin-right:8px; }
+  button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12px; }
+  button:hover { border-color:var(--accent); }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  button:disabled { opacity:.4; cursor:default; }
+  main { display:flex; height: calc(100% - 78px); }
+  main > #cy { flex:1; }
+  #cy { flex:1; min-width:0; }
+  aside { width:300px; border-left:1px solid var(--line); padding:10px; overflow-y:auto; background:var(--panel); }
+  aside h3 { margin:2px 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  .field { margin-bottom:6px; display:flex; align-items:center; gap:8px; }
+  .field > label { flex:0 0 84px; font-size:11px; color:var(--muted); margin:0; }
+  .field > input, .field > select, .field > div { flex:1; min-width:0; }
+  .field input, .field select, .field textarea { width:100%; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px 7px; font-size:12px; font-family:inherit; box-sizing:border-box; }
+  /* Tall/complex rows fall back to stacked full-width. */
+  .field.wide { display:block; }
+  .field.wide > label { display:block; margin-bottom:2px; flex:none; }
+  .field textarea { font-family:ui-monospace, monospace; min-height:56px; }
+  .credline { display:flex; align-items:center; gap:6px; font-size:10px; font-family:ui-monospace, monospace; line-height:1.9; }
+  .credline .k { color:var(--muted); flex:0 0 62px; font-family:inherit; }
+  .mono { font-family:ui-monospace, monospace; }
+  #nf_snapshot_img { max-width:100%; border-radius:5px; border:1px solid var(--line); display:none; margin-top:4px; }
+  footer { height:36px; display:flex; align-items:center; gap:10px; padding:0 10px; border-top:1px solid var(--line); font-size:12px; }
+  #status.ok { color:#7dcf85; } #status.bad { color:var(--danger); }
+  #export_out { flex:1; height:26px; background:var(--bg); color:var(--muted); border:1px solid var(--line); border-radius:5px; padding:4px 6px; font-size:11px; }
+  .hide { display:none !important; }
+  body.view .editonly { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <span class="title">process planner</span>
+  <button id="b_new" class="editonly" title="start a fresh graph (pre-filled with start + end)">new</button>
+  <button id="b_graphmeta" title="the graph's own settings — id, title, systems, actors">graph</button>
+  <select id="f_library" title="open an existing graph" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; max-width:220px;">
+    <option value="">open graph…</option>
+  </select>
+  <select id="b_add" class="editonly" title="add a node — pick what it represents" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px;">
+    <option value="">add ▾</option>
+    <option value="session">session — who, in which system</option>
+    <option value="data">data — a record</option>
+    <option value="screen">screen</option>
+    <option value="checkpoint">checkpoint — verify here</option>
+    <option value="api">api endpoint</option>
+    <option value="db">database</option>
+    <option value="logger">log system</option>
+    <option value="decision">decision</option>
+    <option value="action">plain step</option>
+  </select>
+  <button id="b_connect" class="editonly" title="draw a relation: click this, then a source node, then a target node — or just drag from a node's edge">connect</button>
+  <button id="b_delete" class="editonly" title="remove the selected node/edge (Del key works too)">delete</button>
+  <button id="b_layout" title="auto-arrange the graph (your manual positions are replaced)">layout</button>
+  <button id="b_fit" title="zoom to see everything">fit</button>
+  <button id="b_check" title="is this graph runnable? lists every problem and unfinished part, with hints — click an item to jump to it">check ✓</button>
+  <label class="editonly" style="margin-left:8px"><input id="f_import" type="file" accept=".json" class="hide" /><button id="b_import">import</button></label>
+  <select id="f_save" class="editonly" title="save to this browser" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; max-width:230px;">
+    <option value="">save ▾</option>
+  </select>
+  <button id="b_export" title="print the graph JSON into the bar below (nothing is saved)">export</button>
+  <button id="b_download" title="download the graph as a .graph.json file">download</button>
+  <select id="f_test" title="turn this graph into a runnable Playwright spec — commands copy to your clipboard" style="background:var(--panel); color:var(--text); border:1px solid #5aa9e6; border-radius:5px; padding:4px; color:#5aa9e6; font-weight:600;">
+    <option value="">▶ test ▾</option>
+    <option value="spec">copy: make spec</option>
+    <option value="run">copy: run spec</option>
+  </select>
+  <span style="margin-left:auto; color:var(--muted)">mode:</span>
+  <select id="f_mode" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px;">
+    <option value="edit">edit</option><option value="view">view</option>
+  </select>
+  <button id="b_help" title="what the shapes mean + how to drive this">?</button>
+</header>
+<div id="issues" class="hide" style="position:absolute; top:44px; left:10px; z-index:30; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; width:380px; max-height:70vh; overflow:auto; font-size:11px; box-shadow:0 6px 24px rgba(0,0,0,.4);">
+  <div style="display:flex; align-items:center; margin-bottom:6px;">
+    <b>graph check</b>
+    <button id="iss_close" title="close" style="margin-left:auto; padding:1px 7px;">✕</button>
+  </div>
+  <div id="iss_list"></div>
+</div>
+<div id="legend" class="hide" title="click anywhere on this card to close it" style="position:absolute; top:44px; right:10px; z-index:30; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; max-width:340px; font-size:11px; line-height:1.7; box-shadow:0 6px 24px rgba(0,0,0,.4); cursor:pointer;">
+  <div style="float:right; color:var(--muted);">✕</div>
+  <b>Shapes</b><br/>
+  ⬭ start / end · ▭ session <span style="color:var(--muted)">(who, in which system — ▶ dbl-click = copy capture cmd, ✓rec = captured)</span><br/>
+  ⬬ data <span style="color:var(--muted)">(a record)</span> · ⬡ checkpoint <span style="color:var(--muted)">(verify here)</span><br/>
+  ⛁ database <span style="color:var(--muted)">(evidence source — only if queryable)</span> · ⌲ log system · ⬠ api endpoint<br/>
+  <b>Checks</b><br/>
+  <span style="color:var(--muted)">Add them on data/checkpoint nodes. ui.* watch the screen; api.* ask Salesforce;
+  db.query asks a QUERYABLE database node; log.traffic searches a log node for traffic (e.g. an endpoint name).
+  Amber <i>draft?</i> = machine-guessed — click to confirm. Green/red border = last run's verdict.</span><br/>
+  <b>Driving it</b><br/>
+  <span style="color:var(--muted)">new = fresh graph · add ▾ = typed nodes · connect (or drag from a node edge) = relations ·
+  double-click canvas = quick node · Esc exits connect · Del removes · save ▾ keeps it · ▶ test ▾ turns it into a running spec.</span>
+</div>
+<main>
+  <div id="cy"></div>
+  <!-- Graph meta — a card like the rest, opened from the toolbar; the canvas
+       keeps the full width. -->
+  <div id="p_meta" class="hide" style="position:fixed; top:44px; right:10px; z-index:26; width:320px; max-height:72vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; box-shadow:0 10px 30px rgba(0,0,0,.55);">
+    <h3 style="margin-top:0;">graph <button id="pm_close" title="close" style="float:right; padding:1px 7px;">✕</button></h3>
+    <div class="field"><label>id</label><input id="gf_id" class="editonly-en" /></div>
+    <div class="field"><label>title</label><input id="gf_title" /></div>
+    <div class="field wide"><label>systems (json)</label><textarea id="gf_systems"></textarea></div>
+    <div class="field wide"><label>actors (json)</label><textarea id="gf_actors"></textarea></div>
+    <button id="b_meta_apply" class="editonly">apply meta</button>
+  </div>
+  <!-- Node card — n8n-style: settings live ON the node (glued, tracks pan/zoom/drag). -->
+  <div id="p_node" class="hide" style="position:fixed; z-index:25; width:300px; max-height:72vh; overflow:auto; background:var(--panel); border:1px solid #5aa9e6; border-radius:10px; padding:10px 12px; box-shadow:0 10px 30px rgba(0,0,0,.55);">
+    <h3 style="margin-top:0; margin-bottom:2px;">node <span id="nf_id" class="mono"></span></h3>
+    <div id="nf_chips" style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+      <span id="nf_typechip" style="color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.05em;"></span>
+      <span id="nf_recchip" class="hide" style="font-size:10px; font-weight:600; border-radius:9px; padding:1px 8px;"></span>
+    </div>
+    <div id="np_none" class="hide" style="color:var(--muted); font-size:11px;">nothing to configure here — this node just marks the flow.</div>
+    <div id="np_main"></div>
+    <details id="nf_details" style="margin-top:6px;">
+      <summary style="cursor:pointer; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em;">extra settings</summary>
+      <div id="np_extra" style="margin-top:8px;"></div>
+    </details>
+    <div id="np_pool" class="hide">
+      <div class="field" id="row_label"><label>label</label><input id="nf_label" /></div>
+      <div class="field" id="row_url"><label>app url / deep link</label><input id="nf_url" class="mono" /></div>
+      <div class="field" id="row_actor"><label>role / user</label><select id="nf_actor"></select></div>
+      <div class="field" id="row_account"><label>account env (name only)</label><input id="nf_account" class="mono" placeholder="SIEBEL_ADMIN_USERNAME" /></div>
+      <div class="field wide" id="row_creds"><label>credentials (.env)</label><div id="nf_creds" style="border:1px solid var(--line); border-radius:5px; padding:5px 8px;"></div></div>
+      <div class="field" id="row_endpoint"><label>endpoint</label>
+        <div style="display:flex; gap:4px;">
+          <select id="nf_method" style="flex:0 0 84px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px;"><option value=""></option><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select>
+          <input id="nf_path" class="mono" placeholder="/services/apexrest/create_customer_v2" style="flex:1; min-width:0;" />
+        </div>
+      </div>
+      <div class="field wide" id="row_queryable"><label>evidence access</label>
+        <label style="display:flex; gap:6px; align-items:center; font-size:11px; cursor:pointer;"><input id="nf_queryable" type="checkbox" class="editonly" /> tests can QUERY this database (enables db.query checks targeting it)</label>
+        <div style="color:var(--muted); font-size:10px; margin-top:2px;">many DBs can't be reached from tests — leave unticked and verify via the app API or a log system instead</div>
+      </div>
+      <div class="field wide" id="row_searchable"><label>evidence access</label>
+        <label style="display:flex; gap:6px; align-items:center; font-size:11px; cursor:pointer;"><input id="nf_searchable" type="checkbox" class="editonly" /> tests can SEARCH this log system (enables log.traffic checks targeting it)</label>
+      </div>
+      <div class="field wide" id="row_capture">
+        <button id="nf_capture" style="width:100%; border-color:#5aa9e6; color:#5aa9e6; font-weight:600;">▶ start capture</button>
+        <input id="nf_capture_cmd" readonly class="mono" style="margin-top:4px; font-size:10px; color:var(--muted);" title="the recording command — copied on click" />
+      </div>
+      <div class="field wide" id="row_snapshot"><label>snapshot</label><img id="nf_snapshot_img" alt="snapshot" /><input id="nf_snapshot" type="file" accept="image/*" class="editonly" /></div>
+      <div class="field wide" id="row_expects"><label>what to test (pass/fail oracles for this state)</label>
+        <div id="xf_list"></div>
+        <button id="xf_add" class="editonly" style="margin-top:4px; width:100%;">+ add check</button>
+      </div>
+      <div class="field" id="row_type"><label>type</label><select id="nf_type">
+        <option>start</option><option>session</option><option>screen</option><option>data</option><option>action</option><option>decision</option><option>checkpoint</option><option>snapshot</option><option>db</option><option>logger</option><option>api</option><option>end</option></select></div>
+      <div class="field" id="row_system"><label>system</label><select id="nf_system"></select></div>
+      <div class="field" id="row_catalog"><label>step catalog name</label><input id="nf_catalog" class="mono" placeholder="expense.submit" /></div>
+      <div class="field" id="row_steps"><label>steps status</label><select id="nf_steps_status"><option value="">—</option><option>planned</option><option>captured</option></select></div>
+      <div class="field" id="row_journey"><label>journey id</label><input id="nf_journey" class="mono" /></div>
+      <div class="field" id="row_planned"><label>planned ms</label><input id="nf_planned" type="number" min="1" /></div>
+      <div class="field wide" id="row_notes"><label>notes</label><textarea id="nf_notes"></textarea></div>
+    </div>
+  </div>
+  <!-- Edge card — glued to the relation's midpoint. -->
+  <div id="p_edge" class="hide" style="position:fixed; z-index:25; width:280px; background:var(--panel); border:1px solid #5aa9e6; border-radius:10px; padding:10px 12px; box-shadow:0 10px 30px rgba(0,0,0,.55);">
+    <h3 style="margin-top:0;">edge <span id="ef_id" class="mono"></span></h3>
+    <div class="field"><label>relation</label><select id="ef_type"><option>login_as</option><option>does</option><option>denied</option><option>touches</option><option>requires</option><option>asserts</option><option>next</option><option>navigates</option><option>handoff</option><option>deny</option></select></div>
+    <div class="field"><label>label</label><input id="ef_label" /></div>
+    <div class="field"><label>step catalog (does)</label><input id="ef_catalog" class="mono" placeholder="expense.submit" /></div>
+    <div class="field"><label>auth (login_as)</label><select id="ef_auth"><option value=""></option><option>frontdoor</option><option>singleaccess</option><option>ui</option></select></div>
+    <div class="field"><label>deny capability</label><input id="ef_capability" class="mono" placeholder="expense.approve" /></div>
+    <div class="field"><label>timing</label><div id="ef_timing" class="mono" style="color:var(--muted)">—</div></div>
+  </div>
+</main>
+<footer>
+  <span id="status">empty graph</span>
+  <input id="export_out" readonly />
+</footer>
+<!--INLINE:cytoscape-->
+<!--INLINE:dagre-->
+<!--INLINE:cytoscape-dagre-->
+<!--INLINE:lodash-->
+<!--INLINE:cytoscape-edgehandles-->
+<!--INLINE:schema-->
+<!--INLINE:gaps-->
+<!--INLINE:graphs-->
+<!--INLINE:personas-->
+<script>
+'use strict';
+if (typeof cytoscapeDagre !== 'undefined') cytoscape.use(cytoscapeDagre);
+if (typeof cytoscapeEdgehandles !== 'undefined') cytoscape.use(cytoscapeEdgehandles);
+var validateGraph = window.ProcessGraphSchema.validateGraph;
+var computeGaps = (window.ProcessGraphGaps && window.ProcessGraphGaps.computeGaps) || function () { return []; };
+var PERSONA_IDS = window.PERSONA_IDS || [];
+
+var PALETTE = ['#4d7ea8', '#7a5aa0', '#3e8a71', '#b07a3d', '#a04d62', '#5a7a3e'];
+var G = emptyGraph();
+var selected = null;
+var seq = 0;
+
+function emptyGraph() {
+  return { schema: 'process-graph/1', id: 'new_process', title: '', systems: { app: { label: 'Application', kind: 'web' } }, actors: {}, nodes: [], edges: [] };
+}
+function sysColor(sysId) {
+  var keys = Object.keys(G.systems);
+  return PALETTE[Math.max(0, keys.indexOf(sysId)) % PALETTE.length];
+}
+function nid() { seq += 1; return 'n_' + Date.now().toString(36) + '_' + seq; }
+function expAggregate(n) {
+  var xs = n.expects || [];
+  if (!xs.length) return '';
+  var fail = false, allPass = true;
+  xs.forEach(function (x) {
+    if (x.lastResult && x.lastResult.status === 'fail') fail = true;
+    if (!x.lastResult || x.lastResult.status !== 'pass') allPass = false;
+  });
+  return fail ? 'fail' : (allPass ? 'pass' : '');
+}
+function checkBadge(n) {
+  var xs = n.expects || [];
+  if (!xs.length) return '';
+  var agg = expAggregate(n);
+  var mark = agg === 'fail' ? '✗' : '✓';
+  return '\n' + mark + ' ' + xs.length + (xs.length === 1 ? ' check' : ' checks');
+}
+function displayLabel(n) {
+  var main = n.label || n.type;
+  // Session labels ARE the lane; ▶ = "double-click to copy capture", ✓rec = captured.
+  if (n.type === 'session') {
+    var rec = n.steps && n.steps.status === 'captured' ? '  ✓rec' : (n.actor ? '  ▶' : '');
+    return main + rec + checkBadge(n);
+  }
+  // Infra nodes wear their evidence-access on the label — no digging needed.
+  if (n.type === 'db') return main + '\n[db · ' + (n.queryable ? 'queryable' : 'NOT queryable') + ']';
+  if (n.type === 'logger') return main + '\n[logs' + (n.searchable === false ? ' · not searchable' : ' · searchable') + ']';
+  if (n.type === 'api') {
+    var ep = n.endpoint || {};
+    return main + '\n[api' + (ep.method ? ' · ' + ep.method : '') + ']';
+  }
+  var lane = [];
+  if (n.system) lane.push(n.system);
+  if (n.actor) lane.push(n.actor);
+  return (lane.length ? main + '\n[' + lane.join(' · ') + ']' : main) + checkBadge(n);
+}
+
+var cy = cytoscape({
+  container: document.getElementById('cy'),
+  wheelSensitivity: 0.2,
+  style: [
+    { selector: 'node', style: { 'background-color': 'data(color)', label: 'data(label)', color: '#e8e9eb', 'font-size': 10, 'text-wrap': 'wrap', 'text-max-width': 110, 'text-valign': 'center', width: 'label', height: 'label', padding: '10px', shape: 'round-rectangle', 'border-width': 1, 'border-color': '#31353d' } },
+    { selector: 'node[type="start"], node[type="end"]', style: { shape: 'ellipse', 'background-color': '#555b64' } },
+    { selector: 'node[type="decision"]', style: { shape: 'diamond' } },
+    { selector: 'node[type="checkpoint"]', style: { shape: 'hexagon' } },
+    { selector: 'node[type="snapshot"]', style: { shape: 'barrel' } },
+    { selector: 'node[type="session"]', style: { 'border-width': 2.5, 'border-color': '#e8e9eb', 'font-weight': 'bold' } },
+    { selector: 'node[type="data"]', style: { shape: 'barrel', 'background-color': '#8a6d3b' } },
+    { selector: 'node[type="db"]', style: { shape: 'barrel', 'background-color': '#2e6e6a' } },
+    { selector: 'node[type="logger"]', style: { shape: 'round-tag', 'background-color': '#6d5a8a' } },
+    { selector: 'node[type="api"]', style: { shape: 'round-hexagon', 'background-color': '#3d6a99' } },
+    // The selected node GROWS — its settings card reads as part of it.
+    { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#5aa9e6', padding: '16px', 'font-size': 11 } },
+    { selector: 'edge:selected', style: { width: 4, 'line-color': '#5aa9e6', 'target-arrow-color': '#5aa9e6' } },
+    { selector: 'node[type="screen"]', style: { shape: 'rectangle' } },
+    { selector: 'node[exp="pass"]', style: { 'border-color': '#7dcf85', 'border-width': 2.5 } },
+    { selector: 'node[exp="fail"]', style: { 'border-color': '#e2604f', 'border-width': 3 } },
+    { selector: 'node:selected', style: { 'border-color': '#5aa9e6', 'border-width': 2 } },
+    { selector: 'edge', style: { width: 1.5, 'line-color': '#7d838c', 'target-arrow-color': '#7d838c', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 9, color: '#9aa0a8', 'text-rotation': 'autorotate', 'text-background-color': '#14161a', 'text-background-opacity': 0.8 } },
+    { selector: 'edge[type="navigates"]', style: { 'line-style': 'dotted' } },
+    { selector: 'edge[type="deny"], edge[type="denied"]', style: { 'line-style': 'dashed', 'line-color': '#e2604f', 'target-arrow-color': '#e2604f' } },
+    { selector: 'edge[type="handoff"], edge[type="touches"]', style: { width: 3, 'line-color': '#d0913e', 'target-arrow-color': '#d0913e' } },
+    { selector: 'edge[type="login_as"]', style: { width: 2.5, 'line-color': '#5aa9e6', 'target-arrow-color': '#5aa9e6' } },
+    { selector: 'edge[type="requires"]', style: { 'line-style': 'dashed', 'line-color': '#7a5aa0', 'target-arrow-color': '#7a5aa0' } },
+    { selector: 'edge[type="asserts"]', style: { 'line-style': 'dotted', 'line-color': '#3e8a71', 'target-arrow-color': '#3e8a71' } },
+    { selector: 'edge:selected', style: { 'line-color': '#5aa9e6', 'target-arrow-color': '#5aa9e6' } },
+    { selector: 'node.pending_src', style: { 'border-color': '#5aa9e6', 'border-width': 3 } },
+    { selector: '.eh-ghost-edge, .eh-preview', style: { 'line-color': '#5aa9e6', 'target-arrow-color': '#5aa9e6', 'line-style': 'dashed' } },
+    { selector: '.eh-handle', style: { 'background-color': '#5aa9e6', width: 10, height: 10 } },
+  ],
+});
+window.cy = cy;
+var eh = cy.edgehandles ? cy.edgehandles({ snap: true }) : null;
+var connectMode = false;
+var pendingSource = null;
+
+function fmtMs(ms) { return ms < 1000 ? Math.round(ms) + 'ms' : (ms / 1000).toFixed(1) + 's'; }
+function edgeLabel(e) {
+  var parts = [];
+  if (e.type === 'login_as') {
+    var target = nodeById(e.to);
+    parts.push('login as ' + ((target && (target.actor || target.label)) || '?'));
+  }
+  if (e.type === 'does' && e.data && e.data.catalog) parts.push(e.data.catalog);
+  if (e.type === 'requires') parts.push('requires');
+  if (e.type === 'asserts') parts.push('asserts');
+  if (e.type === 'touches') parts.push('touches');
+  if (e.label) parts.push(e.label);
+  if ((e.type === 'deny' || e.type === 'denied') && e.data && e.data.capability) parts.push('deny ' + e.data.capability);
+  if (e.data && e.data.recordRef) parts.push('rec ' + String(e.data.recordRef).slice(0, 6) + '…');
+  if (e.data && e.data.frequency !== undefined) parts.push('×' + e.data.frequency);
+  var ms = e.data && (e.data.deltaMs !== undefined ? e.data.deltaMs : e.data.meanMs);
+  if (ms) parts.push(fmtMs(ms));
+  return parts.join(' · ');
+}
+
+function render() {
+  var els = [];
+  G.nodes.forEach(function (n) {
+    els.push({ group: 'nodes', data: { id: n.id, label: displayLabel(n), type: n.type, exp: expAggregate(n), color: n.system ? sysColor(n.system) : '#555b64' }, position: n.pos ? { x: n.pos.x, y: n.pos.y } : undefined });
+  });
+  G.edges.forEach(function (e) {
+    els.push({ group: 'edges', data: { id: e.id, source: e.from, target: e.to, type: e.type, label: edgeLabel(e) } });
+  });
+  cy.elements().remove();
+  cy.add(els);
+  // Auto-layout whenever ANY node lacks a position — a mixed graph (some
+  // positioned, some not, e.g. nodes appended by a tool) must never render
+  // as a stack at the origin. Fully-positioned graphs keep their layout.
+  if (G.nodes.length && G.nodes.some(function (n) { return !n.pos; })) runLayout();
+  cy.fit(undefined, 30);
+  refreshMeta();
+  setStatus();
+}
+function runLayout() { cy.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 30, rankSep: 70 }).run(); }
+
+function refreshMeta() {
+  document.getElementById('gf_id').value = G.id;
+  document.getElementById('gf_title').value = G.title || '';
+  document.getElementById('gf_systems').value = JSON.stringify(G.systems, null, 1);
+  document.getElementById('gf_actors').value = JSON.stringify(G.actors, null, 1);
+  var sys = document.getElementById('nf_system'); sys.innerHTML = '<option value=""></option>';
+  Object.keys(G.systems).forEach(function (k) { sys.add(new Option(k + ' — ' + G.systems[k].label, k)); });
+  var act = document.getElementById('nf_actor'); act.innerHTML = '<option value=""></option>';
+  Object.keys(G.actors).forEach(function (k) { act.add(new Option(k + ' → ' + G.actors[k], k)); });
+}
+function readiness() {
+  var sess = G.nodes.filter(function (n) { return n.type === 'session'; });
+  var cap = sess.filter(function (n) { return n.steps && n.steps.status === 'captured'; }).length;
+  var does = G.edges.filter(function (e) { return e.type === 'does'; });
+  var bound = does.filter(function (e) { return e.data && e.data.catalog; }).length;
+  var checks = 0; var drafts = 0;
+  G.nodes.forEach(function (n) {
+    (n.expects || []).forEach(function (x) { checks += 1; if (x.draft) drafts += 1; });
+  });
+  var parts = [];
+  if (sess.length) parts.push('captured ' + cap + '/' + sess.length);
+  if (does.length) parts.push('bound ' + bound + '/' + does.length);
+  if (checks) parts.push('checks ' + checks + (drafts ? ' (' + drafts + ' draft' + (drafts === 1 ? '' : 's') + ')' : ''));
+  return parts.join(' · ');
+}
+function setStatus(extra) {
+  var v = validateGraph(G);
+  var el = document.getElementById('status');
+  el.className = v.ok ? 'ok' : 'bad';
+  var hint = connectMode
+    ? ' · CONNECT MODE: click a source node then a target node (or drag between them) — Esc to exit'
+    : '';
+  var ready = readiness();
+  el.textContent = (v.ok ? 'valid · ' + G.nodes.length + ' nodes · ' + G.edges.length + ' edges' : 'invalid: ' + v.errors.join(' | '))
+    + (ready ? ' · ' + ready : '') + (extra ? ' · ' + extra : '') + hint;
+  // The check badge tracks every edit; an open panel re-renders live.
+  try {
+    refreshCheckBadge();
+    var panel = document.getElementById('issues');
+    if (panel && !panel.classList.contains('hide')) renderIssues();
+  } catch (e) { /* check machinery must never break editing */ }
+  return v;
+}
+
+function clearPendingSource() {
+  if (pendingSource) cy.$id(pendingSource).removeClass('pending_src');
+  pendingSource = null;
+}
+function toggleConnect(force) {
+  connectMode = force !== undefined ? force : !connectMode;
+  document.getElementById('b_connect').classList.toggle('on', connectMode);
+  clearPendingSource();
+  if (eh) { if (connectMode) eh.enableDrawMode(); else eh.disableDrawMode(); }
+  setStatus(connectMode ? undefined : 'connect mode off');
+}
+
+function nodeById(id) { return G.nodes.find(function (n) { return n.id === id; }); }
+function edgeById(id) { return G.edges.find(function (e) { return e.id === id; }); }
+
+function showNodeForm(n) {
+  selected = { kind: 'node', id: n.id };
+  document.getElementById('p_node').classList.remove('hide');
+  document.getElementById('p_edge').classList.add('hide');
+  document.getElementById('nf_id').textContent = n.id;
+  document.getElementById('nf_label').value = n.label || '';
+  document.getElementById('nf_type').value = n.type;
+  document.getElementById('nf_system').value = n.system || '';
+  document.getElementById('nf_actor').value = n.actor || '';
+  document.getElementById('nf_account').value = n.account ? n.account.usernameEnv : '';
+  document.getElementById('nf_url').value = n.url || '';
+  document.getElementById('nf_catalog').value = n.catalog || '';
+  document.getElementById('nf_steps_status').value = n.steps ? n.steps.status : '';
+  document.getElementById('nf_journey').value = n.steps && n.steps.journeyId ? n.steps.journeyId : '';
+  document.getElementById('nf_planned').value = n.timing && n.timing.plannedMs ? n.timing.plannedMs : '';
+  document.getElementById('nf_notes').value = n.notes || '';
+  var img = document.getElementById('nf_snapshot_img');
+  if (n.snapshot && n.snapshot.ref) { img.src = n.snapshot.ref; img.style.display = 'block'; } else { img.style.display = 'none'; }
+  document.getElementById('nf_queryable').checked = !!n.queryable;
+  document.getElementById('nf_searchable').checked = n.searchable !== false;
+  document.getElementById('nf_method').value = n.endpoint && n.endpoint.method ? n.endpoint.method : '';
+  document.getElementById('nf_path').value = n.endpoint && n.endpoint.path ? n.endpoint.path : '';
+  layoutCard(n.type);
+  refreshCaptureCmd(n);
+  renderExpectRows(n);
+  renderCreds(n);
+  renderRecChip(n);
+  positionSelectedCard();
+}
+
+// Recorded state, color-coded where the eye already is.
+function renderRecChip(n) {
+  var chip = document.getElementById('nf_recchip');
+  var btn = document.getElementById('nf_capture');
+  var showFor = n.type === 'session' || n.type === 'action';
+  chip.classList.toggle('hide', !showFor);
+  if (!showFor) return;
+  var rec = n.steps && n.steps.status === 'captured';
+  chip.textContent = rec ? '● recorded' : '● record now';
+  chip.style.color = rec ? '#7dcf85' : '#d9a441';
+  chip.style.border = '1px solid ' + (rec ? '#7dcf85' : '#d9a441');
+  chip.title = rec
+    ? 'a capture backs this — journey: ' + ((n.steps && n.steps.journeyId) || '?') + ' (re-record to refresh it)'
+    : 'no capture yet — the ▶ button copies the record command';
+  btn.textContent = rec ? '↻ re-record' : '▶ start capture';
+}
+
+// Where each credential comes from — env NAMES from personas.json; live
+// set/unset dots when served by `npm run planner` (values never leave .env).
+function renderCreds(n) {
+  var box = document.getElementById('nf_creds');
+  var persona = n.actor && G.actors ? G.actors[n.actor] : undefined;
+  if (!persona) {
+    box.innerHTML = '<span style="color:var(--muted); font-size:10px;">set a role/user to see where its credentials come from</span>';
+    return;
+  }
+  var w = (window.PERSONA_ENV || {})[persona];
+  if (!w) {
+    box.innerHTML = '<span style="color:var(--muted); font-size:10px;">persona \'' + escHtml(persona) + '\' is not in personas.json — bind it (check panel lists this)</span>';
+    return;
+  }
+  if (w.kind === 'guest') {
+    box.innerHTML = '<span style="color:var(--muted); font-size:10px;">guest — browses unauthenticated, no credentials needed</span>';
+    return;
+  }
+  var status = window.ENV_STATUS;
+  // Editing exists whenever a server serves us — the page KNOWS, instead of
+  // silently downgrading when the running server predates the endpoint.
+  var served = /^https?:$/.test(location.protocol) || !!window.PLANNER_FORCE_SERVED;
+  if (served && !status && window.SERVER_STALE) {
+    box.innerHTML = '<span style="color:#d9a441; font-size:10px;">the running dev server is older than this page — restart it (Ctrl+C, then npm run planner) to edit env names + see set/unset</span>';
+    return;
+  }
+  var OPTIONAL_CREDS = { password: 1, token: 1, totp: 1 };
+  function line(key, name) {
+    if (!name && !served) return ''; // read-only view lists only what is wired
+    var dot;
+    if (!served) dot = '<span title="set/unset shown when using npm run planner" style="color:var(--muted);">○</span>';
+    else if (name && status && status[name]) dot = '<span title="set in .env" style="color:#7dcf85;">✓</span>';
+    else if (name) dot = '<span title="MISSING from .env" style="color:#e2604f;">✗</span>';
+    else dot = '<span title="not used by this system" style="color:var(--muted);">–</span>';
+    var field = served
+      ? '<input data-cred="' + key + '" value="' + escHtml(name || '') + '" placeholder="' + (OPTIONAL_CREDS[key] ? '(not used — type a name to wire it)' : 'ENV_NAME') + '" spellcheck="false" style="flex:1; min-width:0; background:transparent; color:var(--text); border:0; border-bottom:1px dashed var(--line); font:inherit; padding:0 2px;" title="your team\'s .env name for this — edits save to personas.json (names only, values stay in .env)" />'
+      : '<span>' + escHtml(name) + '</span>';
+    // Optional creds can be switched OFF — e.g. a system with no MFA needs no totp:
+    var clear = served && OPTIONAL_CREDS[key] && name
+      ? '<button data-credclear="' + key + '" class="editonly" title="this system doesn\'t use ' + key + ' — clear the mapping (stops the missing-✗ nag)" style="padding:0 6px; font-size:10px; line-height:1.6;">✕</button>'
+      : '';
+    return '<div class="credline"><span class="k">' + key + '</span>' + dot + field + clear + '</div>';
+  }
+  box.innerHTML =
+    line('url', w.url) + line('username', w.username) + line('password', w.password) +
+    line('token', w.token) + line('totp', w.totp) +
+    (served
+      ? '<div style="color:var(--muted); font-size:9px; margin-top:2px;">edit to match your existing .env — saved to personas.json; values stay in .env</div>'
+      : '<div style="color:var(--muted); font-size:9px; margin-top:2px;">names from personas.json · run npm run planner to edit + see set/unset</div>');
+  if (served) {
+    box.querySelectorAll('input[data-cred]').forEach(function (inp) {
+      inp.addEventListener('change', function () { saveCredName(persona, inp.dataset.cred, inp.value.trim(), n); });
+    });
+    box.querySelectorAll('button[data-credclear]').forEach(function (btn) {
+      btn.addEventListener('click', function () { saveCredName(persona, btn.dataset.credclear, '', n); });
+    });
+  }
+}
+
+// POST one renamed credential env NAME to the dev server → personas.json.
+function saveCredName(persona, key, value, node) {
+  var fieldByKey = { url: 'urlEnv', username: 'usernameEnv', password: 'passwordEnv', token: 'tokenEnv', totp: 'totpEnv' };
+  var body = { personaId: persona };
+  body[fieldByKey[key]] = value;
+  fetch('/__personas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function (r) {
+      return r.json()
+        .then(function (j) { return { ok: r.ok, j: j }; })
+        .catch(function () { return { ok: false, j: { error: 'the running dev server is older than this page — restart it (Ctrl+C, then npm run planner)' } }; });
+    })
+    .then(function (res) {
+      if (!res.ok || !res.j.ok) {
+        setStatus('env name NOT saved — ' + ((res.j && res.j.error) || 'server refused'));
+        renderCreds(node); // snap back to the truth on disk
+        return;
+      }
+      applyPersonaWiring(persona, res.j.wiring, res.j.envstatus);
+      var what = value
+        ? "'" + persona + "' " + key + ' now reads ' + value
+        : "'" + persona + "' " + key + " cleared — this system doesn't use it";
+      setStatus('saved to personas.json — ' + what + (res.j.warning ? ' · ⚠ ' + res.j.warning : ''));
+      renderCreds(node);
+    })
+    .catch(function () { setStatus('env name NOT saved — dev server unreachable'); renderCreds(node); });
+}
+function applyPersonaWiring(persona, wiring, envstatus) {
+  window.PERSONA_ENV = window.PERSONA_ENV || {};
+  window.PERSONA_ENV[persona] = wiring;
+  if (envstatus) window.ENV_STATUS = envstatus;
+}
+
+// Live env presence (booleans only) from the dev server, when there is one.
+try {
+  if (/^https?:$/.test(location.protocol)) {
+    fetch('/__envstatus').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j) {
+        window.ENV_STATUS = j;
+      } else {
+        window.SERVER_STALE = true; // endpoint missing → the server predates this page
+        setStatus('dev server is older than this page — restart it (Ctrl+C, then npm run planner) to edit env names');
+      }
+      if (selected && selected.kind === 'node') renderCreds(nodeById(selected.id));
+    }).catch(function () {
+      window.SERVER_STALE = true;
+      if (selected && selected.kind === 'node') renderCreds(nodeById(selected.id));
+    });
+  }
+} catch (e) { /* fetch unavailable — fine */ }
+
+// n8n-style tiering: per node type, PRIMARY rows live on the card up front;
+// EXTRA rows sit behind the "extra settings" toggle; anything unlisted hides.
+var NODE_TIERS = {
+  // The founding four data points (account, url, steps, snapshot) stay primary
+  // on the nodes that carry a flow; infra nodes keep their own essentials.
+  session: { primary: ['row_label', 'row_url', 'row_actor', 'row_creds', 'row_capture', 'row_snapshot'],
+             extra: ['row_account', 'row_type', 'row_system', 'row_steps', 'row_journey', 'row_planned', 'row_expects', 'row_notes'] },
+  action:  { primary: ['row_label', 'row_url', 'row_actor', 'row_creds', 'row_capture', 'row_snapshot'],
+             extra: ['row_account', 'row_type', 'row_system', 'row_catalog', 'row_steps', 'row_journey', 'row_planned', 'row_expects', 'row_notes'] },
+  data:       { primary: ['row_label', 'row_expects', 'row_snapshot'], extra: ['row_type', 'row_system', 'row_notes'] },
+  checkpoint: { primary: ['row_label', 'row_expects', 'row_snapshot'], extra: ['row_type', 'row_system', 'row_notes'] },
+  screen:     { primary: ['row_label', 'row_url', 'row_snapshot'], extra: ['row_type', 'row_system', 'row_expects', 'row_notes'] },
+  db:     { primary: ['row_label', 'row_queryable'], extra: ['row_type', 'row_url', 'row_notes'] },
+  logger: { primary: ['row_label', 'row_searchable'], extra: ['row_type', 'row_url', 'row_notes'] },
+  api:    { primary: ['row_label', 'row_endpoint'], extra: ['row_type', 'row_url', 'row_notes'] },
+  decision: { primary: ['row_label'], extra: ['row_type', 'row_notes'] },
+  snapshot: { primary: ['row_label', 'row_snapshot'], extra: ['row_type', 'row_notes'] },
+  start: { primary: [], extra: ['row_type'] },
+  end:   { primary: [], extra: ['row_type'] },
+};
+var ALL_ROWS = ['row_label', 'row_url', 'row_actor', 'row_account', 'row_creds', 'row_endpoint', 'row_queryable', 'row_searchable',
+  'row_capture', 'row_snapshot', 'row_expects', 'row_type', 'row_system', 'row_catalog', 'row_steps', 'row_journey', 'row_planned', 'row_notes'];
+function layoutCard(type) {
+  var t = NODE_TIERS[type] || { primary: ['row_label'], extra: ['row_type', 'row_notes'] };
+  var main = document.getElementById('np_main');
+  var extra = document.getElementById('np_extra');
+  var pool = document.getElementById('np_pool');
+  ALL_ROWS.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (t.primary.indexOf(id) >= 0) { el.style.display = ''; main.appendChild(el); }
+    else if (t.extra.indexOf(id) >= 0) { el.style.display = ''; extra.appendChild(el); }
+    else { el.style.display = 'none'; pool.appendChild(el); }
+  });
+  document.getElementById('np_none').classList.toggle('hide', t.primary.length > 0);
+  document.getElementById('nf_typechip').textContent = type;
+}
+
+// Glue the cards to the canvas element they edit — n8n's "settings on the node".
+// rAF-throttled: pan/zoom fire per frame, and an unthrottled layout-read/
+// style-write loop in those handlers can kill the renderer.
+var cardRaf = null;
+function positionSelectedCard() {
+  if (cardRaf) return;
+  cardRaf = window.requestAnimationFrame(function () {
+    cardRaf = null;
+    try { placeSelectedCard(); } catch (e) { /* never break canvas interaction */ }
+  });
+}
+function placeSelectedCard() {
+  if (!selected) return;
+  var card = document.getElementById(selected.kind === 'node' ? 'p_node' : 'p_edge');
+  if (card.classList.contains('hide')) return;
+  var ele = cy.$id(selected.id);
+  if (!ele || ele.empty()) return;
+  var rect = document.getElementById('cy').getBoundingClientRect();
+  var x; var y;
+  if (selected.kind === 'node') {
+    var bb = ele.renderedBoundingBox();
+    x = rect.left + bb.x2 + 14;
+    y = rect.top + bb.y1 - 8;
+    if (x + 310 > window.innerWidth) x = Math.max(rect.left + 8, rect.left + bb.x1 - 314); // flip left
+  } else {
+    var m = ele.renderedMidpoint();
+    x = rect.left + m.x + 14;
+    y = rect.top + m.y + 10;
+    if (x + 290 > window.innerWidth) x = Math.max(rect.left + 8, rect.left + m.x - 300);
+  }
+  card.style.left = Math.round(Math.max(rect.left + 4, x)) + 'px';
+  card.style.top = Math.round(Math.min(Math.max(rect.top + 4, y), window.innerHeight - 120)) + 'px';
+}
+
+var EXPECT_KINDS = ['ui.visible', 'ui.text', 'ui.toast', 'ui.url', 'api.record_exists', 'api.field_equals', 'db.query', 'log.traffic'];
+function renderExpectRows(n) {
+  var list = document.getElementById('xf_list');
+  list.innerHTML = '';
+  (n.expects || []).forEach(function (x, i) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex; gap:4px; margin-bottom:4px; align-items:center;';
+    var dot = '';
+    if (x.lastResult) {
+      var col = x.lastResult.status === 'pass' ? '#7dcf85' : '#e2604f';
+      dot = '<span title="' + (x.lastResult.message || x.lastResult.status) + '" style="color:' + col + '; font-size:14px;">●</span>';
+    }
+    var draftBadge = x.draft
+      ? '<button data-i="' + i + '" data-f="confirm" class="editonly" title="machine-guessed from a capture — click to confirm this check" style="padding:2px 6px; border-color:#d9a441; color:#d9a441; font-size:10px;">draft?</button>'
+      : '';
+    var timeoutBox = /^(api|db|log)\./.test(String(x.kind || ''))
+      ? '<input data-i="' + i + '" data-f="timeoutMs" value="' + (x.timeoutMs || '') + '" placeholder="ms" title="oracle budget in ms (api.* polls until then) — async integrations need more than the 10s default" style="flex:0 0 52px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 5px; font-size:11px;" />'
+      : '';
+    row.innerHTML = dot +
+      '<select data-i="' + i + '" data-f="kind" style="flex:0 0 118px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px; font-size:11px;">' +
+      EXPECT_KINDS.map(function (k) { return '<option' + (k === x.kind ? ' selected' : '') + '>' + k + '</option>'; }).join('') +
+      '</select>' +
+      '<input data-i="' + i + '" data-f="target" value="' + (x.target || '') + '" placeholder="target/SObject" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 5px; font-size:11px;" />' +
+      '<input data-i="' + i + '" data-f="value" value="' + (x.value || '') + '" placeholder="expected" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 5px; font-size:11px;" />' +
+      timeoutBox + draftBadge +
+      '<button data-i="' + i + '" data-f="del" class="editonly" title="remove" style="padding:2px 7px;">×</button>';
+    list.appendChild(row);
+  });
+  list.querySelectorAll('select,input').forEach(function (el) {
+    el.addEventListener('change', function () { writeExpectField(n.id, parseInt(el.dataset.i, 10), el.dataset.f, el.value); });
+  });
+  list.querySelectorAll('button[data-f="del"]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      var node = nodeById(n.id);
+      node.expects.splice(parseInt(el.dataset.i, 10), 1);
+      if (!node.expects.length) delete node.expects;
+      renderExpectRows(node); syncNodeVisual(node); setStatus();
+    });
+  });
+  list.querySelectorAll('button[data-f="confirm"]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      var node = nodeById(n.id);
+      var x = node.expects[parseInt(el.dataset.i, 10)];
+      delete x.draft;
+      if (x.note && x.note.indexOf('draft from capture') === 0) delete x.note;
+      renderExpectRows(node); syncNodeVisual(node);
+      setStatus('check confirmed — it will now paint pass/fail like any hand-written oracle');
+    });
+  });
+}
+function writeExpectField(nodeId, i, field, value) {
+  var node = nodeById(nodeId);
+  if (!node || !node.expects || !node.expects[i]) return;
+  if (field === 'timeoutMs') {
+    var ms = parseInt(value, 10);
+    if (ms > 0) node.expects[i].timeoutMs = ms; else delete node.expects[i].timeoutMs;
+  } else if (value) node.expects[i][field] = value; else delete node.expects[i][field];
+  delete node.expects[i].lastResult; // an edited oracle is untested again
+  renderExpectRows(node); syncNodeVisual(node); setStatus();
+}
+function syncNodeVisual(n) {
+  var el = cy.$id(n.id);
+  el.data('label', displayLabel(n));
+  el.data('exp', expAggregate(n));
+}
+document.getElementById('xf_add').addEventListener('click', function () {
+  if (!selected || selected.kind !== 'node') return;
+  var n = nodeById(selected.id);
+  n.expects = n.expects || [];
+  seq += 1;
+  n.expects.push({ id: 'check_' + Date.now().toString(36) + '_' + seq, kind: 'ui.visible', target: '' });
+  renderExpectRows(n); syncNodeVisual(n); setStatus('describe the check: kind + target + expected value');
+});
+function captureCmdFor(n) {
+  var persona = n && n.actor ? G.actors[n.actor] : undefined;
+  return persona ? 'RECORD_PERSONA=' + persona + ' RECORD_JOURNEY=' + G.id + ' npm run record' : '';
+}
+function refreshCaptureCmd(n) {
+  var cmd = captureCmdFor(n);
+  var btn = document.getElementById('nf_capture');
+  var out = document.getElementById('nf_capture_cmd');
+  out.value = cmd || 'set a role/user first — the capture runs as that persona';
+  btn.disabled = !cmd;
+}
+function slugName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24);
+}
+// Naming by convention: <target-noun>.<edge-verb> — suggested, never demanded.
+function suggestCatalog(e) {
+  var t = nodeById(e.to);
+  var noun = slugName(t ? (t.label || t.id) : '') || 'step';
+  var verb = slugName(e.label || '') || 'do';
+  return noun + '.' + verb;
+}
+function showEdgeForm(e) {
+  selected = { kind: 'edge', id: e.id };
+  document.getElementById('p_edge').classList.remove('hide');
+  document.getElementById('p_node').classList.add('hide');
+  document.getElementById('ef_id').textContent = e.id;
+  document.getElementById('ef_type').value = e.type;
+  document.getElementById('ef_label').value = e.label || '';
+  var catEl = document.getElementById('ef_catalog');
+  catEl.value = e.data && e.data.catalog ? e.data.catalog : '';
+  catEl.placeholder = e.type === 'does' && !catEl.value
+    ? 'suggest: ' + suggestCatalog(e)
+    : 'expense.submit';
+  document.getElementById('ef_auth').value = e.data && e.data.auth ? e.data.auth : '';
+  document.getElementById('ef_capability').value = e.data && e.data.capability ? e.data.capability : '';
+  var t = [];
+  if (e.type === 'login_as') t.push('mechanism: ' + ((e.data && e.data.auth) || 'unset') + ' — how the session is acquired (frontdoor = SF token injection, singleaccess = UI Bridge, ui = typed login once)');
+  if (e.data && e.data.recordRef) t.push('record: ' + e.data.recordRef);
+  if (e.data && e.data.deltaMs !== undefined) t.push('Δ ' + fmtMs(e.data.deltaMs));
+  if (e.data && e.data.frequency !== undefined) t.push('×' + e.data.frequency);
+  if (e.data && e.data.meanMs !== undefined) t.push('mean ' + fmtMs(e.data.meanMs));
+  document.getElementById('ef_timing').textContent = t.join(' · ') || '—';
+  positionSelectedCard();
+}
+function hideForms() { selected = null; document.getElementById('p_node').classList.add('hide'); document.getElementById('p_edge').classList.add('hide'); }
+
+function readNodeForm() {
+  if (!selected || selected.kind !== 'node') return;
+  var n = nodeById(selected.id); if (!n) return;
+  n.label = document.getElementById('nf_label').value;
+  n.type = document.getElementById('nf_type').value;
+  var sv = document.getElementById('nf_system').value; if (sv) n.system = sv; else delete n.system;
+  var av = document.getElementById('nf_actor').value; if (av) n.actor = av; else delete n.actor;
+  var acc = document.getElementById('nf_account').value.trim(); if (acc) n.account = { usernameEnv: acc }; else delete n.account;
+  var url = document.getElementById('nf_url').value.trim(); if (url) n.url = url; else delete n.url;
+  var cat = document.getElementById('nf_catalog').value.trim(); if (cat) n.catalog = cat; else delete n.catalog;
+  var ss = document.getElementById('nf_steps_status').value;
+  var jid = document.getElementById('nf_journey').value.trim();
+  if (ss) { n.steps = n.steps || {}; n.steps.status = ss; if (jid) n.steps.journeyId = jid; else delete n.steps.journeyId; }
+  else if (!jid) delete n.steps;
+  var pm = parseInt(document.getElementById('nf_planned').value, 10);
+  if (pm > 0) { n.timing = n.timing || {}; n.timing.plannedMs = pm; } else if (n.timing) delete n.timing.plannedMs;
+  var notes = document.getElementById('nf_notes').value; if (notes) n.notes = notes; else delete n.notes;
+  // Infra fields — written only for the types that own them:
+  if (n.type === 'db') {
+    if (document.getElementById('nf_queryable').checked) n.queryable = true; else delete n.queryable;
+  } else delete n.queryable;
+  if (n.type === 'logger') {
+    if (document.getElementById('nf_searchable').checked) delete n.searchable; else n.searchable = false;
+  } else delete n.searchable;
+  if (n.type === 'api') {
+    var method = document.getElementById('nf_method').value;
+    var epath = document.getElementById('nf_path').value.trim();
+    if (method || epath) n.endpoint = Object.assign({}, method ? { method: method } : {}, epath ? { path: epath } : {});
+    else delete n.endpoint;
+  } else delete n.endpoint;
+  layoutCard(n.type);
+  var el = cy.$id(n.id);
+  el.data('label', displayLabel(n)); el.data('type', n.type); el.data('color', n.system ? sysColor(n.system) : '#555b64');
+  setStatus();
+}
+function readEdgeForm() {
+  if (!selected || selected.kind !== 'edge') return;
+  var e = edgeById(selected.id); if (!e) return;
+  e.type = document.getElementById('ef_type').value;
+  var lb = document.getElementById('ef_label').value; if (lb) e.label = lb; else delete e.label;
+  var cat = document.getElementById('ef_catalog').value.trim();
+  if (cat) { e.data = e.data || {}; e.data.catalog = cat; } else if (e.data) delete e.data.catalog;
+  var auth = document.getElementById('ef_auth').value;
+  if (auth) { e.data = e.data || {}; e.data.auth = auth; } else if (e.data) delete e.data.auth;
+  var cap = document.getElementById('ef_capability').value.trim();
+  if (cap) { e.data = e.data || {}; e.data.capability = cap; } else if (e.data) delete e.data.capability;
+  var el = cy.$id(e.id); el.data('type', e.type); el.data('label', edgeLabel(e));
+  setStatus();
+}
+
+function addNode(partial) {
+  var n = Object.assign({ id: nid(), type: 'action', label: 'new step' }, partial || {});
+  if (!n.pos) { var p = { x: cy.width() / 2, y: cy.height() / 2 }; var rp = cy.pan(); var z = cy.zoom(); n.pos = { x: (p.x - rp.x) / z, y: (p.y - rp.y) / z }; }
+  G.nodes.push(n);
+  cy.add({ group: 'nodes', data: { id: n.id, label: displayLabel(n), type: n.type, color: n.system ? sysColor(n.system) : '#555b64' }, position: { x: n.pos.x, y: n.pos.y } });
+  cy.$id(n.id).select();
+  setStatus();
+  return n.id;
+}
+function connect(from, to, type) {
+  var e = { id: 'e_' + Date.now().toString(36) + '_' + (seq += 1), from: from, to: to, type: type || 'next' };
+  G.edges.push(e);
+  cy.add({ group: 'edges', data: { id: e.id, source: from, target: to, type: e.type, label: edgeLabel(e) } });
+  setStatus();
+  return e.id;
+}
+function deleteSelected() {
+  if (!selected) return;
+  if (selected.kind === 'node') {
+    G.nodes = G.nodes.filter(function (n) { return n.id !== selected.id; });
+    G.edges = G.edges.filter(function (e) { return e.from !== selected.id && e.to !== selected.id; });
+  } else {
+    G.edges = G.edges.filter(function (e) { return e.id !== selected.id; });
+  }
+  var id = selected.id; hideForms(); render();
+  setStatus('deleted ' + id);
+}
+function syncPositions() {
+  cy.nodes().forEach(function (el) {
+    var n = nodeById(el.id());
+    if (n) n.pos = { x: Math.round(el.position('x')), y: Math.round(el.position('y')) };
+  });
+}
+function exportGraph() {
+  // Export = get the JSON out. Persistence is the explicit save ▾ menu's job.
+  syncPositions();
+  var v = setStatus('exported');
+  var json = JSON.stringify(G, null, 2);
+  document.getElementById('export_out').value = json;
+  return { json: json, ok: v.ok, errors: v.errors };
+}
+
+var ID_OK = /^[a-z][a-z0-9_]*$/;
+function refreshSaveMenu() {
+  var sel = document.getElementById('f_save');
+  sel.innerHTML = '<option value="">save ▾</option>';
+  var inBrowser = !!browserSaves()[G.id];
+  var inRepo = !!(window.GRAPH_LIBRARY || {})[G.id];
+  if (inBrowser) {
+    sel.add(new Option('overwrite "' + G.id + '"', 'overwrite'));
+  } else {
+    sel.add(new Option('save "' + G.id + '"' + (inRepo ? ' (browser copy of built-in)' : ''), 'save'));
+  }
+  sel.add(new Option('save as…', 'saveas'));
+}
+function doSave(mode) {
+  syncPositions();
+  var v = validateGraph(G);
+  if (!v.ok) {
+    var el = document.getElementById('status');
+    el.className = 'bad';
+    el.textContent = 'cannot save an invalid graph: ' + v.errors.join(' | ');
+    return { ok: false, errors: v.errors };
+  }
+  if (mode === 'saveas') {
+    var id = prompt('save as id (lower_snake_case):', G.id + '_copy');
+    if (id === null) { setStatus('save as cancelled'); return { ok: false, errors: ['cancelled'] }; }
+    id = id.trim();
+    if (!ID_OK.test(id)) {
+      var st = document.getElementById('status');
+      st.className = 'bad';
+      st.textContent = 'save as refused: "' + id + '" is not lower_snake_case';
+      return { ok: false, errors: ['bad id'] };
+    }
+    G.id = id;
+    refreshMeta();
+  }
+  persistToBrowser(G);
+  refreshLibrary();
+  refreshSaveMenu();
+  setStatus((mode === 'overwrite' ? 'overwrote' : 'saved') + ' "' + G.id + '" in this browser');
+  return { ok: true, errors: [] };
+}
+function loadGraph(input) {
+  var doc = typeof input === 'string' ? JSON.parse(input) : input;
+  var v = validateGraph(doc);
+  if (!v.ok) { setStatus(); var el = document.getElementById('status'); el.className = 'bad'; el.textContent = 'load refused: ' + v.errors.join(' | '); return v; }
+  G = doc; hideForms(); render();
+  return v;
+}
+var LS_KEY = 'planner.graphs.v1';
+function browserSaves() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { return {}; }
+}
+function persistToBrowser(graph) {
+  try {
+    var all = browserSaves();
+    all[graph.id] = graph;
+    localStorage.setItem(LS_KEY, JSON.stringify(all));
+  } catch (e) { /* storage unavailable (private window etc.) — dropdown just won't remember */ }
+}
+function refreshLibrary() {
+  var sel = document.getElementById('f_library');
+  sel.innerHTML = '<option value="">open graph…</option>';
+  var builtIn = window.GRAPH_LIBRARY || {};
+  var names = Object.keys(builtIn).sort();
+  if (names.length) {
+    var g1 = document.createElement('optgroup'); g1.label = 'built-in (repo)';
+    names.forEach(function (id) { g1.appendChild(new Option(id, 'lib:' + id)); });
+    sel.appendChild(g1);
+  }
+  var saves = browserSaves();
+  var saveNames = Object.keys(saves).sort();
+  if (saveNames.length) {
+    var g2 = document.createElement('optgroup'); g2.label = 'saved in this browser';
+    saveNames.forEach(function (id) { g2.appendChild(new Option(id, 'ls:' + id)); });
+    sel.appendChild(g2);
+  }
+  refreshSaveMenu();
+}
+function openFromLibrary(value) {
+  if (!value) return;
+  var sep = value.indexOf(':');
+  var source = value.slice(0, sep);
+  var id = value.slice(sep + 1);
+  var doc = source === 'lib' ? (window.GRAPH_LIBRARY || {})[id] : browserSaves()[id];
+  if (doc) loadGraph(JSON.parse(JSON.stringify(doc)));
+  document.getElementById('f_library').value = '';
+}
+
+function setMode(m) {
+  document.body.classList.toggle('view', m === 'view');
+  document.getElementById('f_mode').value = m;
+  cy.autoungrabify(m === 'view');
+  ['b_add', 'b_connect', 'b_delete', 'b_meta_apply', 'b_import', 'f_save', 'b_new'].forEach(function (id) { document.getElementById(id).disabled = m === 'view'; });
+  connectMode = false;
+  clearPendingSource();
+  if (eh) eh.disableDrawMode();
+  document.getElementById('b_connect').classList.remove('on');
+}
+
+cy.on('select', 'node', function (ev) { showNodeForm(nodeById(ev.target.id())); });
+cy.on('select', 'edge', function (ev) { showEdgeForm(edgeById(ev.target.id())); });
+cy.on('unselect', function () { if (cy.$(':selected').length === 0) hideForms(); });
+cy.on('dbltap', function (ev) { if (ev.target === cy && !document.body.classList.contains('view')) addNode({ pos: { x: ev.position.x, y: ev.position.y } }); });
+cy.on('dbltap', 'node', function (ev) {
+  var n = nodeById(ev.target.id());
+  if (!n || n.type !== 'session') return;
+  var cmd = captureCmdFor(n);
+  if (!cmd) { setStatus("session '" + n.id + "' has no role/user yet — set one, then double-click to capture"); return; }
+  var done = function () {
+    setStatus('capture command copied for ' + (n.actor || n.id) + ' — paste it in a terminal at the project root; drive the flow; close the browser window to finish');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(cmd).then(done, done);
+  else done();
+});
+cy.on('ehcomplete', function (ev, source, target, added) { added.remove(); clearPendingSource(); connect(source.id(), target.id(), 'next'); setStatus('connected ' + source.id() + ' → ' + target.id()); });
+cy.on('tap', 'node', function (ev) {
+  if (!connectMode) return;
+  var id = ev.target.id();
+  if (!pendingSource) {
+    pendingSource = id;
+    ev.target.addClass('pending_src');
+    setStatus('source: ' + id + ' — now click the target node');
+  } else if (pendingSource === id) {
+    clearPendingSource();
+    setStatus('source cleared');
+  } else {
+    var from = pendingSource;
+    clearPendingSource();
+    connect(from, id, 'next');
+    setStatus('connected ' + from + ' → ' + id + ' (select the edge to change its type)');
+  }
+});
+
+['nf_label','nf_type','nf_system','nf_actor','nf_account','nf_url','nf_catalog','nf_steps_status','nf_journey','nf_planned','nf_notes','nf_queryable','nf_searchable','nf_method','nf_path'].forEach(function (id) {
+  document.getElementById(id).addEventListener('change', function () {
+    readNodeForm();
+    if (selected && selected.kind === 'node') {
+      var n = nodeById(selected.id);
+      refreshCaptureCmd(n);
+      renderCreds(n);
+      renderRecChip(n);
+    }
+  });
+});
+document.getElementById('nf_capture').addEventListener('click', function () {
+  var n = selected && selected.kind === 'node' ? nodeById(selected.id) : null;
+  var cmd = n ? captureCmdFor(n) : '';
+  if (!cmd) return;
+  var done = function () { setStatus('capture command copied — paste it in a terminal at the project root; drive the flow; close the browser window to finish'); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(cmd).then(done, done);
+  else { var out = document.getElementById('nf_capture_cmd'); out.select(); document.execCommand('copy'); done(); }
+});
+['ef_type','ef_label','ef_catalog','ef_auth','ef_capability'].forEach(function (id) {
+  document.getElementById(id).addEventListener('change', readEdgeForm);
+});
+document.getElementById('nf_snapshot').addEventListener('change', function (ev) {
+  var f = ev.target.files && ev.target.files[0]; if (!f || !selected || selected.kind !== 'node') return;
+  var r = new FileReader();
+  r.onload = function () {
+    var n = nodeById(selected.id);
+    n.snapshot = { status: 'captured', ref: String(r.result), capturedAt: new Date().toISOString() };
+    showNodeForm(n); setStatus('snapshot attached');
+  };
+  r.readAsDataURL(f);
+});
+// add ▾ — typed nodes with readable ids and honest defaults.
+var ADD_DEFAULTS = {
+  session: { label: 'System · role' },
+  screen: { label: 'screen' },
+  data: { label: 'Record' },
+  checkpoint: { label: 'Checkpoint' },
+  decision: { label: 'Decision?' },
+  action: { label: 'new step' },
+  api: { label: 'endpoint_name', endpoint: { method: 'POST' } },
+  db: { label: 'Database' },              // queryable stays OFF until a human says so
+  logger: { label: 'Log system' },        // searchable by default
+};
+var ID_PREFIX = { session: 'sess', screen: 'scr', data: 'data', checkpoint: 'chk', decision: 'dec', action: 'act', api: 'api', db: 'db', logger: 'log' };
+var ADD_HINTS = {
+  session: 'set the role/user — then double-click the node any time to copy its capture command',
+  db: 'tick "tests can QUERY" only if tests can really reach it — then checks elsewhere can use db.query targeting this node id',
+  logger: 'checks elsewhere can use log.traffic targeting this node id (e.g. search for an endpoint name)',
+  api: 'name the endpoint (e.g. create_customer_v2) — wire it into the flow with touches/handoff edges',
+  checkpoint: 'add what-to-test checks here; an asserts edge into it runs them',
+  data: 'add what-to-test checks; use after= to tie a check to the step that makes it true',
+};
+function nextNodeId(prefix) {
+  var ids = {};
+  G.nodes.forEach(function (n) { ids[n.id] = true; });
+  var k = 1;
+  while (ids[prefix + '_' + k]) k += 1;
+  return prefix + '_' + k;
+}
+function addTyped(type) {
+  var d = ADD_DEFAULTS[type] || { label: 'new step' };
+  var id = addNode(Object.assign({ id: nextNodeId(ID_PREFIX[type] || 'n'), type: type }, JSON.parse(JSON.stringify(d))));
+  setStatus(ADD_HINTS[type] || 'node added — label it, then connect it');
+  return id;
+}
+document.getElementById('b_add').addEventListener('change', function (ev) {
+  var t = ev.target.value;
+  ev.target.value = '';
+  if (t) addTyped(t);
+});
+
+// new — a fresh graph is never a blank stare: start + end are waiting.
+function newGraph(force) {
+  var dirty = G.nodes.length > 2 || G.edges.length > 0 || (G.nodes.length === 2 && G.nodes.some(function (n) { return n.type !== 'start' && n.type !== 'end'; }));
+  if (!force && dirty && !window.confirm('Start a new graph? Unsaved changes to the current one are lost (save ▾ first if you want it).')) return false;
+  G = {
+    schema: 'process-graph/2', id: '', title: '',
+    systems: { sf: { label: 'Salesforce', kind: 'salesforce' } },
+    actors: {},
+    nodes: [
+      { id: 'start', type: 'start', label: '', pos: { x: 200, y: 100 } },
+      { id: 'end', type: 'end', label: '', pos: { x: 200, y: 420 } },
+    ],
+    edges: [],
+  };
+  render();
+  hideForms();
+  document.getElementById('p_meta').classList.remove('hide'); // naming comes first
+  document.getElementById('gf_id').focus();
+  setStatus('new graph — give it an id, then add ▾ nodes and connect start → … → end');
+  return true;
+}
+document.getElementById('b_new').addEventListener('click', function () { newGraph(false); });
+document.getElementById('b_graphmeta').addEventListener('click', function () {
+  document.getElementById('p_meta').classList.toggle('hide');
+});
+document.getElementById('pm_close').addEventListener('click', function () {
+  document.getElementById('p_meta').classList.add('hide');
+});
+document.getElementById('b_help').addEventListener('click', function () {
+  document.getElementById('legend').classList.toggle('hide');
+});
+document.getElementById('legend').addEventListener('click', function () {
+  document.getElementById('legend').classList.add('hide');
+});
+
+// ---- graph check: every problem and unfinished part, with hints ----------
+function graphIssues() {
+  var v = validateGraph(G);
+  var gaps = [];
+  try { gaps = computeGaps(G, { knownPersonas: PERSONA_IDS }); } catch (e) { /* engine absent → errors alone */ }
+  return { errors: v.errors, gaps: gaps };
+}
+function refreshCheckBadge(pre) {
+  var i = pre || graphIssues();
+  var n = i.errors.length + i.gaps.length;
+  var b = document.getElementById('b_check');
+  b.textContent = n ? 'check (' + n + ')' : 'check ✓';
+  b.style.color = i.errors.length ? '#e2604f' : (n ? '#d9a441' : '#7dcf85');
+  return i;
+}
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function focusIssue(at) {
+  var id = at;
+  if (!nodeById(id) && !edgeById(id) && at.indexOf('.') > 0) id = at.split('.')[0];
+  if (nodeById(id) || edgeById(id)) {
+    cy.$(':selected').unselect();
+    cy.$id(id).select();
+    cy.animate({ center: { eles: cy.$id(id) }, duration: 200 });
+  } else {
+    setStatus("this one lives on '" + at + "' — fix it in the graph panel (id/actors/systems)");
+  }
+}
+function renderIssues() {
+  var i = refreshCheckBadge();
+  var list = document.getElementById('iss_list');
+  list.innerHTML = '';
+  function section(title, color) {
+    var h = document.createElement('div');
+    h.style.cssText = 'margin:6px 0 3px; color:' + color + '; font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:10px;';
+    h.textContent = title;
+    list.appendChild(h);
+  }
+  function row(color, icon, text, at) {
+    var div = document.createElement('div');
+    div.className = 'iss_row';
+    div.style.cssText = 'padding:5px 6px; border-radius:5px; display:flex; gap:6px; align-items:flex-start; line-height:1.5;' + (at ? ' cursor:pointer;' : '');
+    div.innerHTML = '<span style="color:' + color + '; flex:0 0 auto;">' + icon + '</span><span>' + escHtml(text) + '</span>';
+    if (at) {
+      div.title = 'click to jump to it';
+      div.addEventListener('mouseenter', function () { div.style.background = 'rgba(255,255,255,.05)'; });
+      div.addEventListener('mouseleave', function () { div.style.background = ''; });
+      div.addEventListener('click', function () { focusIssue(at); });
+    }
+    list.appendChild(div);
+  }
+  if (i.errors.length) {
+    section('must fix — blocks save and ▶ test', '#e2604f');
+    i.errors.forEach(function (e) {
+      var at = /^(?:nodes|edges)\.([a-z0-9_]+)/.exec(e);
+      row('#e2604f', '✗', e, at ? at[1] : null);
+    });
+  }
+  if (i.gaps.length) {
+    section('to finish — the graph runs better once these are answered', '#d9a441');
+    i.gaps.forEach(function (gap) { row('#d9a441', '⚠', gap.question, gap.at); });
+  }
+  if (!i.errors.length && !i.gaps.length) {
+    row('#7dcf85', '✓', 'valid and complete — save ▾ to keep it, ▶ test ▾ to turn it into a running spec', null);
+  }
+}
+document.getElementById('b_check').addEventListener('click', function () {
+  var panel = document.getElementById('issues');
+  panel.classList.toggle('hide');
+  if (!panel.classList.contains('hide')) renderIssues();
+});
+document.getElementById('iss_close').addEventListener('click', function () {
+  document.getElementById('issues').classList.add('hide');
+});
+
+// ---- hover tooltips on the canvas ----------------------------------------
+function tipFor(id) {
+  var n = nodeById(id);
+  if (n) {
+    switch (n.type) {
+      case 'start': return 'start — every run begins here';
+      case 'end': return 'end — the flow is complete';
+      case 'session': {
+        var persona = n.actor && G.actors ? (G.actors[n.actor] || n.actor) : '(no role yet)';
+        var cap = n.steps && n.steps.status === 'captured' ? 'captured ✓' : 'not recorded yet — double-click to copy the capture command';
+        return 'session — ' + (n.actor || '?') + ' acts as persona \'' + persona + '\'' + (n.url ? ' · starts at ' + n.url : '') + ' · ' + cap;
+      }
+      case 'data': {
+        var c = (n.expects || []).length;
+        var d = (n.expects || []).filter(function (x) { return x.draft; }).length;
+        return 'data record — ' + (c ? c + ' check' + (c === 1 ? '' : 's') + (d ? ' (' + d + ' draft to confirm)' : '') : 'no checks yet: what proves this record is right?');
+      }
+      case 'checkpoint': return 'checkpoint — an asserts edge into it runs its checks' + ((n.expects || []).length ? '' : ' (none defined yet)');
+      case 'screen': return 'screen — a place in the app';
+      case 'db': return n.queryable
+        ? 'database — QUERYABLE: db.query checks elsewhere can target \'' + n.id + '\''
+        : 'database — NOT queryable: tests cannot reach it; verify via the app API or a log system (tick the switch in the panel if they can)';
+      case 'logger': return n.searchable === false
+        ? 'log system — marked NOT searchable'
+        : 'log system — log.traffic checks can search it, e.g. for an endpoint name';
+      case 'api': {
+        var ep = n.endpoint || {};
+        return 'api endpoint' + (ep.method ? ' · ' + ep.method : '') + (ep.path ? ' ' + ep.path : '') + ' — integration hop; prove traffic with a log.traffic check';
+      }
+      case 'decision': return 'decision — the flow branches here';
+      default: return n.type + ' — ' + (n.label || n.id);
+    }
+  }
+  var e = edgeById(id);
+  if (e) {
+    switch (e.type) {
+      case 'login_as': return 'login as — this role signs in' + (e.data && e.data.auth ? ' (' + e.data.auth + ')' : '');
+      case 'does': return 'does — the step' + (e.data && e.data.catalog ? ' \'' + e.data.catalog + '\'' : ' (unbound: name or capture it)');
+      case 'asserts': return 'asserts — runs the target node\'s checks';
+      case 'denied': case 'deny': return 'must NOT be able to' + (e.data && e.data.capability ? ': ' + e.data.capability : '') + ' — a security check';
+      case 'handoff': return 'handoff — a record crosses here' + (e.data && e.data.recordRef ? ' (' + e.data.recordRef + ')' : '');
+      case 'touches': return 'touches — writes/reads this system on the way through';
+      case 'requires': return 'requires — must be true before this can run';
+      case 'navigates': return 'navigates — moves to another place in the app';
+      default: return e.type;
+    }
+  }
+  return '';
+}
+(function () {
+  var tip = document.createElement('div');
+  tip.id = 'cytip';
+  tip.style.cssText = 'position:absolute; z-index:40; display:none; max-width:280px; background:#1c1f26; color:#e8e9eb; border:1px solid var(--line); border-radius:6px; padding:6px 9px; font-size:11px; line-height:1.5; pointer-events:none; box-shadow:0 4px 16px rgba(0,0,0,.5);';
+  document.body.appendChild(tip);
+  var hide = function () { tip.style.display = 'none'; };
+  cy.on('mouseover', 'node, edge', function (ev) {
+    var text = tipFor(ev.target.id());
+    if (!text) return;
+    tip.textContent = text;
+    var p = ev.renderedPosition || (ev.originalEvent ? { x: ev.originalEvent.offsetX, y: ev.originalEvent.offsetY } : null);
+    if (!p) return;
+    var rect = document.getElementById('cy').getBoundingClientRect();
+    tip.style.left = Math.min(rect.left + p.x + 14, window.innerWidth - 300) + 'px';
+    tip.style.top = (rect.top + p.y + 14) + 'px';
+    tip.style.display = 'block';
+  });
+  cy.on('mouseout', 'node, edge', hide);
+  cy.on('pan zoom drag tapstart', hide);
+})();
+
+// Cards stay glued while the canvas moves under them.
+cy.on('pan zoom', positionSelectedCard);
+cy.on('position', 'node', positionSelectedCard);
+window.addEventListener('resize', positionSelectedCard);
+document.getElementById('b_connect').addEventListener('click', function () { toggleConnect(); });
+document.getElementById('b_delete').addEventListener('click', deleteSelected);
+document.getElementById('b_layout').addEventListener('click', function () { runLayout(); cy.fit(undefined, 30); });
+document.getElementById('b_fit').addEventListener('click', function () { cy.fit(undefined, 30); });
+document.getElementById('b_export').addEventListener('click', exportGraph);
+document.getElementById('b_download').addEventListener('click', function () {
+  var out = exportGraph();
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([out.json], { type: 'application/json' }));
+  a.download = (G.id || 'process') + '.graph.json';
+  a.click();
+});
+document.getElementById('b_import').addEventListener('click', function () { document.getElementById('f_import').click(); });
+document.getElementById('f_import').addEventListener('change', function (ev) {
+  var f = ev.target.files && ev.target.files[0]; if (!f) return;
+  var r = new FileReader(); r.onload = function () { loadGraph(String(r.result)); }; r.readAsText(f);
+});
+document.getElementById('b_meta_apply').addEventListener('click', function () {
+  try {
+    G.id = document.getElementById('gf_id').value.trim();
+    G.title = document.getElementById('gf_title').value;
+    G.systems = JSON.parse(document.getElementById('gf_systems').value);
+    G.actors = JSON.parse(document.getElementById('gf_actors').value);
+    render();
+  } catch (e) { var el = document.getElementById('status'); el.className = 'bad'; el.textContent = 'meta json invalid: ' + e.message; }
+});
+document.getElementById('f_mode').addEventListener('change', function (ev) { setMode(ev.target.value); });
+document.getElementById('f_library').addEventListener('change', function (ev) { openFromLibrary(ev.target.value); });
+document.getElementById('f_save').addEventListener('mousedown', refreshSaveMenu);
+document.getElementById('f_save').addEventListener('change', function (ev) {
+  var mode = ev.target.value;
+  ev.target.value = '';
+  if (mode) doSave(mode);
+});
+document.addEventListener('keydown', function (ev) {
+  if (ev.key === 'Escape' && connectMode) toggleConnect(false);
+  if ((ev.key === 'Delete' || ev.key === 'Backspace') && selected && document.activeElement === document.body) deleteSelected();
+});
+
+// ▶ test — graph-level commands. The planner is a static page, so like the
+// capture cockpit it hands you the exact terminal command instead of running it.
+function testCmds() {
+  var id = (G.id || '').trim();
+  if (!id) return null;
+  return {
+    spec: 'GRAPH_SPEC=' + id + ' npm run graph:spec',
+    run: 'npm run test:e2e -- tests/e2e/' + id + '.journey.spec.ts',
+  };
+}
+function copyCmd(cmd, what) {
+  var done = function () { setStatus(what + ' — copied, paste at the project root:  ' + cmd); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(cmd).then(done, done);
+  else done();
+}
+document.getElementById('f_test').addEventListener('change', function (ev) {
+  var v = ev.target.value; ev.target.value = '';
+  if (!v) return;
+  var c = testCmds();
+  if (!c) { setStatus('give the graph an id first — the spec file is named after it'); return; }
+  if (v === 'spec') copyCmd(c.spec, 'make spec (writes tests/e2e/' + G.id + '.journey.spec.ts from this graph)');
+  if (v === 'run') copyCmd(c.run, 'run spec (add --headed to watch; every run repaints this graph pass/fail)');
+});
+
+window.planner = {
+  load: loadGraph, export: exportGraph, get: function () { return G; },
+  addNode: addNode, connect: connect,
+  select: function (id) { cy.$(':selected').unselect(); cy.$id(id).select(); },
+  deleteSelected: deleteSelected, setMode: setMode, layout: runLayout,
+  validate: function () { return validateGraph(G); }, version: 'planner/1',
+  save: doSave,
+  testCommands: testCmds,
+  readiness: readiness,
+  suggestCatalog: function (edgeId) { var e = edgeById(edgeId); return e ? suggestCatalog(e) : null; },
+  newGraph: newGraph,
+  addTyped: addTyped,
+  tipFor: tipFor,
+  issues: graphIssues,
+  applyPersonaWiring: applyPersonaWiring,
+  openFromLibrary: openFromLibrary,
+  library: function () {
+    return { builtIn: Object.keys(window.GRAPH_LIBRARY || {}).sort(), saved: Object.keys(browserSaves()).sort() };
+  },
+};
+
+var params = new URLSearchParams(location.search);
+setMode(params.get('mode') === 'view' ? 'view' : 'edit');
+refreshLibrary();
+render();
+</script>
+</body>
+</html>
