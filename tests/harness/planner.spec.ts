@@ -877,6 +877,21 @@ test('readiness cockpit: status bar counts captured/bound/checks; ✓rec marks c
   await expect(page.locator('#ef_catalog')).toHaveAttribute('placeholder', 'suggest: expense_record.submit_expense');
 });
 
+test('check rows stay readable in the card: target/value get real width on their own line', async ({ page }) => {
+  await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
+  await page.evaluate(() => window.planner.select('expense'));
+  // The squeeze regression: with kind+ms+✕ on one line and target/value on
+  // the next, each input must hold real content (was ~35px, unusable).
+  const widths = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('#xf_list input[data-f="target"], #xf_list input[data-f="value"]'))
+      .map((el) => el.getBoundingClientRect().width),
+  );
+  expect(widths.length).toBeGreaterThanOrEqual(4); // 2 checks × target+value
+  for (const w of widths) expect(w).toBeGreaterThan(90);
+  // The snapshot slot explains it fills itself from runs:
+  await expect(page.locator('#row_snapshot')).toContainText('every run embeds its screenshot here automatically');
+});
+
 test('draft oracles: badge shows, confirm clears it; api timeout edits write timeoutMs', async ({ page }) => {
   const g = goodGraphV2() as unknown as {
     nodes: { id: string; expects?: Record<string, unknown>[] }[];

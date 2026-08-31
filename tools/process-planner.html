@@ -149,7 +149,9 @@
         <button id="nf_capture" style="width:100%; border-color:#5aa9e6; color:#5aa9e6; font-weight:600;">▶ start capture</button>
         <input id="nf_capture_cmd" readonly class="mono" style="margin-top:4px; font-size:10px; color:var(--muted);" title="the recording command — copied on click" />
       </div>
-      <div class="field wide" id="row_snapshot"><label>snapshot</label><img id="nf_snapshot_img" alt="snapshot" /><input id="nf_snapshot" type="file" accept="image/*" class="editonly" /></div>
+      <div class="field wide" id="row_snapshot"><label>snapshot</label>
+        <div style="color:var(--muted); font-size:10px; margin-bottom:3px;">run evidence — every run embeds its screenshot here automatically; attach a file only as a manual reference</div>
+        <img id="nf_snapshot_img" alt="snapshot" /><input id="nf_snapshot" type="file" accept="image/*" class="editonly" /></div>
       <div class="field wide" id="row_expects"><label>what to test (pass/fail oracles for this state)</label>
         <div id="xf_list"></div>
         <button id="xf_add" class="editonly" style="margin-top:4px; width:100%;">+ add check</button>
@@ -6199,16 +6201,24 @@ function renderExpectRows(n) {
       ? '<button data-i="' + i + '" data-f="confirm" class="editonly" title="machine-guessed from a capture — click to confirm this check" style="padding:2px 6px; border-color:#d9a441; color:#d9a441; font-size:10px;">draft?</button>'
       : '';
     var timeoutBox = /^(api|db|log)\./.test(String(x.kind || ''))
-      ? '<input data-i="' + i + '" data-f="timeoutMs" value="' + (x.timeoutMs || '') + '" placeholder="ms" title="oracle budget in ms (api.* polls until then) — async integrations need more than the 10s default" style="flex:0 0 52px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 5px; font-size:11px;" />'
+      ? '<input data-i="' + i + '" data-f="timeoutMs" value="' + (x.timeoutMs || '') + '" placeholder="ms" title="oracle budget in ms (api.* polls until then) — async integrations need more than the 10s default" style="flex:0 0 56px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 5px; font-size:11px;" />'
       : '';
-    row.innerHTML = dot +
-      '<select data-i="' + i + '" data-f="kind" style="flex:0 0 118px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px; font-size:11px;">' +
+    // Two lines per check — inputs stay READABLE inside a 300px card:
+    // line 1: verdict dot · kind · budget · draft? · remove
+    // line 2: target + expected, each getting real width.
+    row.innerHTML =
+      '<div style="display:flex; gap:4px; align-items:center; width:100%;">' + dot +
+      '<select data-i="' + i + '" data-f="kind" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px; font-size:11px;">' +
       EXPECT_KINDS.map(function (k) { return '<option' + (k === x.kind ? ' selected' : '') + '>' + k + '</option>'; }).join('') +
       '</select>' +
-      '<input data-i="' + i + '" data-f="target" value="' + (x.target || '') + '" placeholder="target/SObject" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 5px; font-size:11px;" />' +
-      '<input data-i="' + i + '" data-f="value" value="' + (x.value || '') + '" placeholder="expected" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 5px; font-size:11px;" />' +
       timeoutBox + draftBadge +
-      '<button data-i="' + i + '" data-f="del" class="editonly" title="remove" style="padding:2px 7px;">×</button>';
+      '<button data-i="' + i + '" data-f="del" class="editonly" title="remove" style="padding:2px 7px;">×</button>' +
+      '</div>' +
+      '<div style="display:flex; gap:4px; width:100%; margin-top:3px;">' +
+      '<input data-i="' + i + '" data-f="target" value="' + (x.target || '') + '" placeholder="target / SObject / node id" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 5px; font-size:11px;" />' +
+      '<input data-i="' + i + '" data-f="value" value="' + (x.value || '') + '" placeholder="expected value / text" style="flex:1; min-width:0; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:3px 5px; font-size:11px;" />' +
+      '</div>';
+    row.style.cssText = 'display:block; margin-bottom:7px;';
     list.appendChild(row);
   });
   list.querySelectorAll('select,input').forEach(function (el) {
