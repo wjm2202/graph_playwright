@@ -90,6 +90,12 @@ export class JourneyRunError extends Error {
 export interface CastLike {
   as(personaId: string): Promise<Page>;
   deny: (personaId: string, probe: Parameters<import('../fixtures/cast').Cast['deny']>[1]) => Promise<void>;
+  /**
+   * Optional: adopt session limits discovered at run time (runGraph derives
+   * them from the graph's systems). Optional so the harness's minimal fake
+   * casts stay valid — a fake only implements it when it tests policy.
+   */
+  applySessionPolicies?: (policies: import('../fixtures/cast').SessionPolicies) => void;
 }
 
 export interface RunnerDeps {

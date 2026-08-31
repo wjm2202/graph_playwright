@@ -779,11 +779,18 @@ test('check: badge counts issues live; the panel lists must-fix + to-finish with
   await page.locator('#b_check').click();
   await expect(page.locator('#issues')).toBeVisible();
   await expect(page.locator('#iss_list')).toContainText('to finish');
-  await expect(page.locator('#iss_list')).toContainText("Role 'approver' is bound to persona 'ghost_user'");
-  await expect(page.locator('#iss_list')).toContainText('has no captured steps');
 
-  // Clicking a row selects the offending node:
-  await page.locator('#iss_list .iss_row', { hasText: "Session 'Salesforce · submitter'" }).first().click();
+  // Grouped by element: ONE header per culprit, its to-dos nested under it.
+  await expect(page.locator('#iss_list .iss_head', { hasText: "role 'approver'" })).toHaveCount(1);
+  await expect(page.locator('#iss_list')).toContainText("persona 'ghost_user' is not in personas.json");
+  const sfSales = page.locator('#iss_list .iss_head', { hasText: 'Salesforce · submitter' });
+  await expect(sfSales).toHaveCount(1); // not_captured + session_no_url share one header
+  await expect(sfSales).toContainText('2');
+  await expect(page.locator('#iss_list')).toContainText('no captured steps');
+  await expect(page.locator('#iss_list')).toContainText('no landing URL');
+
+  // Clicking a group header selects the offending node:
+  await sfSales.click();
   await expect(page.locator('#nf_id')).toHaveText('sess_sf_sales');
 
   // Break the graph → a MUST FIX section appears:
@@ -879,7 +886,7 @@ test('readiness cockpit: status bar counts captured/bound/checks; ✓rec marks c
 
 test('check rows stay readable in the card: target/value get real width on their own line', async ({ page }) => {
   await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
-  await page.evaluate(() => window.planner.select('expense'));
+  await page.evaluate(() => { window.planner.select('expense'); });
   // The squeeze regression: with kind+ms+✕ on one line and target/value on
   // the next, each input must hold real content (was ~35px, unusable).
   const widths = await page.evaluate(() =>

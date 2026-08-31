@@ -15,7 +15,7 @@ import { distill } from '../../src/pipeline/distill';
 import { readTrace } from '../../src/pipeline/traceReader';
 import { goodGraph, goodGraphV2 } from '../helpers/sampleGraph';
 
-const PERSONAS = ['admin', 'sales_user', 'portal_user', 'guest'];
+const PERSONAS = ['admin', 'sales_user', 'portal_user', 'guest', 'siebel_admin'];
 
 test.describe('v2 validation', () => {
   test('the v2 sample and the shipped seed are valid and identical (drift guard)', () => {
@@ -43,7 +43,11 @@ test.describe('v2 validation', () => {
 test.describe('v2 journey walker', () => {
   test('login chain → per-session does/denied become the journey, in authored order', () => {
     const r = toJourney(goodGraphV2(), { personaIds: PERSONAS });
-    expect(r.journey.actors).toEqual({ submitter: 'sales_user', approver: 'admin' });
+    expect(r.journey.actors).toEqual({
+      submitter: 'sales_user',
+      approver: 'admin',
+      siebel_approver: 'siebel_admin',
+    });
     expect(r.journey.steps).toEqual([
       {
         actor: 'submitter', do: 'expense.submit', with: { record: 'Expense record' },
@@ -54,11 +58,15 @@ test.describe('v2 journey walker', () => {
         actor: 'approver', do: 'expense.approve', with: { record: 'Expense record' },
         expect: { expects: [{ id: 'expense_approved', kind: 'api.field_equals', target: 'Expense__c', value: 'Status__c=Approved' }] },
       },
-      { actor: 'approver', do: 'siebel.verify_expense', with: { record: 'Expense record' } },
+      // The Siebel step is a DIFFERENT actor: same human, different system,
+      // different credentials and auth method.
+      { actor: 'siebel_approver', do: 'siebel.verify_expense', with: { record: 'Expense record' } },
     ]);
     expect(r.unboundSteps).toEqual([]);
     expect(r.requires).toEqual([]);
-    expect(r.sessionPolicies.groups).toEqual([{ system: 'siebel', maxConcurrent: 1, personas: ['admin'] }]);
+    expect(r.sessionPolicies.groups).toEqual([
+      { system: 'siebel', maxConcurrent: 1, personas: ['siebel_admin'] },
+    ]);
     // one persona on a max-1 system → within policy, so no logout-to-comply warning:
     expect(r.warnings.filter((w) => w.includes('logout-to-comply'))).toEqual([]);
   });
@@ -99,7 +107,7 @@ test.describe('v2 journey walker', () => {
     const g = goodGraphV2();
     delete g.edges.find((e) => e.id === 'e7')!.data!.catalog;
     const r = toJourney(g, { personaIds: PERSONAS });
-    expect(r.journey.steps[3]).toMatchObject({ actor: 'approver', do: 'plan.e7' });
+    expect(r.journey.steps[3]).toMatchObject({ actor: 'siebel_approver', do: 'plan.e7' });
     expect(r.unboundSteps).toEqual(['plan.e7']);
     expect(r.warnings.join()).toContain('unbound plan steps');
   });

@@ -33,6 +33,21 @@ test('an ADO draft is fully interrogated: captures, urls, drafts, timeouts, deny
   for (const g of gaps) expect(g.question.length).toBeGreaterThan(10); // askable as-is
 });
 
+test('every gap carries a short imperative for grouped display (S20)', () => {
+  // Two graphs that between them hit all 9 kinds:
+  const all = [
+    ...computeGaps(draft(), { knownPersonas: ['sales_user'] }), // + role_unbound
+    ...computeGaps(goodGraphV2(), { knownPersonas: KNOWN }),    // + session/policy angles
+  ];
+  expect(all.length).toBeGreaterThan(5);
+  for (const g of all) {
+    expect(g.short, `${g.kind}@${g.at} needs a short`).toBeTruthy();
+    expect(g.short.length).toBeGreaterThan(10);  // a real imperative, not a stub
+    expect(g.short.length).toBeLessThan(110);    // one scannable line in the panel
+    expect(g.short).not.toMatch(/^(Role|Session|System|Step) '/); // element named by the group header, not repeated
+  }
+});
+
 test('unknown personas surface as role_unbound with the roster as options', () => {
   const gaps = computeGaps(draft(), { knownPersonas: ['sales_user'] });
   const role = gaps.find((g) => g.kind === 'role_unbound')!;

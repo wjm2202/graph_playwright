@@ -26,7 +26,10 @@ export interface Gap {
   kind: GapKind;
   /** node id, edge id, alias, or system key the gap lives on. */
   at: string;
+  /** The full question grillme asks (self-contained, names the element). */
   question: string;
+  /** Concise imperative for grouped display (element named by the group). */
+  short: string;
   options?: string[];
 }
 
@@ -39,6 +42,7 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
       gaps.push({
         kind: 'role_unbound', at: alias,
         question: `Role '${alias}' is bound to persona '${personaId}', which is not in personas.json. Which persona should play it?`,
+        short: `persona '${personaId}' is not in personas.json — bind a real one`,
         ...(known.length ? { options: known } : {}),
       });
     }
@@ -49,6 +53,7 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
       gaps.push({
         kind: 'does_unbound', at: e.id,
         question: `Step '${e.label ?? e.id}' has no catalog binding — name it (convention: <noun>.<verb>) or capture it.`,
+        short: 'no catalog binding — name it (<noun>.<verb>) or capture it',
       });
     }
   }
@@ -59,12 +64,14 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
         gaps.push({
           kind: 'not_captured', at: n.id,
           question: `Session '${n.label || n.id}' has no captured steps — record it (double-click the node in the planner for the command).`,
+          short: 'no captured steps — double-click the node to copy the record command',
         });
       }
       if (!n.url) {
         gaps.push({
           kind: 'session_no_url', at: n.id,
           question: `Session '${n.label || n.id}' has no landing URL — where should this role start? (Enables pre-navigation so captures skip login/nav.)`,
+          short: 'no landing URL — set where this role starts (enables pre-navigation)',
         });
       }
     }
@@ -72,6 +79,7 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
       gaps.push({
         kind: 'no_oracles', at: n.id,
         question: `'${n.label || n.id}' has nothing to check — what proves this state is right?`,
+        short: 'nothing to check — add what proves this state is right',
         options: ['a toast message', 'text on the screen', 'the record exists (API)', 'a field value (API)'],
       });
     }
@@ -80,6 +88,7 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
         gaps.push({
           kind: 'draft_oracle', at: `${n.id}.${x.id}`,
           question: `Machine-guessed check on '${n.label || n.id}': ${x.kind} ${x.target ?? ''}${x.value ? ` = "${x.value}"` : ''} — keep it?`,
+          short: `confirm draft check '${x.id}' (${x.kind}${x.target ? ` ${x.target}` : ''})`,
           options: ['keep (confirm)', 'edit it', 'remove it'],
         });
       }
@@ -87,6 +96,7 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
         gaps.push({
           kind: 'api_no_timeout', at: `${n.id}.${x.id}`,
           question: `Backend check '${x.id}' (${x.kind}) uses the 10s default. Is '${n.label || n.id}' written synchronously, or via an async integration that needs a polling budget? (Log search almost always needs one.)`,
+          short: `set a polling budget on check '${x.id}' (async integrations outlive the 10s default)`,
           options: ['synchronous (10s is fine)', 'async — 2 min budget', 'async — 5 min budget'],
         });
       }
@@ -98,6 +108,7 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
     gaps.push({
       kind: 'no_deny_coverage', at: graph.id,
       question: `${actorCount} roles and no denied edges — is there an action some role must NOT be able to do? (That's a security test worth having.)`,
+      short: `${actorCount} roles, zero denied edges — add a must-NOT case or confirm none exist`,
       options: ['yes — let me name one', 'no negative cases in this flow'],
     });
   }
@@ -107,6 +118,7 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
       gaps.push({
         kind: 'no_session_policy', at: key,
         question: `System '${sys.label}' (${sys.kind}) has no session policy — does it allow concurrent sessions? (Siebel classically allows ONE; we logout-to-comply.)`,
+        short: 'no session policy — set how many concurrent sessions it allows',
         options: ['one session max (logout-to-comply)', 'concurrent sessions are fine'],
       });
     }

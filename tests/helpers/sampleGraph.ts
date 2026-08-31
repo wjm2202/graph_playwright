@@ -12,7 +12,11 @@ export const goodGraphV2 = (): ProcessGraph => ({
     sf: { label: 'Salesforce UAT', kind: 'salesforce', urlEnv: 'SF_INSTANCE_URL' },
     siebel: { label: 'Siebel', kind: 'siebel', urlEnv: 'SIEBEL_URL', sessionPolicy: { maxConcurrent: 1 } },
   },
-  actors: { submitter: 'sales_user', approver: 'admin' },
+  // siebel_approver is a SEPARATE actor: the Siebel session is a different
+  // system with its own credentials and auth method (ui, not frontdoor).
+  // Reusing the Salesforce 'approver' here modelled a login that could never
+  // happen — caught by the login_as auth agreement check.
+  actors: { submitter: 'sales_user', approver: 'admin', siebel_approver: 'siebel_admin' },
   nodes: [
     { id: 'start', type: 'start', label: '' },
     {
@@ -25,7 +29,7 @@ export const goodGraphV2 = (): ProcessGraph => ({
     },
     {
       id: 'sess_siebel_admin', type: 'session', label: 'Siebel · approver',
-      system: 'siebel', actor: 'approver', account: { usernameEnv: 'SIEBEL_ADMIN_USERNAME' },
+      system: 'siebel', actor: 'siebel_approver', account: { usernameEnv: 'SIEBEL_ADMIN_USERNAME' },
       snapshot: { status: 'planned' },
     },
     {

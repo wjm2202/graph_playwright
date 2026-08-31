@@ -47,10 +47,14 @@ test('${title}', async ({ cast }, testInfo) => {
     /* not captured yet — unbound plan.* steps will name what to record */
   }
 
+  const registry = PersonaRegistry.load();
   const result = await runGraphFile(GRAPH, {
     cast,
     catalog,
-    personaIds: PersonaRegistry.load().ids(),
+    personaIds: registry.ids(),
+    // Cast obeys personas.json; this makes a login_as edge that claims
+    // otherwise fail the walk instead of quietly misdocumenting the run.
+    personaAuth: registry.authMethods(),
     runDir: testInfo.outputPath('run'),
   });
   for (const change of result.changes) {

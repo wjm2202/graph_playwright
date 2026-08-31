@@ -5363,8 +5363,8 @@ const EXPECTATION_KINDS = [
 ];
 /** Backend oracle kinds evaluate server-side and may poll (async settles). */
 const BACKEND_KIND_RE = /^(api|db|log)\./;
-function validateGraph(doc) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w;
+function validateGraph(doc, opts = {}) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
     const errors = [];
     const g = doc;
     if (!g || typeof g !== 'object')
@@ -5539,13 +5539,25 @@ function validateGraph(doc) {
             if (target && target.type !== 'session') {
                 errors.push(`${at}: login_as must land on a session node (got '${target.type}')`);
             }
+            // The edge DECLARES how the session is acquired; personas.json DECIDES.
+            // Cast reads the persona, so a disagreement makes the graph document a
+            // login that will never happen. Caught here rather than at run time.
+            const declared = (_u = e.data) === null || _u === void 0 ? void 0 : _u.auth;
+            if (declared && opts.personaAuth && (target === null || target === void 0 ? void 0 : target.actor)) {
+                const personaId = actors[target.actor];
+                const actual = personaId ? opts.personaAuth[personaId] : undefined;
+                if (actual && actual !== declared) {
+                    errors.push(`${at}.data.auth: declares '${declared}' but persona '${personaId}' authenticates by '${actual}' ` +
+                        `(personas.json decides — change the edge, or change the persona)`);
+                }
+            }
         }
-        if ((e === null || e === void 0 ? void 0 : e.type) === 'does' && !((_u = e.data) === null || _u === void 0 ? void 0 : _u.catalog) && !e.label) {
+        if ((e === null || e === void 0 ? void 0 : e.type) === 'does' && !((_v = e.data) === null || _v === void 0 ? void 0 : _v.catalog) && !e.label) {
             errors.push(`${at}: does edges need data.catalog (the step) or at least a label placeholder`);
         }
-        if (((_v = e === null || e === void 0 ? void 0 : e.data) === null || _v === void 0 ? void 0 : _v.deltaMs) !== undefined && e.data.deltaMs < 0)
+        if (((_w = e === null || e === void 0 ? void 0 : e.data) === null || _w === void 0 ? void 0 : _w.deltaMs) !== undefined && e.data.deltaMs < 0)
             errors.push(`${at}.data.deltaMs: must be >= 0`);
-        if (((_w = e === null || e === void 0 ? void 0 : e.data) === null || _w === void 0 ? void 0 : _w.frequency) !== undefined && !(e.data.frequency >= 1))
+        if (((_x = e === null || e === void 0 ? void 0 : e.data) === null || _x === void 0 ? void 0 : _x.frequency) !== undefined && !(e.data.frequency >= 1))
             errors.push(`${at}.data.frequency: must be >= 1`);
     }
     return { ok: errors.length === 0, errors };
@@ -5582,6 +5594,7 @@ function computeGaps(graph, opts = {}) {
             gaps.push({
                 kind: 'role_unbound', at: alias,
                 question: `Role '${alias}' is bound to persona '${personaId}', which is not in personas.json. Which persona should play it?`,
+                short: `persona '${personaId}' is not in personas.json — bind a real one`,
                 ...(known.length ? { options: known } : {}),
             });
         }
@@ -5591,6 +5604,7 @@ function computeGaps(graph, opts = {}) {
             gaps.push({
                 kind: 'does_unbound', at: e.id,
                 question: `Step '${(_b = e.label) !== null && _b !== void 0 ? _b : e.id}' has no catalog binding — name it (convention: <noun>.<verb>) or capture it.`,
+                short: 'no catalog binding — name it (<noun>.<verb>) or capture it',
             });
         }
     }
@@ -5600,12 +5614,14 @@ function computeGaps(graph, opts = {}) {
                 gaps.push({
                     kind: 'not_captured', at: n.id,
                     question: `Session '${n.label || n.id}' has no captured steps — record it (double-click the node in the planner for the command).`,
+                    short: 'no captured steps — double-click the node to copy the record command',
                 });
             }
             if (!n.url) {
                 gaps.push({
                     kind: 'session_no_url', at: n.id,
                     question: `Session '${n.label || n.id}' has no landing URL — where should this role start? (Enables pre-navigation so captures skip login/nav.)`,
+                    short: 'no landing URL — set where this role starts (enables pre-navigation)',
                 });
             }
         }
@@ -5613,6 +5629,7 @@ function computeGaps(graph, opts = {}) {
             gaps.push({
                 kind: 'no_oracles', at: n.id,
                 question: `'${n.label || n.id}' has nothing to check — what proves this state is right?`,
+                short: 'nothing to check — add what proves this state is right',
                 options: ['a toast message', 'text on the screen', 'the record exists (API)', 'a field value (API)'],
             });
         }
@@ -5621,6 +5638,7 @@ function computeGaps(graph, opts = {}) {
                 gaps.push({
                     kind: 'draft_oracle', at: `${n.id}.${x.id}`,
                     question: `Machine-guessed check on '${n.label || n.id}': ${x.kind} ${(_f = x.target) !== null && _f !== void 0 ? _f : ''}${x.value ? ` = "${x.value}"` : ''} — keep it?`,
+                    short: `confirm draft check '${x.id}' (${x.kind}${x.target ? ` ${x.target}` : ''})`,
                     options: ['keep (confirm)', 'edit it', 'remove it'],
                 });
             }
@@ -5628,6 +5646,7 @@ function computeGaps(graph, opts = {}) {
                 gaps.push({
                     kind: 'api_no_timeout', at: `${n.id}.${x.id}`,
                     question: `Backend check '${x.id}' (${x.kind}) uses the 10s default. Is '${n.label || n.id}' written synchronously, or via an async integration that needs a polling budget? (Log search almost always needs one.)`,
+                    short: `set a polling budget on check '${x.id}' (async integrations outlive the 10s default)`,
                     options: ['synchronous (10s is fine)', 'async — 2 min budget', 'async — 5 min budget'],
                 });
             }
@@ -5638,6 +5657,7 @@ function computeGaps(graph, opts = {}) {
         gaps.push({
             kind: 'no_deny_coverage', at: graph.id,
             question: `${actorCount} roles and no denied edges — is there an action some role must NOT be able to do? (That's a security test worth having.)`,
+            short: `${actorCount} roles, zero denied edges — add a must-NOT case or confirm none exist`,
             options: ['yes — let me name one', 'no negative cases in this flow'],
         });
     }
@@ -5646,6 +5666,7 @@ function computeGaps(graph, opts = {}) {
             gaps.push({
                 kind: 'no_session_policy', at: key,
                 question: `System '${sys.label}' (${sys.kind}) has no session policy — does it allow concurrent sessions? (Siebel classically allows ONE; we logout-to-comply.)`,
+                short: 'no session policy — set how many concurrent sessions it allows',
                 options: ['one session max (logout-to-comply)', 'concurrent sessions are fine'],
             });
         }
@@ -5755,11 +5776,11 @@ window.ProcessGraphGaps = exports;
 })();
 </script>
 <script>
-window.GRAPH_LIBRARY = {"expense_to_siebel":{"schema":"process-graph/2","id":"expense_to_siebel","title":"Expense flows into Siebel","systems":{"sf":{"label":"Salesforce UAT","kind":"salesforce","urlEnv":"SF_INSTANCE_URL"},"siebel":{"label":"Siebel","kind":"siebel","urlEnv":"SIEBEL_URL","sessionPolicy":{"maxConcurrent":1}}},"actors":{"submitter":"sales_user","approver":"admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_sf_sales","type":"session","label":"Salesforce · submitter","system":"sf","actor":"submitter","account":{"usernameEnv":"SF_SALES_USERNAME"}},{"id":"sess_sf_admin","type":"session","label":"Salesforce · approver","system":"sf","actor":"approver","account":{"usernameEnv":"SF_ADMIN_USERNAME"}},{"id":"sess_siebel_admin","type":"session","label":"Siebel · approver","system":"siebel","actor":"approver","account":{"usernameEnv":"SIEBEL_ADMIN_USERNAME"},"snapshot":{"status":"planned"}},{"id":"expense","type":"data","label":"Expense record","expects":[{"id":"expense_saved","kind":"api.record_exists","target":"Expense__c","after":"expense.submit","note":"expense row persisted"},{"id":"expense_approved","kind":"api.field_equals","target":"Expense__c","value":"Status__c=Approved","after":"expense.approve"}]},{"id":"end","type":"end","label":""}],"edges":[{"id":"e1","from":"start","to":"sess_sf_sales","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e2","from":"sess_sf_sales","to":"expense","type":"does","label":"submit expense","data":{"catalog":"expense.submit"}},{"id":"e3","from":"sess_sf_sales","to":"expense","type":"denied","data":{"capability":"expense.approve"}},{"id":"e4","from":"sess_sf_sales","to":"sess_sf_admin","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e5","from":"sess_sf_admin","to":"expense","type":"does","label":"approve expense","data":{"catalog":"expense.approve","deltaMs":1200}},{"id":"e6","from":"sess_sf_admin","to":"sess_siebel_admin","type":"login_as","data":{"auth":"ui"}},{"id":"e7","from":"sess_siebel_admin","to":"expense","type":"does","label":"verify expense","data":{"catalog":"siebel.verify_expense"}},{"id":"e8","from":"sess_siebel_admin","to":"end","type":"next"}]},"lead_to_customer":{"schema":"process-graph/2","id":"lead_to_customer","title":"Lead to customer, verified in Siebel","systems":{"sf":{"label":"Salesforce UAT","kind":"salesforce","urlEnv":"SF_INSTANCE_URL"},"siebel":{"label":"Siebel","kind":"siebel","urlEnv":"SIEBEL_URL","sessionPolicy":{"maxConcurrent":1}}},"actors":{"lead_creator":"lead_creator","lead_approver":"lead_approver","credit_approver":"credit_approver","customer_approver":"sales_user","siebel_admin":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_sf_lead_creator","type":"session","label":"Salesforce · lead_creator","system":"sf","actor":"lead_creator","account":{"usernameEnv":"SF_LEAD_CREATOR_USERNAME"}},{"id":"sess_sf_lead_approver","type":"session","label":"Salesforce · lead_approver","system":"sf","actor":"lead_approver","account":{"usernameEnv":"SF_LEAD_APPROVER_USERNAME"}},{"id":"sess_sf_credit_approver","type":"session","label":"Salesforce · credit_approver","system":"sf","actor":"credit_approver","account":{"usernameEnv":"SF_CREDIT_APPROVER_USERNAME"}},{"id":"sess_sf_customer_approver","type":"session","label":"Salesforce · customer_approver","system":"sf","actor":"customer_approver","account":{"usernameEnv":"SF_SALES_USERNAME"}},{"id":"sess_siebel_admin","type":"session","label":"Siebel · siebel_admin","system":"siebel","actor":"siebel_admin","account":{"usernameEnv":"SIEBEL_ADMIN_USERNAME"},"snapshot":{"status":"planned"}},{"id":"lead","type":"data","label":"Lead record","expects":[{"id":"lead_created","kind":"api.record_exists","target":"Lead","after":"lead.create","note":"lead row persisted"},{"id":"lead_potential","kind":"api.field_equals","target":"Lead","value":"Status=Potential","after":"lead.progress_to_potential","note":"progressed by the approver"},{"id":"credit_approved","kind":"api.field_equals","target":"Lead","value":"Credit_Status__c=Approved","after":"credit.check","note":"credit check outcome persisted"}]},{"id":"customer","type":"data","label":"Customer record","expects":[{"id":"customer_created","kind":"api.record_exists","target":"Account","after":"lead.approve_to_customer","note":"conversion produced the customer account"},{"id":"conversion_toast","kind":"ui.toast","value":"converted","after":"lead.approve_to_customer","note":"UI confirms the conversion"}]},{"id":"customer_siebel","type":"data","label":"Customer record (Siebel)","notes":"created by the SF→Siebel API integration when the customer is approved — no human session involved"},{"id":"chk_customer","type":"checkpoint","label":"Customer exists in Siebel","expects":[{"id":"customer_in_siebel","kind":"api.record_exists","target":"Customer","note":"in Siebel = pass; missing = the SF→Siebel integration failed","timeoutMs":120000,"pollMs":5000},{"id":"endpoint_traffic","kind":"log.traffic","target":"log_gateway","value":"create_customer_v2","timeoutMs":60000,"pollMs":5000,"draft":true,"note":"draft — confirm the log system + search term"}]},{"id":"end","type":"end","label":""},{"id":"api_create_customer_v2","type":"api","label":"create_customer_v2","endpoint":{"method":"POST","path":"/services/apexrest/create_customer_v2"}},{"id":"db_siebel","type":"db","label":"Siebel DB","notes":"NOT queryable until confirmed — verify via Siebel UI (siebel_admin) or the gateway logs"},{"id":"log_gateway","type":"logger","label":"API gateway logs"}],"edges":[{"id":"e1","from":"start","to":"sess_sf_lead_creator","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e2","from":"sess_sf_lead_creator","to":"lead","type":"does","label":"create lead","data":{"catalog":"lead.create"}},{"id":"e3","from":"sess_sf_lead_creator","to":"sess_sf_lead_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e4","from":"sess_sf_lead_approver","to":"lead","type":"does","label":"progress to potential lead","data":{"catalog":"lead.progress_to_potential"}},{"id":"e5","from":"sess_sf_lead_approver","to":"sess_sf_credit_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e6","from":"sess_sf_credit_approver","to":"lead","type":"does","label":"credit check","data":{"catalog":"credit.check"}},{"id":"e7","from":"sess_sf_credit_approver","to":"sess_sf_customer_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e8","from":"sess_sf_customer_approver","to":"customer","type":"does","label":"approve to customer","data":{"catalog":"lead.approve_to_customer"}},{"id":"e9","from":"sess_sf_customer_approver","to":"lead","type":"touches"},{"id":"e10","from":"sess_sf_customer_approver","to":"sess_siebel_admin","type":"login_as","data":{"auth":"ui"}},{"id":"e11","from":"sess_siebel_admin","to":"customer_siebel","type":"does","label":"check customer created","data":{"catalog":"siebel.check_customer"}},{"id":"e12","from":"sess_siebel_admin","to":"chk_customer","type":"asserts"},{"id":"e13","from":"chk_customer","to":"end","type":"next"},{"id":"e_api","from":"customer","to":"api_create_customer_v2","type":"handoff","label":"API replication SF → Siebel"},{"id":"e_api2","from":"api_create_customer_v2","to":"customer_siebel","type":"handoff","label":"creates"},{"id":"e_api3","from":"api_create_customer_v2","to":"db_siebel","type":"touches","label":"writes"},{"id":"e_api4","from":"api_create_customer_v2","to":"log_gateway","type":"touches","label":"logged in"}]},"lead_to_customer_via_ado":{"schema":"process-graph/2","id":"lead_to_customer_via_ado","title":"Lead to customer via ADO","systems":{"sf":{"label":"Salesforce","kind":"salesforce"},"siebel":{"label":"Siebel","kind":"siebel","sessionPolicy":{"maxConcurrent":1}}},"actors":{"lead_creator":"lead_creator","lead_approver":"lead_approver","credit_approver":"credit_approver","salesforce_user":"salesforce_user","siebel_admin":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_lead_creator","type":"session","label":"Salesforce · lead_creator","system":"sf","actor":"lead_creator"},{"id":"lead","type":"data","label":"Lead record","expects":[{"id":"check_lead_record_is_created","after":"e_do_1","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Lead"}]},{"id":"sess_lead_approver","type":"session","label":"Salesforce · lead_approver","system":"sf","actor":"lead_approver"},{"id":"scr_1","type":"screen","label":"progress the lead to potential lead","expects":[{"id":"check_toast_shows_lead_updat","after":"e_do_2","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"ui.toast","value":"Lead updated"}]},{"id":"sess_credit_approver","type":"session","label":"Salesforce · credit_approver","system":"sf","actor":"credit_approver"},{"id":"scr_2","type":"screen","label":"do the credit check","expects":[{"id":"check_credit_check_screen_sho","after":"e_do_3","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"ui.text","value":"Credit check screen shows Approved"}]},{"id":"sess_salesforce_user","type":"session","label":"Salesforce · salesforce_user","system":"sf","actor":"salesforce_user"},{"id":"customer","type":"data","label":"Customer record","expects":[{"id":"check_customer_record_is_crea","after":"e_do_4","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Customer"},{"id":"check_customer_record_exists","after":"e_do_5","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Customer"}]},{"id":"sess_siebel_admin","type":"session","label":"Siebel · siebel_admin","system":"siebel","actor":"siebel_admin"},{"id":"end","type":"end","label":""}],"edges":[{"id":"e_login_1","from":"start","to":"sess_lead_creator","type":"login_as"},{"id":"e_do_1","from":"sess_lead_creator","to":"lead","type":"does","label":"create a lead","data":{"catalog":"lead.create"}},{"id":"e_login_2","from":"sess_lead_creator","to":"sess_lead_approver","type":"login_as"},{"id":"e_do_2","from":"sess_lead_approver","to":"scr_1","type":"does","label":"progress the lead to potential lead","data":{"catalog":"lead.progress"}},{"id":"e_login_3","from":"sess_lead_approver","to":"sess_credit_approver","type":"login_as"},{"id":"e_do_3","from":"sess_credit_approver","to":"scr_2","type":"does","label":"do the credit check","data":{"catalog":"scr_2.do"}},{"id":"e_login_4","from":"sess_credit_approver","to":"sess_salesforce_user","type":"login_as"},{"id":"e_do_4","from":"sess_salesforce_user","to":"customer","type":"does","label":"approve to customer","data":{"catalog":"customer.approve"}},{"id":"e_login_5","from":"sess_salesforce_user","to":"sess_siebel_admin","type":"login_as"},{"id":"e_do_5","from":"sess_siebel_admin","to":"customer","type":"does","label":"check the customer is created","data":{"catalog":"customer.check"}},{"id":"e_end","from":"sess_siebel_admin","to":"end","type":"next"}]}};
+window.GRAPH_LIBRARY = {"expense_to_siebel":{"schema":"process-graph/2","id":"expense_to_siebel","title":"Expense flows into Siebel","systems":{"sf":{"label":"Salesforce UAT","kind":"salesforce","urlEnv":"SF_INSTANCE_URL"},"siebel":{"label":"Siebel","kind":"siebel","urlEnv":"SIEBEL_URL","sessionPolicy":{"maxConcurrent":1}}},"actors":{"submitter":"sales_user","approver":"admin","siebel_approver":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_sf_sales","type":"session","label":"Salesforce · submitter","system":"sf","actor":"submitter","account":{"usernameEnv":"SF_SALES_USERNAME"}},{"id":"sess_sf_admin","type":"session","label":"Salesforce · approver","system":"sf","actor":"approver","account":{"usernameEnv":"SF_ADMIN_USERNAME"}},{"id":"sess_siebel_admin","type":"session","label":"Siebel · approver","system":"siebel","actor":"siebel_approver","account":{"usernameEnv":"SIEBEL_ADMIN_USERNAME"},"snapshot":{"status":"planned"}},{"id":"expense","type":"data","label":"Expense record","expects":[{"id":"expense_saved","kind":"api.record_exists","target":"Expense__c","after":"expense.submit","note":"expense row persisted"},{"id":"expense_approved","kind":"api.field_equals","target":"Expense__c","value":"Status__c=Approved","after":"expense.approve"}]},{"id":"end","type":"end","label":""}],"edges":[{"id":"e1","from":"start","to":"sess_sf_sales","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e2","from":"sess_sf_sales","to":"expense","type":"does","label":"submit expense","data":{"catalog":"expense.submit"}},{"id":"e3","from":"sess_sf_sales","to":"expense","type":"denied","data":{"capability":"expense.approve"}},{"id":"e4","from":"sess_sf_sales","to":"sess_sf_admin","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e5","from":"sess_sf_admin","to":"expense","type":"does","label":"approve expense","data":{"catalog":"expense.approve","deltaMs":1200}},{"id":"e6","from":"sess_sf_admin","to":"sess_siebel_admin","type":"login_as","data":{"auth":"ui"}},{"id":"e7","from":"sess_siebel_admin","to":"expense","type":"does","label":"verify expense","data":{"catalog":"siebel.verify_expense"}},{"id":"e8","from":"sess_siebel_admin","to":"end","type":"next"}]},"lead_to_customer":{"schema":"process-graph/2","id":"lead_to_customer","title":"Lead to customer, verified in Siebel","systems":{"sf":{"label":"Salesforce UAT","kind":"salesforce","urlEnv":"SF_INSTANCE_URL"},"siebel":{"label":"Siebel","kind":"siebel","urlEnv":"SIEBEL_URL","sessionPolicy":{"maxConcurrent":1}}},"actors":{"lead_creator":"lead_creator","lead_approver":"lead_approver","credit_approver":"credit_approver","customer_approver":"sales_user","siebel_admin":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_sf_lead_creator","type":"session","label":"Salesforce · lead_creator","system":"sf","actor":"lead_creator","account":{"usernameEnv":"SF_LEAD_CREATOR_USERNAME"}},{"id":"sess_sf_lead_approver","type":"session","label":"Salesforce · lead_approver","system":"sf","actor":"lead_approver","account":{"usernameEnv":"SF_LEAD_APPROVER_USERNAME"}},{"id":"sess_sf_credit_approver","type":"session","label":"Salesforce · credit_approver","system":"sf","actor":"credit_approver","account":{"usernameEnv":"SF_CREDIT_APPROVER_USERNAME"}},{"id":"sess_sf_customer_approver","type":"session","label":"Salesforce · customer_approver","system":"sf","actor":"customer_approver","account":{"usernameEnv":"SF_SALES_USERNAME"}},{"id":"sess_siebel_admin","type":"session","label":"Siebel · siebel_admin","system":"siebel","actor":"siebel_admin","account":{"usernameEnv":"SIEBEL_ADMIN_USERNAME"},"snapshot":{"status":"planned"}},{"id":"lead","type":"data","label":"Lead record","expects":[{"id":"lead_created","kind":"api.record_exists","target":"Lead","after":"lead.create","note":"lead row persisted"},{"id":"lead_potential","kind":"api.field_equals","target":"Lead","value":"Status=Potential","after":"lead.progress_to_potential","note":"progressed by the approver"},{"id":"credit_approved","kind":"api.field_equals","target":"Lead","value":"Credit_Status__c=Approved","after":"credit.check","note":"credit check outcome persisted"}]},{"id":"customer","type":"data","label":"Customer record","expects":[{"id":"customer_created","kind":"api.record_exists","target":"Account","after":"lead.approve_to_customer","note":"conversion produced the customer account"},{"id":"conversion_toast","kind":"ui.toast","value":"converted","after":"lead.approve_to_customer","note":"UI confirms the conversion"}]},{"id":"customer_siebel","type":"data","label":"Customer record (Siebel)","notes":"created by the SF→Siebel API integration when the customer is approved — no human session involved"},{"id":"chk_customer","type":"checkpoint","label":"Customer exists in Siebel","expects":[{"id":"customer_in_siebel","kind":"api.record_exists","target":"Customer","note":"in Siebel = pass; missing = the SF→Siebel integration failed","timeoutMs":120000,"pollMs":5000},{"id":"endpoint_traffic","kind":"log.traffic","target":"log_gateway","value":"create_customer_v2","timeoutMs":60000,"pollMs":5000,"draft":true,"note":"draft — confirm the log system + search term"}]},{"id":"end","type":"end","label":""},{"id":"api_create_customer_v2","type":"api","label":"create_customer_v2","endpoint":{"method":"POST","path":"/services/apexrest/create_customer_v2"}},{"id":"db_siebel","type":"db","label":"Siebel DB","notes":"NOT queryable until confirmed — verify via Siebel UI (siebel_admin) or the gateway logs"},{"id":"log_gateway","type":"logger","label":"API gateway logs"}],"edges":[{"id":"e1","from":"start","to":"sess_sf_lead_creator","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e2","from":"sess_sf_lead_creator","to":"lead","type":"does","label":"create lead","data":{"catalog":"lead.create"}},{"id":"e3","from":"sess_sf_lead_creator","to":"sess_sf_lead_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e4","from":"sess_sf_lead_approver","to":"lead","type":"does","label":"progress to potential lead","data":{"catalog":"lead.progress_to_potential"}},{"id":"e5","from":"sess_sf_lead_approver","to":"sess_sf_credit_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e6","from":"sess_sf_credit_approver","to":"lead","type":"does","label":"credit check","data":{"catalog":"credit.check"}},{"id":"e7","from":"sess_sf_credit_approver","to":"sess_sf_customer_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e8","from":"sess_sf_customer_approver","to":"customer","type":"does","label":"approve to customer","data":{"catalog":"lead.approve_to_customer"}},{"id":"e9","from":"sess_sf_customer_approver","to":"lead","type":"touches"},{"id":"e10","from":"sess_sf_customer_approver","to":"sess_siebel_admin","type":"login_as","data":{"auth":"ui"}},{"id":"e11","from":"sess_siebel_admin","to":"customer_siebel","type":"does","label":"check customer created","data":{"catalog":"siebel.check_customer"}},{"id":"e12","from":"sess_siebel_admin","to":"chk_customer","type":"asserts"},{"id":"e13","from":"chk_customer","to":"end","type":"next"},{"id":"e_api","from":"customer","to":"api_create_customer_v2","type":"handoff","label":"API replication SF → Siebel"},{"id":"e_api2","from":"api_create_customer_v2","to":"customer_siebel","type":"handoff","label":"creates"},{"id":"e_api3","from":"api_create_customer_v2","to":"db_siebel","type":"touches","label":"writes"},{"id":"e_api4","from":"api_create_customer_v2","to":"log_gateway","type":"touches","label":"logged in"}]},"lead_to_customer_via_ado":{"schema":"process-graph/2","id":"lead_to_customer_via_ado","title":"Lead to customer via ADO","systems":{"sf":{"label":"Salesforce","kind":"salesforce"},"siebel":{"label":"Siebel","kind":"siebel","sessionPolicy":{"maxConcurrent":1}}},"actors":{"lead_creator":"lead_creator","lead_approver":"lead_approver","credit_approver":"credit_approver","salesforce_user":"salesforce_user","siebel_admin":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_lead_creator","type":"session","label":"Salesforce · lead_creator","system":"sf","actor":"lead_creator"},{"id":"lead","type":"data","label":"Lead record","expects":[{"id":"check_lead_record_is_created","after":"e_do_1","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Lead"}]},{"id":"sess_lead_approver","type":"session","label":"Salesforce · lead_approver","system":"sf","actor":"lead_approver"},{"id":"scr_1","type":"screen","label":"progress the lead to potential lead","expects":[{"id":"check_toast_shows_lead_updat","after":"e_do_2","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"ui.toast","value":"Lead updated"}]},{"id":"sess_credit_approver","type":"session","label":"Salesforce · credit_approver","system":"sf","actor":"credit_approver"},{"id":"scr_2","type":"screen","label":"do the credit check","expects":[{"id":"check_credit_check_screen_sho","after":"e_do_3","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"ui.text","value":"Credit check screen shows Approved"}]},{"id":"sess_salesforce_user","type":"session","label":"Salesforce · salesforce_user","system":"sf","actor":"salesforce_user"},{"id":"customer","type":"data","label":"Customer record","expects":[{"id":"check_customer_record_is_crea","after":"e_do_4","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Customer"},{"id":"check_customer_record_exists","after":"e_do_5","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Customer"}]},{"id":"sess_siebel_admin","type":"session","label":"Siebel · siebel_admin","system":"siebel","actor":"siebel_admin"},{"id":"end","type":"end","label":""}],"edges":[{"id":"e_login_1","from":"start","to":"sess_lead_creator","type":"login_as"},{"id":"e_do_1","from":"sess_lead_creator","to":"lead","type":"does","label":"create a lead","data":{"catalog":"lead.create"}},{"id":"e_login_2","from":"sess_lead_creator","to":"sess_lead_approver","type":"login_as"},{"id":"e_do_2","from":"sess_lead_approver","to":"scr_1","type":"does","label":"progress the lead to potential lead","data":{"catalog":"lead.progress"}},{"id":"e_login_3","from":"sess_lead_approver","to":"sess_credit_approver","type":"login_as"},{"id":"e_do_3","from":"sess_credit_approver","to":"scr_2","type":"does","label":"do the credit check","data":{"catalog":"scr_2.do"}},{"id":"e_login_4","from":"sess_credit_approver","to":"sess_salesforce_user","type":"login_as"},{"id":"e_do_4","from":"sess_salesforce_user","to":"customer","type":"does","label":"approve to customer","data":{"catalog":"customer.approve"}},{"id":"e_login_5","from":"sess_salesforce_user","to":"sess_siebel_admin","type":"login_as"},{"id":"e_do_5","from":"sess_siebel_admin","to":"customer","type":"does","label":"check the customer is created","data":{"catalog":"customer.check"}},{"id":"e_end","from":"sess_siebel_admin","to":"end","type":"next"}]}};
 </script>
 <script>
 window.PERSONA_IDS = ["admin","credit_approver","guest","lead_approver","lead_creator","portal_user","sales_user","siebel_admin"];
-window.PERSONA_ENV = {"admin":{"username":"SF_ADMIN_USERNAME","password":"SF_ADMIN_PASSWORD","token":"SF_ADMIN_TOKEN","totp":"SF_ADMIN_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal"},"sales_user":{"username":"SF_SALES_USERNAME","password":"SF_SALES_PASSWORD","token":"SF_SALES_TOKEN","totp":"SF_SALES_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal"},"portal_user":{"username":"SF_PORTAL_USERNAME","password":"SF_PORTAL_PASSWORD","token":"SF_PORTAL_TOKEN","totp":"SF_PORTAL_TOTP_SECRET","url":"SF_SITE_URL","kind":"portal"},"guest":{"url":"SF_SITE_URL","kind":"guest"},"lead_creator":{"username":"SF_LEAD_CREATOR_USERNAME","password":"SF_LEAD_CREATOR_PASSWORD","token":"SF_LEAD_CREATOR_TOKEN","totp":"SF_LEAD_CREATOR_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal"},"lead_approver":{"username":"SF_LEAD_APPROVER_USERNAME","password":"SF_LEAD_APPROVER_PASSWORD","token":"SF_LEAD_APPROVER_TOKEN","totp":"SF_LEAD_APPROVER_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal"},"credit_approver":{"username":"SF_CREDIT_APPROVER_USERNAME","password":"SF_CREDIT_APPROVER_PASSWORD","token":"SF_CREDIT_APPROVER_TOKEN","totp":"SF_CREDIT_APPROVER_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal"},"siebel_admin":{"username":"SIEBEL_ADMIN_USERNAME","password":"SIEBEL_ADMIN_PASSWORD","totp":"SIEBEL_ADMIN_TOTP_SECRET","url":"SIEBEL_URL","kind":"internal"}};
+window.PERSONA_ENV = {"admin":{"username":"SF_ADMIN_USERNAME","password":"SF_ADMIN_PASSWORD","token":"SF_ADMIN_TOKEN","totp":"SF_ADMIN_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal","auth":"frontdoor"},"sales_user":{"username":"SF_SALES_USERNAME","password":"SF_SALES_PASSWORD","token":"SF_SALES_TOKEN","totp":"SF_SALES_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal","auth":"frontdoor"},"portal_user":{"username":"SF_PORTAL_USERNAME","password":"SF_PORTAL_PASSWORD","token":"SF_PORTAL_TOKEN","totp":"SF_PORTAL_TOTP_SECRET","url":"SF_SITE_URL","kind":"portal","auth":"singleaccess"},"guest":{"url":"SF_SITE_URL","kind":"guest"},"lead_creator":{"username":"SF_LEAD_CREATOR_USERNAME","password":"SF_LEAD_CREATOR_PASSWORD","token":"SF_LEAD_CREATOR_TOKEN","totp":"SF_LEAD_CREATOR_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal","auth":"frontdoor"},"lead_approver":{"username":"SF_LEAD_APPROVER_USERNAME","password":"SF_LEAD_APPROVER_PASSWORD","token":"SF_LEAD_APPROVER_TOKEN","totp":"SF_LEAD_APPROVER_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal","auth":"frontdoor"},"credit_approver":{"username":"SF_CREDIT_APPROVER_USERNAME","password":"SF_CREDIT_APPROVER_PASSWORD","token":"SF_CREDIT_APPROVER_TOKEN","totp":"SF_CREDIT_APPROVER_TOTP_SECRET","url":"SF_INSTANCE_URL","kind":"internal","auth":"frontdoor"},"siebel_admin":{"username":"SIEBEL_ADMIN_USERNAME","password":"SIEBEL_ADMIN_PASSWORD","totp":"SIEBEL_ADMIN_TOTP_SECRET","url":"SIEBEL_URL","kind":"internal","auth":"ui"}};
 </script>
 <script>
 'use strict';
@@ -5768,6 +5789,13 @@ if (typeof cytoscapeEdgehandles !== 'undefined') cytoscape.use(cytoscapeEdgehand
 var validateGraph = window.ProcessGraphSchema.validateGraph;
 var computeGaps = (window.ProcessGraphGaps && window.ProcessGraphGaps.computeGaps) || function () { return []; };
 var PERSONA_IDS = window.PERSONA_IDS || [];
+// persona → auth method, from personas.json. Lets the check panel catch a
+// login_as edge declaring a mechanism the persona doesn't actually use.
+var PERSONA_AUTH = (function () {
+  var m = {}, env = window.PERSONA_ENV || {};
+  for (var k in env) if (env[k] && env[k].auth) m[k] = env[k].auth;
+  return m;
+})();
 
 var PALETTE = ['#4d7ea8', '#7a5aa0', '#3e8a71', '#b07a3d', '#a04d62', '#5a7a3e'];
 var G = emptyGraph();
@@ -6646,7 +6674,7 @@ document.getElementById('legend').addEventListener('click', function () {
 
 // ---- graph check: every problem and unfinished part, with hints ----------
 function graphIssues() {
-  var v = validateGraph(G);
+  var v = validateGraph(G, { personaAuth: PERSONA_AUTH });
   var gaps = [];
   try { gaps = computeGaps(G, { knownPersonas: PERSONA_IDS }); } catch (e) { /* engine absent → errors alone */ }
   return { errors: v.errors, gaps: gaps };
@@ -6673,42 +6701,98 @@ function focusIssue(at) {
     setStatus("this one lives on '" + at + "' — fix it in the graph panel (id/actors/systems)");
   }
 }
+// One group per graph ELEMENT — a human scans "which box is this about"
+// first, then reads its short to-dos. Headers click-jump like rows do.
+function issueAnchor(at) {
+  var nodePart = at.indexOf('.') > 0 ? at.split('.')[0] : at;
+  var n = nodeById(at) || nodeById(nodePart);
+  if (n) {
+    return { key: 'n:' + n.id, clickAt: n.id, name: n.label || n.id, meta: n.type + ' · ' + n.id, order: 100 + G.nodes.indexOf(n) };
+  }
+  var e = edgeById(at);
+  if (e) {
+    return { key: 'e:' + e.id, clickAt: e.id, name: e.label || e.type, meta: 'edge ' + e.id + ' · ' + e.from + ' → ' + e.to, order: 1000 + G.edges.indexOf(e) };
+  }
+  if (G.actors && at in G.actors) {
+    return { key: 'a:' + at, clickAt: null, name: "role '" + at + "'", meta: 'graph panel → actors', order: 2000 };
+  }
+  if (G.systems && at in G.systems) {
+    return { key: 's:' + at, clickAt: null, name: "system '" + at + "'", meta: 'graph panel → systems', order: 3000 };
+  }
+  return { key: 'g', clickAt: null, name: 'whole graph', meta: G.id || '(unnamed)', order: 4000 };
+}
+
 function renderIssues() {
   var i = refreshCheckBadge();
   var list = document.getElementById('iss_list');
   list.innerHTML = '';
+
   function section(title, color) {
     var h = document.createElement('div');
-    h.style.cssText = 'margin:6px 0 3px; color:' + color + '; font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:10px;';
+    h.style.cssText = 'margin:8px 0 4px; color:' + color + '; font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:10px;';
     h.textContent = title;
     list.appendChild(h);
   }
-  function row(color, icon, text, at) {
-    var div = document.createElement('div');
-    div.className = 'iss_row';
-    div.style.cssText = 'padding:5px 6px; border-radius:5px; display:flex; gap:6px; align-items:flex-start; line-height:1.5;' + (at ? ' cursor:pointer;' : '');
-    div.innerHTML = '<span style="color:' + color + '; flex:0 0 auto;">' + icon + '</span><span>' + escHtml(text) + '</span>';
-    if (at) {
-      div.title = 'click to jump to it';
-      div.addEventListener('mouseenter', function () { div.style.background = 'rgba(255,255,255,.05)'; });
-      div.addEventListener('mouseleave', function () { div.style.background = ''; });
-      div.addEventListener('click', function () { focusIssue(at); });
-    }
-    list.appendChild(div);
+
+  function renderGroups(items, color, icon) {
+    // items: [{text, at}] → grouped by anchor, in graph order.
+    var groups = {};
+    items.forEach(function (it) {
+      var a = issueAnchor(it.at);
+      if (!groups[a.key]) groups[a.key] = { anchor: a, rows: [] };
+      groups[a.key].rows.push(it);
+    });
+    Object.keys(groups)
+      .sort(function (x, y) { return groups[x].anchor.order - groups[y].anchor.order; })
+      .forEach(function (k) {
+        var g = groups[k];
+        var head = document.createElement('div');
+        head.className = 'iss_head';
+        head.style.cssText = 'display:flex; gap:6px; align-items:baseline; padding:4px 6px; border-radius:5px; margin-top:4px;' + (g.anchor.clickAt ? ' cursor:pointer;' : '');
+        head.innerHTML = '<b>' + escHtml(g.anchor.name) + '</b>' +
+          '<span style="color:var(--muted); font-size:10px;">' + escHtml(g.anchor.meta) + '</span>' +
+          '<span style="margin-left:auto; color:' + color + '; font-size:10px;">' + g.rows.length + '</span>';
+        if (g.anchor.clickAt) {
+          head.title = 'click to jump to it';
+          head.addEventListener('mouseenter', function () { head.style.background = 'rgba(255,255,255,.06)'; });
+          head.addEventListener('mouseleave', function () { head.style.background = ''; });
+          head.addEventListener('click', function () { focusIssue(g.anchor.clickAt); });
+        }
+        list.appendChild(head);
+        g.rows.forEach(function (it) {
+          var div = document.createElement('div');
+          div.className = 'iss_row';
+          div.style.cssText = 'padding:2px 6px 2px 18px; border-radius:5px; display:flex; gap:6px; align-items:flex-start; line-height:1.5;' + (g.anchor.clickAt ? ' cursor:pointer;' : '');
+          div.innerHTML = '<span style="color:' + color + '; flex:0 0 auto;">' + icon + '</span><span>' + escHtml(it.text) + '</span>';
+          if (g.anchor.clickAt) {
+            div.addEventListener('mouseenter', function () { div.style.background = 'rgba(255,255,255,.05)'; });
+            div.addEventListener('mouseleave', function () { div.style.background = ''; });
+            div.addEventListener('click', function () { focusIssue(g.anchor.clickAt); });
+          }
+          list.appendChild(div);
+        });
+      });
   }
+
   if (i.errors.length) {
     section('must fix — blocks save and ▶ test', '#e2604f');
-    i.errors.forEach(function (e) {
-      var at = /^(?:nodes|edges)\.([a-z0-9_]+)/.exec(e);
-      row('#e2604f', '✗', e, at ? at[1] : null);
-    });
+    renderGroups(i.errors.map(function (e) {
+      var m = /^(?:nodes|edges)\.([a-z0-9_]+)/.exec(e);
+      return { text: e, at: m ? m[1] : (G.id || 'g') };
+    }), '#e2604f', '✗');
   }
   if (i.gaps.length) {
     section('to finish — the graph runs better once these are answered', '#d9a441');
-    i.gaps.forEach(function (gap) { row('#d9a441', '⚠', gap.question, gap.at); });
+    renderGroups(i.gaps.map(function (gap) {
+      return { text: gap.short || gap.question, at: gap.at };
+    }), '#d9a441', '⚠');
   }
   if (!i.errors.length && !i.gaps.length) {
-    row('#7dcf85', '✓', 'valid and complete — save ▾ to keep it, ▶ test ▾ to turn it into a running spec', null);
+    var ok = document.createElement('div');
+    ok.className = 'iss_row';
+    ok.style.cssText = 'padding:5px 6px; display:flex; gap:6px; line-height:1.5;';
+    ok.innerHTML = '<span style="color:#7dcf85;">✓</span><span>valid and complete — save ▾ to keep it, ▶ test ▾ to turn it into a running spec</span>';
+    list.appendChild(ok);
   }
 }
 document.getElementById('b_check').addEventListener('click', function () {

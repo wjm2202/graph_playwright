@@ -7,7 +7,8 @@
  * makes segregation-of-duties journeys scriptable as one timeline.
  *
  * Auth ladder per persona (founding doc §4.1, sf_auth__strategy_hierarchy):
- *   1. reuse .auth/<persona>.json storageState if present
+ *   1. reuse .auth/<persona>.json storageState if present AND young enough
+ *      (SESSION_MAX_AGE_MS, default 2h — see auth/storage.ts)
  *   2. token → frontdoor (org) / UI Bridge singleaccess (site domain)
  *   3. username+password → one UI login, session persisted for reuse
  *   4. otherwise: fail with the exact .env vars to set
@@ -24,7 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PersonaRegistry } from '../personas/registry';
 import { buildFrontdoorUrl, fetchSingleAccessUrl } from '../auth/frontdoor';
-import { GUEST_STATE } from '../auth/storage';
+import { GUEST_STATE, sessionFreshness, sessionMaxAgeMs } from '../auth/storage';
 import { totpNow } from '../auth/totp';
 import { handleTotpChallenge } from '../auth/totp-challenge';
 
@@ -83,7 +84,9 @@ export class Cast {
   readonly workerIndex?: number;
   readonly env: NodeJS.ProcessEnv;
   readonly contextOptions: BrowserContextOptions;
-  readonly sessionPolicies?: SessionPolicies;
+  /** Not readonly: runGraph adopts the policies it derives from the graph
+   *  (applySessionPolicies) before any session opens. */
+  sessionPolicies?: SessionPolicies;
   /** Personas whose sessions were auto-released to satisfy a session policy. */
   readonly evictions: string[] = [];
   private readonly authenticator: Authenticator;
@@ -99,6 +102,16 @@ export class Cast {
     this.contextOptions = opts.contextOptions ?? {};
     if (opts.sessionPolicies !== undefined) this.sessionPolicies = opts.sessionPolicies;
     this.authenticator = opts.authenticator ?? defaultAuthenticator;
+  }
+
+  /**
+   * Adopt session limits derived from a process graph (runGraph calls this
+   * before the first step). Sessions already live are NOT retro-evicted —
+   * the limit governs every session opened from here on, which is why the
+   * caller applies it before running.
+   */
+  applySessionPolicies(policies: SessionPolicies): void {
+    this.sessionPolicies = policies;
   }
 
   /** Log in as persona (cached): returns that actor's Page. */
@@ -211,7 +224,20 @@ export const defaultAuthenticator: Authenticator = async (personaId, browser, ca
 
   const statePath = registry.statePathForPersona(personaId, workerIndex);
   if (fs.existsSync(statePath)) {
-    return browser.newContext({ ...cast.contextOptions, storageState: statePath });
+    // A cached session is trusted only while it's young enough to plausibly
+    // still be valid — an old file otherwise surfaces as a baffling redirect
+    // to a login page halfway through a test.
+    const freshness = sessionFreshness(
+      statePath,
+      fs.statSync(statePath).mtimeMs,
+      Date.now(),
+      sessionMaxAgeMs(env),
+    );
+    if (freshness.fresh) {
+      return browser.newContext({ ...cast.contextOptions, storageState: statePath });
+    }
+    // The ladder's decisions are exactly what you debug at 2am.
+    console.log(`· session cache: ${freshness.reason}`);
   }
 
   const creds = registry.resolveCreds(personaId, env, workerIndex);

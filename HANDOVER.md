@@ -10,6 +10,27 @@ objective = the session's task) — the full research corpus and all project
 decisions/state live there now (treeVersion 32). Then read this file. Repo:
 `~/Documents/code/SalesForce/salesforce_playwright/` (re-request folder access).
 
+## Sprints S19+S20 CHECK PANEL POLISH — SHIPPED 2026-08-31 (suite 338)
+
+- **S19**: check rows in node cards went two-line (kind/ms/draft/✕ on line 1,
+  target+value full-width on line 2 — inputs were ~35px, unusable); the data
+  node's snapshot slot now explains itself ("run evidence — every run embeds
+  its screenshot here automatically; attach a file only as a manual
+  reference").
+- **S20** (user: "issues need to be grouped by node or edge"): the check
+  panel now groups by graph ELEMENT. `Gap` gained `short: string` — a
+  concise imperative that does NOT re-name the element (the group header
+  does); all 9 kinds emit it; `question` unchanged (grillme/CLI still
+  self-contained). Planner `issueAnchor(at)` resolves node → edge →
+  `at.split('.')[0]` node → actor alias → system key → whole-graph, and
+  `renderIssues()` renders per-element `.iss_head` headers (label + muted
+  type·id meta + count, click-to-jump) with indented `.iss_row` shorts
+  beneath, groups in graph order, within the same MUST FIX / TO FINISH
+  sections. Unit: every gap's short is non-trivial, <110 chars, doesn't
+  start `Role|Session|System|Step '` (that's the header's job). Harness:
+  one header per element (sess_sf_sales header carries count 2 =
+  not_captured + session_no_url), header click selects the node.
+
 ## Sprint S18 OPEN SOURCE — SHIPPED 2026-08-31 (AGPL-3.0)
 
 Owner decision: open source for personal AND professional use, with the

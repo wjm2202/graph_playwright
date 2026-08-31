@@ -15,6 +15,12 @@
 
 export type SystemKind = 'salesforce' | 'siebel' | 'web' | 'api' | 'other';
 
+/** How a session is acquired. Structurally mirrors personas/schema.ts's
+ *  AuthMethod — declared again rather than imported because this file must
+ *  transpile standalone for the planner (see the header note). The two are
+ *  kept in step by a unit test. */
+export type AuthMethod = 'frontdoor' | 'singleaccess' | 'ui';
+
 export interface SystemDef {
   label: string;
   kind: SystemKind;
@@ -112,7 +118,7 @@ export interface PEdge {
     /** v2 `does` edges: the step-catalog action this relation performs. */
     catalog?: string;
     /** v2 `login_as` edges: how the session is acquired. */
-    auth?: 'frontdoor' | 'singleaccess' | 'ui';
+    auth?: AuthMethod;
   };
 }
 
@@ -144,7 +150,14 @@ const EXPECTATION_KINDS: ExpectationKind[] = [
 /** Backend oracle kinds evaluate server-side and may poll (async settles). */
 const BACKEND_KIND_RE = /^(api|db|log)\./;
 
-export function validateGraph(doc: unknown): GraphValidation {
+/** Auth method each known persona uses, from personas.json. Supplied by
+ *  callers that can read the roster (the walker, the planner build); when
+ *  absent, the login_as agreement check is simply not run. */
+export interface ValidateGraphOptions {
+  personaAuth?: Record<string, AuthMethod | undefined> | undefined;
+}
+
+export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): GraphValidation {
   const errors: string[] = [];
   const g = doc as Partial<ProcessGraph> | null;
   if (!g || typeof g !== 'object') return { ok: false, errors: ['graph must be an object'] };
@@ -291,6 +304,20 @@ export function validateGraph(doc: unknown): GraphValidation {
       const target = (g.nodes ?? []).find((n) => n.id === e.to);
       if (target && target.type !== 'session') {
         errors.push(`${at}: login_as must land on a session node (got '${target.type}')`);
+      }
+      // The edge DECLARES how the session is acquired; personas.json DECIDES.
+      // Cast reads the persona, so a disagreement makes the graph document a
+      // login that will never happen. Caught here rather than at run time.
+      const declared = e.data?.auth;
+      if (declared && opts.personaAuth && target?.actor) {
+        const personaId = actors[target.actor];
+        const actual = personaId ? opts.personaAuth[personaId] : undefined;
+        if (actual && actual !== declared) {
+          errors.push(
+            `${at}.data.auth: declares '${declared}' but persona '${personaId}' authenticates by '${actual}' ` +
+              `(personas.json decides — change the edge, or change the persona)`,
+          );
+        }
       }
     }
     if (e?.type === 'does' && !e.data?.catalog && !e.label) {

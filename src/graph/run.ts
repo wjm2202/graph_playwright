@@ -10,7 +10,7 @@ import * as path from 'path';
 import { runJourney, JourneyRunError, type JourneyReport, type RunnerDeps } from '../journeys/runner';
 import { toJourney } from './toJourney';
 import { mergeRunIntoGraph, type MergeResult } from './mergeRun';
-import type { ProcessGraph } from './schema';
+import type { AuthMethod, ProcessGraph } from './schema';
 import { runId } from '../utils/naming';
 import { recordEvent } from '../telemetry';
 
@@ -22,9 +22,22 @@ export interface RunGraphResult extends MergeResult {
 
 export async function runGraph(
   graph: ProcessGraph,
-  deps: Omit<RunnerDeps, 'personaIds'> & { personaIds?: string[] | undefined },
+  deps: Omit<RunnerDeps, 'personaIds'> & {
+    personaIds?: string[] | undefined;
+    /** persona → auth method (PersonaRegistry.authMethods()) — enables the
+     *  login_as agreement check while walking. */
+    personaAuth?: Record<string, AuthMethod | undefined> | undefined;
+  },
 ): Promise<RunGraphResult> {
-  const walked = toJourney(graph, { personaIds: deps.personaIds });
+  const walked = toJourney(graph, {
+    personaIds: deps.personaIds,
+    ...(deps.personaAuth ? { personaAuth: deps.personaAuth } : {}),
+  });
+
+  // The graph is the source of truth for concurrency: a system declaring
+  // maxConcurrent 1 (Siebel-style) must actually evict, not merely warn.
+  // Applied BEFORE the first step so no session escapes the limit.
+  deps.cast.applySessionPolicies?.(walked.sessionPolicies);
 
   let report: JourneyReport;
   let error: JourneyRunError | undefined;

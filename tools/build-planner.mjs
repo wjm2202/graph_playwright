@@ -80,6 +80,9 @@ function personaIds() {
           ...(p.totpEnv ? { totp: p.totpEnv } : {}),
           ...(p.site && siteUrlEnvs[p.site] ? { url: siteUrlEnvs[p.site] } : { url: orgUrlEnv }),
           ...(p.kind ? { kind: p.kind } : {}),
+          // How Cast acquires this persona's session — the check panel
+          // compares it against what a login_as edge declares.
+          ...(p.auth ? { auth: p.auth } : {}),
         };
       }
     } catch { /* roster stays empty — planner degrades gracefully */ }

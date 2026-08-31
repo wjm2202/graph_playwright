@@ -42,6 +42,10 @@ test('full env: READY, no lines to add — token alone satisfies a persona', () 
     SF_INSTANCE_URL: 'https://uat.my.salesforce.com',
     SF_SALES_USERNAME: 'u', SF_SALES_PASSWORD: 'p',
     SF_ADMIN_TOKEN: 'tok', // no admin user/pass needed
+    // The Siebel session is its own persona on its own system — "full" env
+    // for this graph means Siebel creds too.
+    SIEBEL_URL: 'https://siebel.example.test',
+    SIEBEL_ADMIN_USERNAME: 'su', SIEBEL_ADMIN_PASSWORD: 'sp',
   };
   const r = envDoctor(goodGraphV2(), registry(), env);
   expect(r.ready).toBe(true);

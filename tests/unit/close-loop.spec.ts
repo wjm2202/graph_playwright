@@ -13,7 +13,7 @@ import { JourneyRunError, runJourney, type JourneyReport } from '../../src/journ
 import { StepCatalog } from '../../src/journeys/catalog';
 import { goodGraphV2 } from '../helpers/sampleGraph';
 
-const PERSONAS = ['admin', 'sales_user', 'portal_user', 'guest'];
+const PERSONAS = ['admin', 'sales_user', 'portal_user', 'guest', 'siebel_admin'];
 
 test.describe('mergeRunIntoGraph', () => {
   test('paints oracle results, captured status, timing, and embeds snapshots', () => {

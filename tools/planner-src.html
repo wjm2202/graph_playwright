@@ -197,6 +197,13 @@ if (typeof cytoscapeEdgehandles !== 'undefined') cytoscape.use(cytoscapeEdgehand
 var validateGraph = window.ProcessGraphSchema.validateGraph;
 var computeGaps = (window.ProcessGraphGaps && window.ProcessGraphGaps.computeGaps) || function () { return []; };
 var PERSONA_IDS = window.PERSONA_IDS || [];
+// persona → auth method, from personas.json. Lets the check panel catch a
+// login_as edge declaring a mechanism the persona doesn't actually use.
+var PERSONA_AUTH = (function () {
+  var m = {}, env = window.PERSONA_ENV || {};
+  for (var k in env) if (env[k] && env[k].auth) m[k] = env[k].auth;
+  return m;
+})();
 
 var PALETTE = ['#4d7ea8', '#7a5aa0', '#3e8a71', '#b07a3d', '#a04d62', '#5a7a3e'];
 var G = emptyGraph();
@@ -1075,7 +1082,7 @@ document.getElementById('legend').addEventListener('click', function () {
 
 // ---- graph check: every problem and unfinished part, with hints ----------
 function graphIssues() {
-  var v = validateGraph(G);
+  var v = validateGraph(G, { personaAuth: PERSONA_AUTH });
   var gaps = [];
   try { gaps = computeGaps(G, { knownPersonas: PERSONA_IDS }); } catch (e) { /* engine absent → errors alone */ }
   return { errors: v.errors, gaps: gaps };
@@ -1102,42 +1109,98 @@ function focusIssue(at) {
     setStatus("this one lives on '" + at + "' — fix it in the graph panel (id/actors/systems)");
   }
 }
+// One group per graph ELEMENT — a human scans "which box is this about"
+// first, then reads its short to-dos. Headers click-jump like rows do.
+function issueAnchor(at) {
+  var nodePart = at.indexOf('.') > 0 ? at.split('.')[0] : at;
+  var n = nodeById(at) || nodeById(nodePart);
+  if (n) {
+    return { key: 'n:' + n.id, clickAt: n.id, name: n.label || n.id, meta: n.type + ' · ' + n.id, order: 100 + G.nodes.indexOf(n) };
+  }
+  var e = edgeById(at);
+  if (e) {
+    return { key: 'e:' + e.id, clickAt: e.id, name: e.label || e.type, meta: 'edge ' + e.id + ' · ' + e.from + ' → ' + e.to, order: 1000 + G.edges.indexOf(e) };
+  }
+  if (G.actors && at in G.actors) {
+    return { key: 'a:' + at, clickAt: null, name: "role '" + at + "'", meta: 'graph panel → actors', order: 2000 };
+  }
+  if (G.systems && at in G.systems) {
+    return { key: 's:' + at, clickAt: null, name: "system '" + at + "'", meta: 'graph panel → systems', order: 3000 };
+  }
+  return { key: 'g', clickAt: null, name: 'whole graph', meta: G.id || '(unnamed)', order: 4000 };
+}
+
 function renderIssues() {
   var i = refreshCheckBadge();
   var list = document.getElementById('iss_list');
   list.innerHTML = '';
+
   function section(title, color) {
     var h = document.createElement('div');
-    h.style.cssText = 'margin:6px 0 3px; color:' + color + '; font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:10px;';
+    h.style.cssText = 'margin:8px 0 4px; color:' + color + '; font-weight:600; text-transform:uppercase; letter-spacing:.04em; font-size:10px;';
     h.textContent = title;
     list.appendChild(h);
   }
-  function row(color, icon, text, at) {
-    var div = document.createElement('div');
-    div.className = 'iss_row';
-    div.style.cssText = 'padding:5px 6px; border-radius:5px; display:flex; gap:6px; align-items:flex-start; line-height:1.5;' + (at ? ' cursor:pointer;' : '');
-    div.innerHTML = '<span style="color:' + color + '; flex:0 0 auto;">' + icon + '</span><span>' + escHtml(text) + '</span>';
-    if (at) {
-      div.title = 'click to jump to it';
-      div.addEventListener('mouseenter', function () { div.style.background = 'rgba(255,255,255,.05)'; });
-      div.addEventListener('mouseleave', function () { div.style.background = ''; });
-      div.addEventListener('click', function () { focusIssue(at); });
-    }
-    list.appendChild(div);
+
+  function renderGroups(items, color, icon) {
+    // items: [{text, at}] → grouped by anchor, in graph order.
+    var groups = {};
+    items.forEach(function (it) {
+      var a = issueAnchor(it.at);
+      if (!groups[a.key]) groups[a.key] = { anchor: a, rows: [] };
+      groups[a.key].rows.push(it);
+    });
+    Object.keys(groups)
+      .sort(function (x, y) { return groups[x].anchor.order - groups[y].anchor.order; })
+      .forEach(function (k) {
+        var g = groups[k];
+        var head = document.createElement('div');
+        head.className = 'iss_head';
+        head.style.cssText = 'display:flex; gap:6px; align-items:baseline; padding:4px 6px; border-radius:5px; margin-top:4px;' + (g.anchor.clickAt ? ' cursor:pointer;' : '');
+        head.innerHTML = '<b>' + escHtml(g.anchor.name) + '</b>' +
+          '<span style="color:var(--muted); font-size:10px;">' + escHtml(g.anchor.meta) + '</span>' +
+          '<span style="margin-left:auto; color:' + color + '; font-size:10px;">' + g.rows.length + '</span>';
+        if (g.anchor.clickAt) {
+          head.title = 'click to jump to it';
+          head.addEventListener('mouseenter', function () { head.style.background = 'rgba(255,255,255,.06)'; });
+          head.addEventListener('mouseleave', function () { head.style.background = ''; });
+          head.addEventListener('click', function () { focusIssue(g.anchor.clickAt); });
+        }
+        list.appendChild(head);
+        g.rows.forEach(function (it) {
+          var div = document.createElement('div');
+          div.className = 'iss_row';
+          div.style.cssText = 'padding:2px 6px 2px 18px; border-radius:5px; display:flex; gap:6px; align-items:flex-start; line-height:1.5;' + (g.anchor.clickAt ? ' cursor:pointer;' : '');
+          div.innerHTML = '<span style="color:' + color + '; flex:0 0 auto;">' + icon + '</span><span>' + escHtml(it.text) + '</span>';
+          if (g.anchor.clickAt) {
+            div.addEventListener('mouseenter', function () { div.style.background = 'rgba(255,255,255,.05)'; });
+            div.addEventListener('mouseleave', function () { div.style.background = ''; });
+            div.addEventListener('click', function () { focusIssue(g.anchor.clickAt); });
+          }
+          list.appendChild(div);
+        });
+      });
   }
+
   if (i.errors.length) {
     section('must fix — blocks save and ▶ test', '#e2604f');
-    i.errors.forEach(function (e) {
-      var at = /^(?:nodes|edges)\.([a-z0-9_]+)/.exec(e);
-      row('#e2604f', '✗', e, at ? at[1] : null);
-    });
+    renderGroups(i.errors.map(function (e) {
+      var m = /^(?:nodes|edges)\.([a-z0-9_]+)/.exec(e);
+      return { text: e, at: m ? m[1] : (G.id || 'g') };
+    }), '#e2604f', '✗');
   }
   if (i.gaps.length) {
     section('to finish — the graph runs better once these are answered', '#d9a441');
-    i.gaps.forEach(function (gap) { row('#d9a441', '⚠', gap.question, gap.at); });
+    renderGroups(i.gaps.map(function (gap) {
+      return { text: gap.short || gap.question, at: gap.at };
+    }), '#d9a441', '⚠');
   }
   if (!i.errors.length && !i.gaps.length) {
-    row('#7dcf85', '✓', 'valid and complete — save ▾ to keep it, ▶ test ▾ to turn it into a running spec', null);
+    var ok = document.createElement('div');
+    ok.className = 'iss_row';
+    ok.style.cssText = 'padding:5px 6px; display:flex; gap:6px; line-height:1.5;';
+    ok.innerHTML = '<span style="color:#7dcf85;">✓</span><span>valid and complete — save ▾ to keep it, ▶ test ▾ to turn it into a running spec</span>';
+    list.appendChild(ok);
   }
 }
 document.getElementById('b_check').addEventListener('click', function () {

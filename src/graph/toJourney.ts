@@ -16,10 +16,17 @@
 import type { Journey, JourneyStep } from '../journeys/schema';
 import { validateJourney } from '../journeys/schema';
 import type { SessionPolicies, SessionPolicyGroup } from '../fixtures/cast';
-import type { ProcessGraph, PNode } from './schema';
+import type { AuthMethod, ProcessGraph, PNode } from './schema';
 import { validateGraph } from './schema';
 
 export type { SessionPolicies, SessionPolicyGroup };
+
+export interface ToJourneyOptions {
+  personaIds?: string[] | undefined;
+  /** persona → auth method (personas.json). Enables the login_as agreement
+   *  check; omit and that check is skipped. */
+  personaAuth?: Record<string, AuthMethod | undefined> | undefined;
+}
 
 export interface ToJourneyResult {
   journey: Journey;
@@ -38,8 +45,8 @@ export interface ToJourneyResult {
 const SPINE = new Set(['next', 'navigates', 'handoff']);
 const EXECUTABLE = new Set(['action', 'decision', 'checkpoint', 'snapshot']);
 
-export function toJourney(graph: ProcessGraph, opts: { personaIds?: string[] | undefined } = {}): ToJourneyResult {
-  const gv = validateGraph(graph);
+export function toJourney(graph: ProcessGraph, opts: ToJourneyOptions = {}): ToJourneyResult {
+  const gv = validateGraph(graph, { personaAuth: opts.personaAuth });
   if (!gv.ok) throw new Error(`graph invalid:\n - ${gv.errors.join('\n - ')}`);
   if (graph.schema === 'process-graph/2') return toJourneyV2(graph, opts);
 
@@ -140,7 +147,7 @@ export function toJourney(graph: ProcessGraph, opts: { personaIds?: string[] | u
  * `touches`/`asserts` are relations, not steps; `requires` comes back as
  * prerequisite metadata.
  */
-function toJourneyV2(graph: ProcessGraph, opts: { personaIds?: string[] | undefined }): ToJourneyResult {
+function toJourneyV2(graph: ProcessGraph, opts: ToJourneyOptions): ToJourneyResult {
   const warnings: string[] = [];
   const nodeById = new Map(graph.nodes.map((n) => [n.id, n]));
 

@@ -11,7 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { validatePersonas, type PersonaDef, type PersonasDoc } from './schema';
+import { validatePersonas, type AuthMethod, type PersonaDef, type PersonasDoc } from './schema';
 import { compact } from '../utils/compact';
 import { statePathFor, workerStatePathFor } from '../auth/storage';
 
@@ -145,6 +145,20 @@ export class PersonaRegistry {
   missingEnvHint(id: string, env: NodeJS.ProcessEnv = process.env, workerIndex?: number): string {
     const missing = this.missingEnvNames(id, env, workerIndex);
     return `persona '${id}' unauthenticated — set ${missing.join(' or ') || 'credentials'} in .env (token preferred; see .env.example)`;
+  }
+
+  /**
+   * persona → auth method, for graph validation: a `login_as` edge may
+   * DECLARE how a session is acquired, but this map is what Cast obeys.
+   * Personas leaving `auth` unset are omitted (nothing to contradict).
+   */
+  authMethods(): Record<string, AuthMethod | undefined> {
+    const out: Record<string, AuthMethod | undefined> = {};
+    for (const id of this.ids()) {
+      const auth = this.get(id).auth;
+      if (auth) out[id] = auth;
+    }
+    return out;
   }
 
   /** .env name of the org instance URL (SF_INSTANCE_URL by convention). */
