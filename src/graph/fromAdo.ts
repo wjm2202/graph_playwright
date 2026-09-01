@@ -16,7 +16,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { validateGraph, type Expectation, type PNode, type ProcessGraph } from './schema';
+import { validateGraph, type DataIo, type Expectation, type PNode, type ProcessGraph } from './schema';
 
 export interface AdoStep {
   action: string;
@@ -115,7 +115,7 @@ const ROLE_RE = /^(?:as|logged\s+in\s+as|login\s+as|acting\s+as)\s+(?:a|an|the)?
 const CREATED_RE = /\b(created|saved|exists|persisted|record|row)\b/i;
 const TOAST_RE = /\btoast\b/i;
 const URL_RE = /\burl\b|\bnavigat/i;
-const OBJECT_RE = /\b(?:create|update|edit|open|approve|convert|check|verify|progress|submit)\b(?:\s+(?:a|an|the|new))?\s+([a-z][a-z ]{1,24}?)(?:\s+(?:record|to|into|for|in|with|from)\b|\s*$)/i;
+const OBJECT_RE = /\b(?:create|update|edit|open|approve|convert|check|verify|progress|submit|add|delete|remove)\b(?:\s+(?:a|an|the|new))?\s+([a-z][a-z ]{1,24}?)(?:\s+(?:record|to|into|for|in|with|from)\b|\s*$)/i;
 
 export function adoCaseToGraph(tc: AdoCase, opts: { graphId?: string; knownPersonas?: string[] } = {}): AdoImportResult {
   const flags: string[] = [];
@@ -184,15 +184,21 @@ export function adoCaseToGraph(tc: AdoCase, opts: { graphId?: string; knownPerso
       const wantsData = !!step.expected && CREATED_RE.test(step.expected);
 
       let targetId: string;
-      if (object && wantsData) {
+      let io: DataIo | undefined;
+      const known = object ? dataNodes.get(slug(object)) : undefined;
+      if (object && (wantsData || known || verbIo(step.action) === 'produces')) {
         const key = slug(object);
-        let node = dataNodes.get(key);
+        let node = known;
         if (!node) {
-          node = { id: key || `data_${edgeSeq}`, type: 'data', label: `${titleCase(object)} record`, expects: [] };
+          node = { id: key || `data_${edgeSeq}`, type: 'data', label: `${titleCase(object)} record`, sobject: titleCase(object), expects: [] };
           dataNodes.set(key, node);
           graph.nodes.push(node);
         }
         targetId = node.id;
+        // The PORT from the verb (STUDY-DATA-FLOW.md §3.5) — a draft the
+        // human confirms in grillme, like every other machine guess here.
+        io = verbIo(step.action);
+        flags.push(`'${trunc(step.action)}' ${io} the ${titleCase(object)} record (from the verb) — confirm the port`);
       } else {
         scr += 1;
         targetId = `scr_${scr}`;
@@ -202,7 +208,7 @@ export function adoCaseToGraph(tc: AdoCase, opts: { graphId?: string; knownPerso
       const catalog = unique(`${slug(object ?? targetId)}.${verbOf(step.action)}`, usedCatalogs);
       graph.edges.push({
         id: edgeId, from: sessId, to: targetId, type: 'does',
-        label: trunc(step.action, 60), data: { catalog },
+        label: trunc(step.action, 60), data: { catalog, ...(io ? { io, ioDraft: true } : {}) },
       });
 
       if (step.expected) {
@@ -300,6 +306,16 @@ function slug(s: string | undefined): string {
 
 function titleCase(s: string): string {
   return s.trim().replace(/\s+/g, ' ').split(' ').map((w) => (w[0]?.toUpperCase() ?? '') + w.slice(1)).join('');
+}
+
+/** Verb → port: what the action does to the record it names. */
+export function verbIo(action: string): DataIo {
+  const v = verbOf(action);
+  if (/^(add|enter|log)\s+(a\s+|an\s+)?new\b/i.test(action.trim())) return 'produces'; // "add a new address"
+
+  if (/^(create|convert|submit|register|raise|log|new)$/.test(v)) return 'produces';
+  if (/^(update|edit|approve|progress|add|delete|remove|change|set|assign|close|reject|cancel)$/.test(v)) return 'updates';
+  return 'consumes';
 }
 
 function verbOf(action: string): string {

@@ -53,6 +53,13 @@ GRAPH_DOCTOR=all npm run doctor
   runner) and validation **refuses** a `db.query` check against a
   non-queryable DB, naming the way out: the app API or the log system. A
   `logger` carries `searchable`; an `api` node carries its `{method, path}`.
+- **Data flows on the edges.** A `data` node is a runtime variable; every
+  edge onto it carries a port — `produces` (the step publishes the record's
+  id), `consumes` (the step receives `{ref:<node>.id}`) or `updates`. A
+  reaching-definitions check refuses use-before-def, composing graphs
+  infers where the imported flow must splice in, and the recorder derives
+  the ports itself (the save that created a record defines it; every later
+  mention becomes `{ref:}`). Study + science: `docs/STUDY-DATA-FLOW.md`.
 - **Versioned schema.** `process-graph/2` with a superset validator (v1 graphs
   keep loading) and an `upgradeGraph()` v1→v2 converter.
 - **Merge-back.** A run's results are merged onto the graph it came from —
@@ -93,7 +100,7 @@ auto-rebuild and live reload.
   into a compact session→does→data graph with post-save redirects folded in,
   SObjects inferred, and draft oracles marked `draft?`.
 - **`npm run grillme`** — the gap engine reads a draft graph and emits every
-  hole as an answerable multiple-choice question (9 gap kinds), with 8
+  hole as an answerable multiple-choice question (12 gap kinds), with 11
   validated write-back operations that apply your answers. Runs as a CLI or
   through the `/grillme` skill.
 - **`npm run doctor`** — `GRAPH_DOCTOR=<id|all>`: per-graph ✓/✗ for the org

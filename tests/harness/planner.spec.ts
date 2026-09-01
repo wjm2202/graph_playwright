@@ -204,7 +204,7 @@ test('lane labels: v1 nodes get [system · actor]; v2 sessions ARE the lane', as
   expect(v2.sales).toBe('Salesforce · submitter  ▶'); // ▶ = double-click copies the capture command
   expect(v2.data).toBe('Expense record\n✓ 2 checks'); // oracle badge from expects
   expect(v2.login).toBe('login as submitter'); // the arrow names WHO, never the mechanism
-  expect(v2.does).toBe('expense.submit · submit expense');
+  expect(v2.does).toBe('expense.submit · ⇒ out · submit expense'); // the port rides the label (produces = ⇒ out)
   expect(v2.denied).toBe('deny expense.approve');
 });
 
@@ -292,6 +292,35 @@ test('edge form binds and edits the v2 relations (catalog, auth)', async ({ page
   await page.evaluate(() => { window.planner.select('e1'); });
   await expect(page.locator('#ef_type')).toHaveValue('login_as');
   await expect(page.locator('#ef_auth')).toHaveValue('frontdoor');
+});
+
+test('edge form: the data PORT shows only for edges onto data nodes, round-trips, and the check panel referees use-before-def', async ({ page }) => {
+  await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
+
+  // e2 lands on the expense data node → the port row is visible and bound.
+  await page.evaluate(() => { window.planner.select('e2'); });
+  await expect(page.locator('#row_io')).toBeVisible();
+  await expect(page.locator('#ef_io')).toHaveValue('produces');
+  // e1 (login_as → session) has no port row.
+  await page.evaluate(() => { window.planner.select('e1'); });
+  await expect(page.locator('#row_io')).toBeHidden();
+
+  // Flip the producer to a consumer: the walk now reads a record nothing
+  // defined — the check badge goes red and names the edge.
+  await page.evaluate(() => { window.planner.select('e2'); });
+  await page.locator('#ef_io').selectOption('consumes');
+  await page.locator('#ef_io').dispatchEvent('change');
+  const out = await page.evaluate(() => window.planner.export());
+  expect(out.ok).toBe(true);
+  expect(JSON.parse(out.json).edges.find((e: { id: string }) => e.id === 'e2').data.io).toBe('consumes');
+  await page.locator('#b_check').click();
+  await expect(page.locator('#iss_list')).toContainText('used before anything defines it — created earlier, seeded, or pre-existing?');
+
+  // Back to produces → clean again.
+  await page.locator('#ef_io').selectOption('produces');
+  await page.locator('#ef_io').dispatchEvent('change');
+  await page.locator('#b_check').click();
+  await expect(page.locator('#iss_list')).not.toContainText('used before anything defines it');
 });
 
 test('v2 session node drives the capture cockpit', async ({ page }) => {
@@ -817,7 +846,8 @@ test('check: a finished graph earns the green line and the ✓ badge', async ({ 
     ],
     edges: [
       { id: 'e1', from: 'start', to: 'sess_operator', type: 'login_as' },
-      { id: 'e2', from: 'sess_operator', to: 'rec', type: 'does', data: { catalog: 'rec.save' } },
+      // A does edge onto a data node needs its PORT to be finished (STUDY-DATA-FLOW.md).
+      { id: 'e2', from: 'sess_operator', to: 'rec', type: 'does', data: { catalog: 'rec.save', io: 'produces' } },
       { id: 'e3', from: 'sess_operator', to: 'end', type: 'next' },
     ],
   };

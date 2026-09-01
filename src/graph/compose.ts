@@ -178,6 +178,125 @@ export function runOrder(g: ProcessGraph): RunOrder {
   return { steps };
 }
 
+/**
+ * Dataflow health — reaching definitions over the walk (STUDY-DATA-FLOW.md
+ * §3.2). A data node is a runtime variable; edges landing on it carry a
+ * port (`data.io`). In walk order, every `consumes`/`updates` needs a
+ * definition BEFORE it: a `produces` edge earlier in the walk, the node's
+ * `origin` being 'seed' (journey seed block) or 'external' (found, not
+ * created), or a produces edge from a non-session node (an integration hop
+ * such as api → data, which the walk does not schedule — treated as ambient).
+ *
+ * `errors` = use-before-def (the test WILL run against the wrong record or
+ * none). `warnings` = a second produces on an already-defined node, or a
+ * produces on a seed/external node (contradiction: who defines it?).
+ * `unused` = data nodes defined but never consumed (fine; informational).
+ * Edges without a port are invisible here — legacy graphs report clean.
+ */
+export interface DataflowHealth {
+  errors: string[];
+  warnings: string[];
+  unused: string[];
+  /** data node id → edge id (or 'origin:<seed|external>' / 'ambient:<edge>') that defines it. */
+  definedBy: Record<string, string>;
+}
+
+const PORTED = new Set(['does', 'touches', 'handoff']);
+
+export function dataflowHealth(g: ProcessGraph): DataflowHealth {
+  const out: DataflowHealth = { errors: [], warnings: [], unused: [], definedBy: {} };
+  if (g.schema !== 'process-graph/2') return out;
+  const nodeById = new Map(g.nodes.map((n) => [n.id, n]));
+  const dataNodes = g.nodes.filter((n) => n.type === 'data');
+  if (!dataNodes.length) return out;
+
+  for (const n of dataNodes) {
+    if (n.origin === 'seed' || n.origin === 'external') out.definedBy[n.id] = `origin:${n.origin}`;
+  }
+  let chain: string[];
+  try {
+    chain = loginChain(g, 'login chain');
+  } catch {
+    return out; // chainHealth reports the broken chain; nothing to walk here
+  }
+  const onChain = new Set(chain);
+  // Ambient definitions: produces from nodes the walk never schedules.
+  for (const e of g.edges) {
+    if (e.data?.io !== 'produces' || !PORTED.has(e.type) || onChain.has(e.from)) continue;
+    if (nodeById.get(e.to)?.type !== 'data') continue;
+    out.definedBy[e.to] ??= `ambient:${e.id}`;
+  }
+
+  const consumed = new Set<string>();
+  for (const sessId of chain) {
+    for (const e of g.edges) {
+      if (e.from !== sessId || !e.data?.io || !PORTED.has(e.type)) continue;
+      const target = nodeById.get(e.to);
+      if (target?.type !== 'data') continue;
+      const name = e.label ?? e.data.catalog ?? e.id;
+      if (e.data.io === 'produces') {
+        const prior = out.definedBy[e.to];
+        if (prior?.startsWith('origin:')) {
+          out.warnings.push(`edge ${e.id} ('${name}') produces '${target.label || target.id}' but the node's origin is ${prior.slice(7)} — who defines it? (drop the origin, or make this edge consumes/updates)`);
+        } else if (prior && !prior.startsWith('ambient:')) {
+          out.warnings.push(`edge ${e.id} ('${name}') produces '${target.label || target.id}' again — already defined by ${prior}; a second create overwrites {ref:${target.ref ?? target.id}}`);
+        }
+        out.definedBy[e.to] = e.id;
+      } else {
+        consumed.add(e.to);
+        if (!out.definedBy[e.to]) {
+          out.errors.push(
+            `edge ${e.id} ('${name}') ${e.data.io} '${target.label || target.id}' but nothing defines it before this point — ` +
+              `create it earlier in the walk (a produces edge), seed it (origin: seed), or mark it pre-existing (origin: external)`,
+          );
+        }
+      }
+    }
+  }
+  for (const n of dataNodes) {
+    if (out.definedBy[n.id] && !consumed.has(n.id)) out.unused.push(n.id);
+  }
+  return out;
+}
+
+/**
+ * The host session the sub must splice after so its consumes are defined:
+ * the LAST host-chain session producing any data node the sub consumes
+ * without producing it first itself. undefined = no data dependency.
+ */
+function inferSplicePoint(
+  host: ProcessGraph,
+  sub: ProcessGraph,
+  nodeMap: Map<string, string>,
+  hostChain: string[],
+): { after: string; because: string[] } | undefined {
+  const subNodeById = new Map(sub.nodes.map((n) => [n.id, n]));
+  const subSessions = new Set(sub.nodes.filter((n) => n.type === 'session').map((n) => n.id));
+  const producedInSub = new Set<string>();
+  const needed = new Set<string>(); // composed data node ids
+  for (const e of sub.edges) {
+    if (!e.data?.io || !PORTED.has(e.type) || !subSessions.has(e.from)) continue;
+    if (subNodeById.get(e.to)?.type !== 'data') continue;
+    const composedId = nodeMap.get(e.to) ?? e.to;
+    if (e.data.io === 'produces') producedInSub.add(composedId);
+    else if (!producedInSub.has(composedId)) needed.add(composedId);
+  }
+  if (!needed.size) return undefined;
+  let bestIdx = -1;
+  const because: string[] = [];
+  for (const dataId of needed) {
+    let idx = -1;
+    for (const e of host.edges) {
+      if (e.to !== dataId || e.data?.io !== 'produces' || !PORTED.has(e.type)) continue;
+      idx = Math.max(idx, hostChain.indexOf(e.from));
+    }
+    if (idx > bestIdx) { bestIdx = idx; because.length = 0; }
+    if (idx === bestIdx && idx >= 0) because.push(dataId);
+  }
+  if (bestIdx < 0) return undefined;
+  return { after: hostChain[bestIdx]!, because };
+}
+
 function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
@@ -328,6 +447,16 @@ export function composeGraphs(host: ProcessGraph, sub: ProcessGraph, opts: Compo
         `island: ${arrivals.join(' → ')} arrived UNWIRED — draw a login_as edge from a previous session into ${arrivals[0]}, ` +
           `then unlink/relink end. check ✓ lists them until you do`,
       );
+      // Dataflow guidance for the hand-wiring: what the island consumes, and
+      // which host session produces it (so the seam lands AFTER that).
+      const need = inferSplicePoint(g, s, nodeMap, hostChain);
+      if (need) {
+        summary.push(`island consumes ${need.because.join(', ')} — wire it in AFTER ${need.after} (the session that produces it), or the run uses the wrong record`);
+      } else {
+        const consumed = s.edges.filter((e) => e.data?.io && e.data.io !== 'produces' && PORTED.has(e.type)).map((e) => nodeMap.get(e.to) ?? e.to);
+        const unmet = [...new Set(consumed)].filter((id) => !s.edges.some((e) => e.data?.io === 'produces' && (nodeMap.get(e.to) ?? e.to) === id));
+        if (unmet.length) summary.push(`island consumes ${unmet.join(', ')} but nothing in the host produces it — add a produces edge, seed it, or mark it external`);
+      }
     } else {
       summary.push('island: no sessions to wire — only data/infra arrived');
     }
@@ -339,7 +468,16 @@ export function composeGraphs(host: ProcessGraph, sub: ProcessGraph, opts: Compo
     ? subChain.map((id) => nodeMap.get(id)!).filter((id) => id !== '' && !hostChain.includes(id))
     : [];
   if (inserted.length) {
-    const after = opts.after ?? hostChain[hostChain.length - 1];
+    // Splice point: explicit, else INFERRED from data dependencies (owner
+    // decision D2, STUDY-DATA-FLOW.md) — the sub must land after the last
+    // host session that produces anything the sub consumes. No data deps →
+    // the old default (end of the chain).
+    let after = opts.after;
+    if (!after) {
+      const inferred = inferSplicePoint(g, s, nodeMap, hostChain);
+      after = inferred?.after ?? hostChain[hostChain.length - 1];
+      if (inferred) summary.push(`splice point inferred: after ${inferred.after} (it produces ${inferred.because.join(', ')}, which '${s.id}' consumes)`);
+    }
     if (!after || !hostChain.includes(after)) {
       throw new Error(`after '${opts.after ?? '(none)'}' is not a session in the host chain — chain: ${hostChain.join(' → ')}`);
     }
@@ -377,6 +515,12 @@ export function composeGraphs(host: ProcessGraph, sub: ProcessGraph, opts: Compo
   const v = validateGraph(g);
   if (!v.ok) throw new Error(`compose produced an invalid graph (bug):\n - ${v.errors.join('\n - ')}`);
   loginChain(g, 'composed graph');
+
+  // Dataflow is REPORTED, never thrown: an island is incomplete by design,
+  // and the human wires it with the referee's list in hand.
+  const df = dataflowHealth(g);
+  for (const e of df.errors) summary.push(`dataflow: ${e}`);
+  for (const w of df.warnings) summary.push(`dataflow (warning): ${w}`);
 
   summary.push(`now ${g.nodes.length} nodes · ${g.edges.length} edges · imported from '${s.id}'`);
   return { graph: g, summary };

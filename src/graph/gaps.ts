@@ -9,7 +9,8 @@
  * The interrogation loop (the skill / CLI) is a thin shell over these, so
  * the judgment stays testable without a conversation in the middle.
  */
-import { validateGraph, type ProcessGraph } from './schema';
+import { validateGraph, type DataIo, type DataOrigin, type ProcessGraph } from './schema';
+import { dataflowHealth } from './compose';
 
 export type GapKind =
   | 'role_unbound'        // actor alias → persona not in personas.json
@@ -20,7 +21,11 @@ export type GapKind =
   | 'draft_oracle'        // machine-guessed expect awaiting confirmation
   | 'api_no_timeout'      // api.* oracle on the 10s default (async risk)
   | 'no_deny_coverage'    // multi-role graph with zero denied edges
-  | 'no_session_policy';  // non-SF system without a session policy
+  | 'no_session_policy'   // non-SF system without a session policy
+  // Dataflow (STUDY-DATA-FLOW.md §3.5):
+  | 'data_io_draft'       // machine-guessed port on an edge awaiting confirmation
+  | 'data_no_port'        // does edge onto a data node with no port at all
+  | 'data_unproduced';    // consumes/updates with no definition before it
 
 export interface Gap {
   kind: GapKind;
@@ -124,6 +129,40 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
     }
   }
 
+  // ---- dataflow ------------------------------------------------------------
+  const dataIds = new Set(graph.nodes.filter((n) => n.type === 'data').map((n) => n.id));
+  const nodeLabel = (id: string) => { const l = graph.nodes.find((x) => x.id === id)?.label; return l === undefined || l === '' ? id : l; };
+  for (const e of graph.edges) {
+    if (e.type !== 'does' || !dataIds.has(e.to)) continue;
+    const name = e.label ?? e.data?.catalog ?? e.id;
+    if (e.data?.io && e.data.ioDraft) {
+      gaps.push({
+        kind: 'data_io_draft', at: e.id,
+        question: `Machine-guessed: '${name}' ${e.data.io} the ${nodeLabel(e.to)} — keep it?`,
+        short: `port '${e.data.io}' is a guess — confirm or change it`,
+        options: [`keep: ${e.data.io}`, ...(['produces', 'consumes', 'updates'] as DataIo[]).filter((io) => io !== e.data!.io).map((io) => `change to: ${io}`)],
+      });
+    } else if (!e.data?.io) {
+      gaps.push({
+        kind: 'data_no_port', at: e.id,
+        question: `'${name}' touches the ${nodeLabel(e.to)} — does it CREATE it, READ it, or UPDATE it? (This is how the record's id reaches later steps.)`,
+        short: 'no port — say whether this step creates, reads, or updates the record',
+        options: ['produces (creates it)', 'consumes (reads it)', 'updates (reads and changes it)'],
+      });
+    }
+  }
+  const df = dataflowHealth(graph);
+  for (const err of df.errors) {
+    const edgeId = /^edge (\S+) /.exec(err)?.[1] ?? graph.id;
+    const dataId = graph.edges.find((e) => e.id === edgeId)?.to ?? '?';
+    gaps.push({
+      kind: 'data_unproduced', at: edgeId,
+      question: `${err}. Where does the ${nodeLabel(dataId)} come from?`,
+      short: 'used before anything defines it — created earlier, seeded, or pre-existing?',
+      options: ['created earlier in this graph (wire a produces edge before it)', 'seed it (origin: seed)', 'pre-existing record, find it (origin: external)'],
+    });
+  }
+
   return gaps;
 }
 
@@ -137,7 +176,10 @@ export type GrillmeOp =
   | { op: 'setOracleBudget'; node: string; id: string; timeoutMs: number; pollMs?: number }
   | { op: 'setUrl'; node: string; url: string }
   | { op: 'addDeny'; from: string; to: string; capability: string }
-  | { op: 'setSessionPolicy'; system: string; maxConcurrent: number };
+  | { op: 'setSessionPolicy'; system: string; maxConcurrent: number }
+  | { op: 'setIo'; edge: string; io: DataIo; bind?: Record<string, string> }
+  | { op: 'confirmIo'; edge: string }
+  | { op: 'setOrigin'; node: string; origin: DataOrigin };
 
 export interface ApplyResult {
   graph: ProcessGraph;
@@ -207,6 +249,30 @@ export function applyAnswers(graph: ProcessGraph, ops: GrillmeOp[]): ApplyResult
         const id = uniqueEdgeId(g, 'e_deny');
         g.edges.push({ id, from: op.from, to: op.to, type: 'denied', label: `must NOT: ${op.capability}`, data: { capability: op.capability } });
         changes.push(`denied edge ${id}: ${op.from} must not ${op.capability}`);
+        break;
+      }
+      case 'setIo': {
+        const e = g.edges.find((x) => x.id === op.edge);
+        if (!e) throw new Error(`op targets unknown edge '${op.edge}'`);
+        e.data = { ...e.data, io: op.io, ...(op.bind ? { bind: op.bind } : {}) };
+        delete e.data.ioDraft;
+        if (op.io === 'produces') delete e.data.bind;
+        changes.push(`${op.edge} io = ${op.io}${op.bind ? ` bind ${JSON.stringify(op.bind)}` : ''}`);
+        break;
+      }
+      case 'confirmIo': {
+        const e = g.edges.find((x) => x.id === op.edge);
+        if (!e) throw new Error(`op targets unknown edge '${op.edge}'`);
+        if (!e.data?.io) throw new Error(`edge '${op.edge}' has no port to confirm`);
+        delete e.data.ioDraft;
+        changes.push(`${op.edge} io ${e.data.io} confirmed`);
+        break;
+      }
+      case 'setOrigin': {
+        const n = node(op.node);
+        if (n.type !== 'data') throw new Error(`op targets '${op.node}' which is not a data node`);
+        n.origin = op.origin;
+        changes.push(`${op.node} origin = ${op.origin}`);
         break;
       }
       case 'setSessionPolicy': {

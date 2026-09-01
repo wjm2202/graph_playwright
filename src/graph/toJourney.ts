@@ -18,6 +18,7 @@ import { validateJourney } from '../journeys/schema';
 import type { SessionPolicies, SessionPolicyGroup } from '../fixtures/cast';
 import type { AuthMethod, ProcessGraph, PNode } from './schema';
 import { validateGraph } from './schema';
+import { dataflowHealth } from './compose';
 
 export type { SessionPolicies, SessionPolicyGroup };
 
@@ -177,6 +178,11 @@ function toJourneyV2(graph: ProcessGraph, opts: ToJourneyOptions): ToJourneyResu
   }
   if (chain.length === 0) throw new Error('no login_as chain found — connect start to the first session');
 
+  // Dataflow: who defines each data node decides what a consumer receives.
+  const dataflow = dataflowHealth(graph);
+  for (const err of dataflow.errors) warnings.push(`dataflow: ${err}`);
+  for (const w of dataflow.warnings) warnings.push(`dataflow: ${w}`);
+
   const steps: JourneyStep[] = [];
   const unboundSteps: string[] = [];
   const stepEdgeIds: (string | null)[] = [];
@@ -190,7 +196,30 @@ function toJourneyV2(graph: ProcessGraph, opts: ToJourneyOptions): ToJourneyResu
         if (!e.data?.catalog) unboundSteps.push(doName);
         const target = nodeById.get(e.to);
         const withArgs: Record<string, unknown> = {};
-        if (target?.type === 'data') withArgs.record = target.label;
+        if (target?.type === 'data') {
+          // The PORT decides what the step receives (STUDY-DATA-FLOW.md §3.3):
+          // consumes/updates → the runtime handle (bind map, or the default
+          // { record: '{ref:<ref>.id}' }); produces → the step publishes the
+          // record via ctx.produce(<ref>) and gets the handle name to use;
+          // no port (legacy) → the label, as before.
+          const ref = target.ref ?? target.id;
+          const io = e.data?.io;
+          const definedBy = dataflow.definedBy[target.id];
+          if ((io === 'consumes' || io === 'updates') && definedBy?.startsWith('ambient:') && !e.data?.bind) {
+            // Created by an integration hop (api → data): the run never learns
+            // its id, so the step must locate it by business key.
+            withArgs.record = target.label;
+            if (target.sobject) withArgs.sobject = target.sobject;
+            warnings.push(`dataflow: '${doName}' ${io} '${target.label || target.id}', which an integration creates (${definedBy.slice(8)}) — no id reaches the run; the step must find it by business key (or bind an explicit {ref:} on the edge)`);
+          } else if (io === 'consumes' || io === 'updates') {
+            Object.assign(withArgs, e.data?.bind ?? { record: `{ref:${ref}.id}` });
+          } else if (io === 'produces') {
+            withArgs.produce = ref;
+            if (target.sobject) withArgs.sobject = target.sobject;
+          } else {
+            withArgs.record = target.label;
+          }
+        }
         // Oracle placement: the landing node's expectations become this step's
         // expect block (filtered by `after` = this edge's id or catalog).
         const oracles = expectationsFor(target, e.id, e.data?.catalog);

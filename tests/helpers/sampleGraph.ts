@@ -33,7 +33,7 @@ export const goodGraphV2 = (): ProcessGraph => ({
       snapshot: { status: 'planned' },
     },
     {
-      id: 'expense', type: 'data', label: 'Expense record',
+      id: 'expense', type: 'data', label: 'Expense record', sobject: 'Expense__c',
       expects: [
         { id: 'expense_saved', kind: 'api.record_exists', target: 'Expense__c', after: 'expense.submit', note: 'expense row persisted' },
         { id: 'expense_approved', kind: 'api.field_equals', target: 'Expense__c', value: 'Status__c=Approved', after: 'expense.approve' },
@@ -43,12 +43,12 @@ export const goodGraphV2 = (): ProcessGraph => ({
   ],
   edges: [
     { id: 'e1', from: 'start', to: 'sess_sf_sales', type: 'login_as', data: { auth: 'frontdoor' } },
-    { id: 'e2', from: 'sess_sf_sales', to: 'expense', type: 'does', label: 'submit expense', data: { catalog: 'expense.submit' } },
+    { id: 'e2', from: 'sess_sf_sales', to: 'expense', type: 'does', label: 'submit expense', data: { catalog: 'expense.submit', io: 'produces' } },
     { id: 'e3', from: 'sess_sf_sales', to: 'expense', type: 'denied', data: { capability: 'expense.approve' } },
     { id: 'e4', from: 'sess_sf_sales', to: 'sess_sf_admin', type: 'login_as', data: { auth: 'frontdoor' } },
-    { id: 'e5', from: 'sess_sf_admin', to: 'expense', type: 'does', label: 'approve expense', data: { catalog: 'expense.approve', deltaMs: 1200 } },
+    { id: 'e5', from: 'sess_sf_admin', to: 'expense', type: 'does', label: 'approve expense', data: { catalog: 'expense.approve', deltaMs: 1200, io: 'updates' } },
     { id: 'e6', from: 'sess_sf_admin', to: 'sess_siebel_admin', type: 'login_as', data: { auth: 'ui' } },
-    { id: 'e7', from: 'sess_siebel_admin', to: 'expense', type: 'does', label: 'verify expense', data: { catalog: 'siebel.verify_expense' } },
+    { id: 'e7', from: 'sess_siebel_admin', to: 'expense', type: 'does', label: 'verify expense', data: { catalog: 'siebel.verify_expense', io: 'consumes' } },
     { id: 'e8', from: 'sess_siebel_admin', to: 'end', type: 'next' },
   ],
 });

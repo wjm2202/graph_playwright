@@ -65,6 +65,7 @@
       "id": "expense",
       "type": "data",
       "label": "Expense record",
+      "sobject": "Expense__c",
       "expects": [
         {
           "id": "expense_saved",
@@ -105,7 +106,8 @@
       "type": "does",
       "label": "submit expense",
       "data": {
-        "catalog": "expense.submit"
+        "catalog": "expense.submit",
+        "io": "produces"
       }
     },
     {
@@ -134,7 +136,8 @@
       "label": "approve expense",
       "data": {
         "catalog": "expense.approve",
-        "deltaMs": 1200
+        "deltaMs": 1200,
+        "io": "updates"
       }
     },
     {
@@ -153,7 +156,8 @@
       "type": "does",
       "label": "verify expense",
       "data": {
-        "catalog": "siebel.verify_expense"
+        "catalog": "siebel.verify_expense",
+        "io": "consumes"
       }
     },
     {

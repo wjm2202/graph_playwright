@@ -19,7 +19,8 @@ import * as path from 'path';
 import type { Page } from '@playwright/test';
 import { Lightning } from '../fixtures/test';
 import { seedRecords, resolvePlaceholders, type RefMap, type SeedApi } from '../data/seed';
-import { StepCatalog } from './catalog';
+import { StepCatalog, type ProducedRecord } from './catalog';
+import { recordFromUrl } from '../utils/recordUrl';
 import { isDenyStep, validateJourney, type Journey } from './schema';
 import { evaluateOracles, type ApiOracle, type OracleResult, type OracleSpec } from './oracles';
 
@@ -213,6 +214,16 @@ export async function runJourney(journey: Journey, deps: RunnerDeps): Promise<Jo
       const args = resolveRecord(s.with ?? {}, refs);
       const expects = resolveRecord(s.expect ?? {}, refs);
 
+      // Dataflow: a step emitted from a `produces` edge must publish the
+      // record it created under args.produce so later {ref:} args resolve.
+      const produced = new Set<string>();
+      const produce = (ref: string, rec: ProducedRecord) => {
+        if (!ref || !/^[a-z][a-z0-9_]*$/.test(ref)) throw new Error(`produce('${ref}'): handle must be lower_snake_case`);
+        if (!rec.id) throw new Error(`produce('${ref}'): record id required`);
+        refs[ref] = { ref, sobject: rec.sobject ?? '', id: rec.id, fields: rec.fields ?? {}, found: false };
+        produced.add(ref);
+      };
+
       if (fn) {
         await fn({
           page,
@@ -224,7 +235,26 @@ export async function runJourney(journey: Journey, deps: RunnerDeps): Promise<Jo
           api: deps.api,
           journey,
           stepIndex: i,
+          produce,
         });
+      }
+
+      const wantsProduce = typeof args.produce === 'string' ? args.produce : undefined;
+      if (wantsProduce && !produced.has(wantsProduce)) {
+        // The step did not publish explicitly — the record page it landed on
+        // is the definition (a create in Lightning ends on /lightning/r/…/view).
+        const landed = recordFromUrl(page.url());
+        if (!landed) {
+          throw new Error(
+            `step '${s.do}' produces '${wantsProduce}' but published nothing: it neither called ctx.produce('${wantsProduce}', …) ` +
+              `nor landed on a record page (url: ${page.url()})`,
+          );
+        }
+        const expectedSobject = typeof args.sobject === 'string' ? args.sobject : undefined;
+        if (expectedSobject && landed.sobject !== expectedSobject) {
+          throw new Error(`step '${s.do}' produces '${wantsProduce}' (${expectedSobject}) but landed on a ${landed.sobject} record — wrong object`);
+        }
+        produce(wantsProduce, { id: landed.id, sobject: landed.sobject });
       }
 
       // Central oracle evaluation — every emitted expectation is CHECKED,

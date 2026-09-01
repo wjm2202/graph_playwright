@@ -158,7 +158,7 @@ test.describe('R6 — multi-actor stitch', () => {
       'approver:expense.approve@1050',
     ]);
     expect(stitched.distillation.flags.join()).toContain(
-      'cross-actor record id a03xx0000012AbCDEF touched by [submitter, approver]',
+      'cross-actor record a03xx0000012AbCDEF touched by [submitter, approver]',
     );
   });
 

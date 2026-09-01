@@ -21,14 +21,18 @@
  *
  * v1 limitation (trace-based): DOM settle signals (spinner/toast) and response
  * payloads are not in the trace — they arrive with CDP capture (sprint S1).
- * Harvested record ids come from nav URLs for now and are surfaced for
- * flag-level parameterization, not silently rewritten.
+ * Harvested record ids come from nav URLs. Since STUDY-DATA-FLOW.md they go
+ * through def-use (inferDataflow): a record the recording CREATED gets a
+ * handle, its redirect nav becomes the publish point (recordPage.landed) and
+ * later uses become {ref:<handle>.id}; a record nobody created stays literal
+ * and is flagged external. Every rewrite is flagged.
  */
 
 import type { RawEvent } from './traceReader';
 import { parseInternalSelector, type ParsedSelector } from './traceReader';
 import { classify, loadDictionary, placeholderFor, type Dictionary } from '../data/dictionary';
 import { asText } from '../utils/text';
+import { RECORD_URL_RE, SF_ID_RE } from '../utils/recordUrl';
 
 export type NetworkFamily = 'aura' | 'services_data' | 'lightning_nav' | 'other';
 
@@ -56,16 +60,28 @@ export interface DistilledStep {
   flag?: 'name-me';
 }
 
+export interface HarvestedId {
+  id: string;
+  sobject?: string;
+  firstEvent: number;
+  /** Runtime handle ({ref:<handle>.id}) once inferDataflow has run. */
+  handle?: string;
+  /** Index of the step that DEFINED the record (its create/save). */
+  defStep?: number;
+  /** Indexes of steps whose args mention the record. */
+  useSteps?: number[];
+  /** 'step' = created in this recording; 'external' = pre-existed (left literal). */
+  origin?: 'step' | 'external';
+}
+
 export interface Distillation {
   steps: DistilledStep[];
-  /** Salesforce record ids seen in nav URLs, for parameterization review. */
-  harvestedIds: { id: string; sobject?: string; firstEvent: number }[];
+  /** Salesforce record ids seen in nav URLs, with their def-use chain. */
+  harvestedIds: HarvestedId[];
   /** Human-readable notes: raw steps to name, ids left literal. */
   flags: string[];
 }
 
-const SF_ID_RE = /\b([a-zA-Z0-9]{18}|[a-zA-Z0-9]{15})\b/;
-const RECORD_URL_RE = /\/lightning\/r\/([A-Za-z0-9_]+)\/([a-zA-Z0-9]{15,18})\/view/;
 const SAVEISH_RE = /^(save|submit|confirm|done|next|finish)/i;
 
 export function networkFamily(url: string): NetworkFamily {
@@ -169,16 +185,105 @@ export function distill(events: RawEvent[]): Distillation {
     flags.push(`step ${steps.length - 1}: unrecognized ${e.api} on ${e.selector ?? '(no selector)'} — name it to grow the grammar`);
   }
 
-  // Ids inside args stay literal in v1; surface them for review.
-  for (const h of harvested) {
-    if (SF_ID_RE.test(h.id)) {
-      flags.push(`literal record id ${h.id}${h.sobject ? ` (${h.sobject})` : ''} — parameterize when seed provenance is known (CDP capture, sprint S1)`);
-    }
-  }
-
   parameterizeFills(steps, flags);
+  inferDataflow(steps, harvested, flags);
 
   return { steps, harvestedIds: harvested, flags };
+}
+
+/**
+ * Def-use over the recording (STUDY-DATA-FLOW.md §3.4) — the compiler's
+ * reaching-definitions analysis applied to record ids:
+ *  - DEF: the id first appears in a nav right after a save-ish step by the
+ *    same actor (Lightning redirects to the record it just created) → that
+ *    save DEFINED the record; the handle is the SObject in lower_snake_case
+ *    (`account`, a second Account → `account_2`).
+ *  - USE: every later step whose args contain the id → the literal is
+ *    rewritten to `{ref:<handle>.id}` so the capture replays against the
+ *    record THIS run created, never the capture-day one.
+ *  - No def in the recording (the human opened a record that already
+ *    existed) → the id stays literal, marked external, and flagged: seed it
+ *    or find it by name before relying on the replay.
+ */
+export function inferDataflow(
+  steps: DistilledStep[],
+  harvested: Distillation['harvestedIds'],
+  flags: string[],
+): void {
+  const usedHandles = new Set<string>();
+  for (const h of harvested) {
+    if (!SF_ID_RE.test(h.id)) continue;
+    const mentions = steps
+      .map((s, i) => ({ s, i }))
+      .filter(({ s }) => JSON.stringify(s.args).includes(h.id))
+      .map(({ i }) => i);
+    if (!mentions.length) continue;
+    const firstUse = mentions[0]!;
+    const first = steps[firstUse]!;
+    // The definition: the closest preceding save-ish step by the same actor,
+    // with nothing but navigation in between (the post-save redirect).
+    let defStep: number | undefined;
+    if (first.catalog === 'recordPage.open') {
+      for (let j = firstUse - 1; j >= 0; j--) {
+        const prev = steps[j]!;
+        if ((prev.actorAlias ?? 'main') !== (first.actorAlias ?? 'main')) break;
+        if (isSaveishStep(prev)) { defStep = j; break; }
+        if (prev.catalog !== 'nav.goto' && prev.catalog !== 'recordPage.open') break;
+      }
+    }
+    const base = (h.sobject ?? 'record').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^[^a-z]+/, '') || 'record';
+    let handle = base;
+    for (let n = 2; usedHandles.has(handle); n++) handle = `${base}_${n}`;
+    usedHandles.add(handle);
+    h.handle = handle;
+    h.useSteps = mentions;
+    if (defStep === undefined) {
+      h.origin = 'external';
+      flags.push(
+        `record ${h.id}${h.sobject ? ` (${h.sobject})` : ''} pre-existed — no step in this recording created it; ` +
+          `it stays literal as {external ${handle}}: seed it (origin: seed) or find it by name (origin: external) before relying on the replay`,
+      );
+      continue;
+    }
+    h.defStep = defStep;
+    h.origin = 'step';
+    // The redirect nav is not something the human did — Lightning landed
+    // them on the record it just created. Replaying it as a goto would need
+    // an id that does not exist yet; instead it becomes the PUBLISH point.
+    first.catalog = 'recordPage.landed';
+    first.args = { sobject: h.sobject ?? '', produce: handle };
+    for (const i of mentions.slice(1)) {
+      const s = steps[i]!;
+      for (const [k, v] of Object.entries(s.args)) {
+        if (typeof v === 'string' && v.includes(h.id)) s.args[k] = v.split(h.id).join(`{ref:${handle}.id}`);
+      }
+    }
+    flags.push(`data: ${h.sobject ?? 'record'} ${h.id} is CREATED by step ${defStep} (${steps[defStep]!.catalog}) → handle '${handle}' published by step ${firstUse} (recordPage.landed); ${mentions.length - 1} later use(s) rewritten to {ref:${handle}.id}`);
+  }
+}
+
+/** Does a step's args mention this record — by literal id, or by its handle once rewritten? */
+export function mentionsRecord(s: DistilledStep, rec: Pick<HarvestedId, 'id' | 'handle'>): boolean {
+  const json = JSON.stringify(s.args);
+  if (json.includes(rec.id)) return true;
+  return !!rec.handle && json.includes(`{ref:${rec.handle}.`);
+}
+
+/** Rewrite every `{ref:<from>.` in a step's string args to `{ref:<to>.`. */
+export function renameHandle(s: DistilledStep, from: string, to: string): void {
+  for (const [k, v] of Object.entries(s.args)) {
+    if (typeof v === 'string' && v.includes(`{ref:${from}.`)) s.args[k] = v.split(`{ref:${from}.`).join(`{ref:${to}.`);
+  }
+  if (s.args.produce === from) s.args.produce = to; // the publish point (recordPage.landed)
+}
+
+function isSaveishStep(s: DistilledStep): boolean {
+  if (s.catalog === 'modal.save') return true;
+  if (s.catalog === 'ui.click') {
+    const name = asText(s.args.name) || asText(s.args.text) || asText(s.args.label);
+    return SAVEISH_RE.test(name);
+  }
+  return false;
 }
 
 /**

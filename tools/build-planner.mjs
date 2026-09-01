@@ -41,9 +41,10 @@ function transpileShared() {
     const schemaJs = readFileSync(join(out, 'schema.js'), 'utf8');
     const gapsJs = readFileSync(join(out, 'gaps.js'), 'utf8');
     const composeJs = readFileSync(join(out, 'compose.js'), 'utf8');
-    // gaps.ts and compose.ts import './schema' — hand their require() the
-    // already-inlined module.
-    const shim = 'var require = function () { return window.ProcessGraphSchema; };';
+    // gaps.ts imports './schema' and './compose'; compose.ts imports
+    // './schema' — hand their require() the already-inlined modules (compose
+    // is inlined BEFORE gaps in planner-src.html for this reason).
+    const shim = "var require = function (m) { return /compose/.test(m) ? window.ProcessGraphCompose : window.ProcessGraphSchema; };";
     return {
       schema: [
         '(function () {', 'var exports = {};', schemaJs.replace(/^"use strict";\s*/, ''),

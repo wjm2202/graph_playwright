@@ -85,7 +85,7 @@
       <option value="action">plain step</option>
     </select>
     <button id="b_connect" class="editonly" title="draw a relation: click this, then a source node, then a target node — or just drag from a node's edge">connect</button>
-    <button id="b_delete" class="editonly" title="remove the selected node/edge (Del key works too)">delete</button>
+    <button id="b_delete" class="editonly" title="remove the selected node/edge (Del key works too) — a group delete needs a SPACE+drag selection box">delete</button>
     <button id="b_graphmeta" title="the graph's own settings — id, title, systems, actors">graph</button>
   </span>
   <span class="tbg" id="tbg_view">
@@ -228,11 +228,13 @@
     <div class="field"><label>step catalog (does)</label><input id="ef_catalog" class="mono" placeholder="expense.submit" /></div>
     <div class="field"><label>auth (login_as)</label><select id="ef_auth"><option value=""></option><option>frontdoor</option><option>singleaccess</option><option>ui</option></select></div>
     <div class="field"><label>deny capability</label><input id="ef_capability" class="mono" placeholder="expense.approve" /></div>
+    <div class="field" id="row_io"><label>data port (edge → data node)</label><select id="ef_io"><option value="">— none —</option><option value="produces">produces — creates the record, publishes its id</option><option value="consumes">consumes — reads it ({ref:…id})</option><option value="updates">updates — reads and changes it</option></select></div>
     <div class="field"><label>timing</label><div id="ef_timing" class="mono" style="color:var(--muted)">—</div></div>
   </div>
 </main>
 <footer>
   <span id="status">empty graph</span>
+  <button id="b_undo" class="editonly" title="undo the last delete / insert / connect (⌘Z or Ctrl+Z)" disabled hidden>↶ undo</button>
   <input id="export_out" readonly />
 </footer>
 <!--INLINE:cytoscape-->
@@ -241,8 +243,8 @@
 <!--INLINE:lodash-->
 <!--INLINE:cytoscape-edgehandles-->
 <!--INLINE:schema-->
-<!--INLINE:gaps-->
 <!--INLINE:compose-->
+<!--INLINE:gaps-->
 <!--INLINE:graphs-->
 <!--INLINE:personas-->
 <script>
@@ -357,6 +359,7 @@ function edgeLabel(e) {
     parts.push('login as ' + ((target && (target.actor || target.label)) || '?'));
   }
   if (e.type === 'does' && e.data && e.data.catalog) parts.push(e.data.catalog);
+  if (e.data && e.data.io) parts.push(e.data.io === 'produces' ? '⇒ out' : e.data.io === 'consumes' ? '⇐ in' : '⇔ upd');
   if (e.type === 'requires') parts.push('requires');
   if (e.type === 'asserts') parts.push('asserts');
   if (e.type === 'touches') parts.push('touches');
@@ -792,7 +795,11 @@ function showEdgeForm(e) {
     : 'expense.submit';
   document.getElementById('ef_auth').value = e.data && e.data.auth ? e.data.auth : '';
   document.getElementById('ef_capability').value = e.data && e.data.capability ? e.data.capability : '';
+  var tgt = nodeById(e.to);
+  document.getElementById('row_io').style.display = tgt && tgt.type === 'data' ? '' : 'none';
+  document.getElementById('ef_io').value = e.data && e.data.io ? e.data.io : '';
   var t = [];
+  if (e.data && e.data.io) t.push('port: ' + e.data.io + (e.data.ioDraft ? ' (guessed — confirm in check)' : '') + (tgt ? ' · {ref:' + (tgt.ref || tgt.id) + '.id}' : ''));
   if (e.type === 'login_as') t.push('mechanism: ' + ((e.data && e.data.auth) || 'unset') + ' — how the session is acquired (frontdoor = SF token injection, singleaccess = UI Bridge, ui = typed login once)');
   if (e.data && e.data.recordRef) t.push('record: ' + e.data.recordRef);
   if (e.data && e.data.deltaMs !== undefined) t.push('Δ ' + fmtMs(e.data.deltaMs));
@@ -849,6 +856,9 @@ function readEdgeForm() {
   if (auth) { e.data = e.data || {}; e.data.auth = auth; } else if (e.data) delete e.data.auth;
   var cap = document.getElementById('ef_capability').value.trim();
   if (cap) { e.data = e.data || {}; e.data.capability = cap; } else if (e.data) delete e.data.capability;
+  var io = document.getElementById('ef_io').value;
+  if (io) { e.data = e.data || {}; e.data.io = io; delete e.data.ioDraft; if (io === 'produces') delete e.data.bind; }
+  else if (e.data) { delete e.data.io; delete e.data.ioDraft; delete e.data.bind; }
   var el = cy.$id(e.id); el.data('type', e.type); el.data('label', edgeLabel(e));
   setStatus();
 }
@@ -864,37 +874,75 @@ function addNode(partial) {
   return n.id;
 }
 function connect(from, to, type) {
+  pushUndo('connect ' + from + ' → ' + to);
   var e = { id: 'e_' + Date.now().toString(36) + '_' + (seq += 1), from: from, to: to, type: type || 'next' };
   G.edges.push(e);
   cy.add({ group: 'edges', data: { id: e.id, source: from, target: to, type: e.type, label: edgeLabel(e) } });
   setStatus();
   return e.id;
 }
+// ---- undo: one snapshot per destructive step (delete / insert / connect).
+// Owner report 2026-09-02: a delete once took half the graph with it — every
+// removal is now reversible, and the status line says exactly what went.
+var UNDO = [];
+var UNDO_MAX = 20;
+function pushUndo(what) {
+  syncPositions();
+  UNDO.push({ what: what, doc: JSON.stringify(G) });
+  if (UNDO.length > UNDO_MAX) UNDO.shift();
+  refreshUndoButton();
+}
+function refreshUndoButton() {
+  var b = document.getElementById('b_undo');
+  b.disabled = UNDO.length === 0 || document.body.classList.contains('view');
+  b.hidden = UNDO.length === 0;
+}
+function clearUndo() { UNDO.length = 0; refreshUndoButton(); }
+function undo() {
+  var last = UNDO.pop();
+  refreshUndoButton();
+  if (!last) { setStatus('nothing to undo'); return false; }
+  G = JSON.parse(last.doc); hideForms(); render();
+  setStatus('undid: ' + last.what);
+  return true;
+}
 function deleteSelected() {
   var sel = cy.$(':selected');
-  if (sel.length > 1) {
-    // Group delete: every selected node (with its edges) + selected edges.
+  // A GROUP delete is only ever the SPACE+drag selection (2+ elements with
+  // no card open). A click on one node always deletes that node alone —
+  // never whatever else happened to be selected.
+  if (sel.length > 1 && !selected) {
     var nodeIds = {};
     sel.nodes().forEach(function (n) { nodeIds[n.id()] = true; });
     var edgeIds = {};
     sel.edges().forEach(function (e) { edgeIds[e.id()] = true; });
     var nCount = sel.nodes().length;
     var eCount = sel.edges().length;
+    var names = sel.nodes().map(function (n) { return n.id(); });
+    pushUndo('delete ' + nCount + ' node(s) · ' + eCount + ' edge(s)');
     G.nodes = G.nodes.filter(function (n) { return !nodeIds[n.id]; });
     G.edges = G.edges.filter(function (e) { return !edgeIds[e.id] && !nodeIds[e.from] && !nodeIds[e.to]; });
     hideForms(); render();
-    setStatus('deleted ' + nCount + ' node(s) · ' + eCount + ' edge(s)');
+    setStatus('deleted ' + nCount + ' node(s) [' + names.join(', ') + '] · ' + eCount + ' edge(s) — undo: ⌘Z');
     return;
   }
   if (!selected) return;
+  var id = selected.id;
+  var gone = 0;
   if (selected.kind === 'node') {
-    G.nodes = G.nodes.filter(function (n) { return n.id !== selected.id; });
-    G.edges = G.edges.filter(function (e) { return e.from !== selected.id && e.to !== selected.id; });
+    if (!nodeById(id)) return;
+    pushUndo('delete node ' + id);
+    G.nodes = G.nodes.filter(function (n) { return n.id !== id; });
+    var before = G.edges.length;
+    G.edges = G.edges.filter(function (e) { return e.from !== id && e.to !== id; });
+    gone = before - G.edges.length;
   } else {
-    G.edges = G.edges.filter(function (e) { return e.id !== selected.id; });
+    if (!edgeById(id)) return;
+    pushUndo('delete edge ' + id);
+    G.edges = G.edges.filter(function (e) { return e.id !== id; });
   }
-  var id = selected.id; hideForms(); render();
-  setStatus('deleted ' + id);
+  hideForms(); render();
+  setStatus('deleted ' + id + (gone ? ' (+ ' + gone + ' edge' + (gone === 1 ? '' : 's') + ' it carried)' : '') + ' — undo: ⌘Z');
 }
 function syncPositions() {
   cy.nodes().forEach(function (el) {
@@ -1067,7 +1115,7 @@ function openFromLibrary(value) {
   var source = value.slice(0, sep);
   var id = value.slice(sep + 1);
   var doc = source === 'lib' ? (window.GRAPH_LIBRARY || {})[id] : browserSaves()[id];
-  if (doc) loadGraph(JSON.parse(JSON.stringify(doc)));
+  if (doc) { clearUndo(); loadGraph(JSON.parse(JSON.stringify(doc))); }
   document.getElementById('f_library').value = '';
 }
 
@@ -1098,23 +1146,77 @@ function insertGraph(value) {
   if (!window.ProcessGraphCompose) { el.className = 'bad'; el.textContent = 'insert unavailable — rebuild the planner (npm run build:planner)'; return { ok: false, errors: ['compose not inlined'] }; }
   // Island by design: the import lands SEPARATE — you draw the connection
   // from a previous step, then unlink/relink end. check ✓ referees.
-  syncPositions();
+  pushUndo('insert "' + ref + '"');
   try {
+    var hostIds = {};
+    G.nodes.forEach(function (n) { hostIds[n.id] = true; });
     var r = window.ProcessGraphCompose.composeGraphs(
       JSON.parse(JSON.stringify(G)),
       JSON.parse(JSON.stringify(doc)),
       { ref: ref, mode: 'island' },
     );
+    var arrived = r.graph.nodes.filter(function (n) { return !hostIds[n.id]; }).map(function (n) { return n.id; });
+    placeIsland(r.graph, arrived);
     loadGraph(r.graph);
+    // The island arrives SELECTED as a group (owner, 2026-09-02: "more often
+    // than not we will be moving it around the canvas") — drag the frame.
+    selectIsland(arrived);
     var islandLine = '';
     r.summary.forEach(function (line) { if (line.indexOf('island:') === 0) islandLine = line; });
-    setStatus('inserted "' + ref + '" — ' + (islandLine || r.summary[r.summary.length - 1]));
-    return { ok: true, summary: r.summary };
+    setStatus('inserted "' + ref + '" — ' + (arrived.length ? arrived.length + ' nodes selected: drag the frame to place them · ' : '') + (islandLine || r.summary[r.summary.length - 1]));
+    return { ok: true, summary: r.summary, arrived: arrived };
   } catch (e) {
     el.className = 'bad';
     el.textContent = 'insert refused: ' + e.message.split('\n')[0];
     return { ok: false, errors: [e.message] };
   }
+}
+
+/**
+ * Give an inserted island its own place: laid out by itself (dagre, same
+ * look as everything else) and parked to the RIGHT of what is already on
+ * the canvas, so the host keeps its layout and the newcomer is obviously
+ * separate — and obviously the thing to drag next.
+ */
+function placeIsland(graph, arrivedIds) {
+  if (!arrivedIds.length) return;
+  var arrived = {};
+  arrivedIds.forEach(function (id) { arrived[id] = true; });
+  var host = graph.nodes.filter(function (n) { return !arrived[n.id] && n.pos; });
+  var right = 0, top = Infinity;
+  host.forEach(function (n) { right = Math.max(right, n.pos.x); top = Math.min(top, n.pos.y); });
+  if (top === Infinity) top = 0;
+  // Lay the island out on its own in a scratch cytoscape instance — the live
+  // canvas is untouched until loadGraph paints the composed graph.
+  var scratch = cytoscape({ headless: true, elements: [] });
+  var els = [];
+  graph.nodes.forEach(function (n) { if (arrived[n.id]) els.push({ group: 'nodes', data: { id: n.id } }); });
+  graph.edges.forEach(function (e) { if (arrived[e.from] && arrived[e.to]) els.push({ group: 'edges', data: { id: e.id, source: e.from, target: e.to } }); });
+  scratch.add(els);
+  try { scratch.layout({ name: 'dagre', rankDir: 'LR', nodeSep: 30, rankSep: 70 }).run(); } catch (e) { /* dagre absent → grid below */ }
+  var minX = Infinity, minY = Infinity, i = 0;
+  scratch.nodes().forEach(function (n) { var p = n.position(); minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); });
+  if (minX === Infinity) { minX = 0; minY = 0; }
+  var ox = right + 160 - minX, oy = top - minY;
+  graph.nodes.forEach(function (n) {
+    if (!arrived[n.id]) return;
+    var el = scratch.$id(n.id);
+    var p = el.length ? el.position() : { x: minX + (i++ % 4) * 140, y: minY + Math.floor(i / 4) * 90 };
+    n.pos = { x: Math.round(p.x + ox), y: Math.round(p.y + oy) };
+  });
+  scratch.destroy();
+}
+function selectIsland(arrivedIds) {
+  cy.$(':selected').unselect();
+  if (!arrivedIds.length) return;
+  var set = {};
+  arrivedIds.forEach(function (id) { set[id] = true; });
+  cy.batch(function () {
+    arrivedIds.forEach(function (id) { cy.$id(id).select(); });
+    cy.edges().forEach(function (e) { if (set[e.data('source')] && set[e.data('target')]) e.select(); });
+  });
+  hideForms(); selected = null; // a group, never a card
+  refreshGroupBox();
 }
 
 function setMode(m) {
@@ -1126,6 +1228,7 @@ function setMode(m) {
   cy.boxSelectionEnabled(false);
   cy.userPanningEnabled(true);
   ['b_add', 'b_connect', 'b_delete', 'b_meta_apply', 'b_import', 'f_save', 'b_new', 'f_insert'].forEach(function (id) { document.getElementById(id).disabled = m === 'view'; });
+  refreshUndoButton();
   connectMode = false;
   clearPendingSource();
   if (eh) eh.disableDrawMode();
@@ -1294,7 +1397,7 @@ document.getElementById('nf_capture').addEventListener('click', function () {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(cmd).then(done, done);
   else { var out = document.getElementById('nf_capture_cmd'); out.select(); document.execCommand('copy'); done(); }
 });
-['ef_type','ef_label','ef_catalog','ef_auth','ef_capability'].forEach(function (id) {
+['ef_type','ef_label','ef_catalog','ef_auth','ef_capability','ef_io'].forEach(function (id) {
   document.getElementById(id).addEventListener('change', readEdgeForm);
 });
 document.getElementById('nf_snapshot').addEventListener('change', function (ev) {
@@ -1351,6 +1454,7 @@ document.getElementById('b_add').addEventListener('change', function (ev) {
 function newGraph(force) {
   var dirty = G.nodes.length > 2 || G.edges.length > 0 || (G.nodes.length === 2 && G.nodes.some(function (n) { return n.type !== 'start' && n.type !== 'end'; }));
   if (!force && dirty && !window.confirm('Start a new graph? Unsaved changes to the current one are lost (save ▾ first if you want it).')) return false;
+  clearUndo();
   G = {
     schema: 'process-graph/2', id: '', title: '',
     systems: { sf: { label: 'Salesforce', kind: 'salesforce' } },
@@ -1402,6 +1506,13 @@ function graphIssues() {
         short: 'not on the login chain — wire a login_as edge into it, or delete it',
       });
     });
+  }
+  // Dataflow health (STUDY-DATA-FLOW.md): a consume with no definition
+  // before it runs against the wrong record — red. The gaps engine already
+  // phrases the same errors as questions, so only add them when it is absent.
+  if (C && C.dataflowHealth && !gaps.some(function (g) { return g.kind === 'data_unproduced'; })) {
+    var d = C.dataflowHealth(G);
+    errors = errors.concat(d.errors.map(function (m) { return 'dataflow: ' + m; }));
   }
   return { errors: errors, gaps: gaps };
 }
@@ -1611,6 +1722,7 @@ cy.on('position', 'node', positionSelectedCard);
 window.addEventListener('resize', positionSelectedCard);
 document.getElementById('b_connect').addEventListener('click', function () { toggleConnect(); });
 document.getElementById('b_delete').addEventListener('click', deleteSelected);
+document.getElementById('b_undo').addEventListener('click', undo);
 document.getElementById('b_layout').addEventListener('click', function () { runLayout(); cy.fit(undefined, 30); });
 document.getElementById('b_fit').addEventListener('click', function () { cy.fit(undefined, 30); });
 document.getElementById('b_export').addEventListener('click', exportGraph);
@@ -1624,7 +1736,7 @@ document.getElementById('b_download').addEventListener('click', function () {
 document.getElementById('b_import').addEventListener('click', function () { document.getElementById('f_import').click(); });
 document.getElementById('f_import').addEventListener('change', function (ev) {
   var f = ev.target.files && ev.target.files[0]; if (!f) return;
-  var r = new FileReader(); r.onload = function () { loadGraph(String(r.result)); }; r.readAsText(f);
+  var r = new FileReader(); r.onload = function () { clearUndo(); loadGraph(String(r.result)); }; r.readAsText(f);
 });
 document.getElementById('b_meta_apply').addEventListener('click', function () {
   try {
@@ -1652,6 +1764,7 @@ document.getElementById('f_save').addEventListener('change', function (ev) {
 document.addEventListener('keydown', function (ev) {
   if (ev.key === 'Escape' && connectMode) toggleConnect(false);
   if ((ev.key === 'Delete' || ev.key === 'Backspace') && (selected || cy.$(':selected').length > 1) && document.activeElement === document.body) deleteSelected();
+  if ((ev.metaKey || ev.ctrlKey) && !ev.shiftKey && (ev.key === 'z' || ev.key === 'Z') && document.activeElement === document.body && !document.body.classList.contains('view')) { ev.preventDefault(); undo(); }
 });
 
 // ▶ test — graph-level commands. The planner is a static page, so like the
@@ -1718,7 +1831,7 @@ window.planner = {
   load: loadGraph, export: exportGraph, get: function () { return G; },
   addNode: addNode, connect: connect,
   select: function (id) { cy.$(':selected').unselect(); cy.$id(id).select(); },
-  deleteSelected: deleteSelected, setMode: setMode, layout: runLayout,
+  deleteSelected: deleteSelected, undo: undo, undoDepth: function () { return UNDO.length; }, setMode: setMode, layout: runLayout,
   validate: function () { return validateGraph(G); }, version: 'planner/1',
   save: doSave,
   testCommands: testCmds,

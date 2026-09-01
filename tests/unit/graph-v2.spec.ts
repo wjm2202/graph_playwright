@@ -49,18 +49,20 @@ test.describe('v2 journey walker', () => {
       siebel_approver: 'siebel_admin',
     });
     expect(r.journey.steps).toEqual([
+      // The PORT decides the args (STUDY-DATA-FLOW.md): produces → the step
+      // publishes the record under the handle; consumes/updates → {ref:}.
       {
-        actor: 'submitter', do: 'expense.submit', with: { record: 'Expense record' },
+        actor: 'submitter', do: 'expense.submit', with: { produce: 'expense', sobject: 'Expense__c' },
         expect: { expects: [{ id: 'expense_saved', kind: 'api.record_exists', target: 'Expense__c', note: 'expense row persisted' }] },
       },
       { deny: { actor: 'submitter', capability: 'expense.approve' } },
       {
-        actor: 'approver', do: 'expense.approve', with: { record: 'Expense record' },
+        actor: 'approver', do: 'expense.approve', with: { record: '{ref:expense.id}' },
         expect: { expects: [{ id: 'expense_approved', kind: 'api.field_equals', target: 'Expense__c', value: 'Status__c=Approved' }] },
       },
       // The Siebel step is a DIFFERENT actor: same human, different system,
       // different credentials and auth method.
-      { actor: 'siebel_approver', do: 'siebel.verify_expense', with: { record: 'Expense record' } },
+      { actor: 'siebel_approver', do: 'siebel.verify_expense', with: { record: '{ref:expense.id}' } },
     ]);
     expect(r.unboundSteps).toEqual([]);
     expect(r.requires).toEqual([]);
@@ -183,19 +185,19 @@ test.describe('lead_to_customer (shipped, owner-dictated)', () => {
     // is proven on-screen (DB not queryable), endpoint_traffic confirmed.
     expect(r.journey.steps).toEqual([
       {
-        actor: 'lead_creator', do: 'lead.create', with: { record: 'Lead record' },
+        actor: 'lead_creator', do: 'lead.create', with: { produce: 'lead', sobject: 'Lead' },
         expect: { expects: [{ id: 'lead_created', kind: 'api.record_exists', target: 'Lead', note: 'lead row persisted', timeoutMs: 10_000 }] },
       },
       {
-        actor: 'lead_approver', do: 'lead.progress_to_potential', with: { record: 'Lead record' },
+        actor: 'lead_approver', do: 'lead.progress_to_potential', with: { record: '{ref:lead.id}' },
         expect: { expects: [{ id: 'lead_potential', kind: 'api.field_equals', target: 'Lead', value: 'Status=Potential', note: 'progressed by the approver', timeoutMs: 10_000 }] },
       },
       {
-        actor: 'credit_approver', do: 'credit.check', with: { record: 'Lead record' },
+        actor: 'credit_approver', do: 'credit.check', with: { record: '{ref:lead.id}' },
         expect: { expects: [{ id: 'credit_approved', kind: 'api.field_equals', target: 'Lead', value: 'Credit_Status__c=Approved', note: 'credit check outcome persisted', timeoutMs: 10_000 }] },
       },
       {
-        actor: 'customer_approver', do: 'lead.approve_to_customer', with: { record: 'Customer record' },
+        actor: 'customer_approver', do: 'lead.approve_to_customer', with: { produce: 'customer', sobject: 'Account' },
         expect: {
           expects: [
             { id: 'customer_created', kind: 'api.record_exists', target: 'Account', note: 'conversion produced the customer account', timeoutMs: 10_000 },
@@ -204,7 +206,9 @@ test.describe('lead_to_customer (shipped, owner-dictated)', () => {
         },
       },
       {
-        actor: 'siebel_admin', do: 'siebel.check_customer', with: { record: 'Customer record (Siebel)' },
+        // The Siebel copy is created by the API integration, never by a step: no id
+        // reaches the run, so the step locates it by business key (label + SObject).
+        actor: 'siebel_admin', do: 'siebel.check_customer', with: { record: 'Customer record (Siebel)', sobject: 'Customer' },
         expect: { expects: [{ id: 'customer_visible_in_ui', kind: 'ui.text', value: 'E2E_', note: 'siebel_admin sees the E2E-prefixed customer name in the Siebel UI (DB not queryable — verify via UI)' }] },
       },
       {

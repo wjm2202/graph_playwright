@@ -11,7 +11,7 @@
  * DF edges with frequency + mean gap. Same numbers the baselines use.
  */
 
-import type { Distillation, DistilledStep } from '../pipeline/distill';
+import { mentionsRecord, type Distillation, type DistilledStep } from '../pipeline/distill';
 import { p95, mean } from '../journeys/baselines';
 import type { PNode, ProcessGraph, SystemDef } from './schema';
 import { asText } from '../utils/text';
@@ -29,7 +29,7 @@ export interface FromDistillationOptions {
   title?: string;
 }
 
-const NAV_CATALOGS = new Set(['nav.goto', 'recordPage.open']);
+const NAV_CATALOGS = new Set(['nav.goto', 'recordPage.open', 'recordPage.landed']);
 
 export function fromDistillation(d: Distillation, opts: FromDistillationOptions): ProcessGraph {
   const systems = opts.systems ?? { app: { label: 'Application', kind: 'web' } };
@@ -81,6 +81,7 @@ function stepLabel(s: DistilledStep): string {
     case 'combobox.select': return `combobox.select: ${asText(a.label)} → ${asText(a.option)}`;
     case 'modal.save': return `modal.save: ${asText(a.button)}`;
     case 'recordPage.open': return `open ${asText(a.sobject) || 'record'}`;
+    case 'recordPage.landed': return `land on new ${asText(a.sobject) || 'record'}`;
     case 'nav.goto': return 'navigate';
     case 'ui.click': return `click: ${asText(a.name ?? a.label ?? a.text ?? a.testId)}`;
     default: return s.kind === 'raw' ? `raw: ${asText(a.api) || '?'}` : s.catalog;
@@ -129,7 +130,7 @@ function buildPerStep(
   for (const rec of d.harvestedIds) {
     const touching = d.steps
       .map((s, i) => ({ s, i }))
-      .filter(({ s }) => JSON.stringify(s.args).includes(rec.id));
+      .filter(({ s }) => mentionsRecord(s, rec));
     const ordered = [...touching].sort((a, b) => a.s.startMs - b.s.startMs);
     for (let k = 1; k < ordered.length; k++) {
       const prevO = ordered[k - 1]!; // 1 <= k < length

@@ -18,6 +18,9 @@ interface GroupWindow {
     selection(): { nodes: string[]; edges: string[] };
     groupBox(): { visible: boolean; count: string };
     get(): { nodes: { id: string }[]; edges: { id: string }[] };
+    undo(): boolean;
+    undoDepth(): number;
+    insertGraph(value: string): { ok: boolean };
   };
   cy: {
     $id(id: string): { position(): { x: number; y: number }; renderedBoundingBox(): { x1: number; y1: number; x2: number; y2: number } };
@@ -188,4 +191,36 @@ test('Del removes the whole selection — nodes, their edges, and selected edges
   expect(g.nodes.map((n) => n.id)).toEqual(['start', 'sess_a', 'end']);
   expect(g.edges.map((e) => e.id)).toEqual(['l1']); // d1/d2/j1 went with their nodes
   await expect(page.locator('#status')).toContainText('deleted 2 node(s)');
+});
+
+// Owner report 2026-09-02: "I deleted the end node and half the graph
+// disappeared." A click-selected node (its card open) is deleted ALONE —
+// nothing else rides along — the status says exactly what went, and every
+// delete is undoable (⌘Z / the undo button).
+test('a single-node delete removes exactly that node + its edges, after a group selection has been and gone', async ({ page }) => {
+  await page.evaluate(() => { (window as unknown as GroupWindow).planner.selectMany(['rec_one', 'rec_two', 'sess_a']); }); // an earlier rubber-band…
+  await page.evaluate(() => { (window as unknown as GroupWindow).planner.select('end'); });                                // …then a plain click on ONE node
+  expect(await page.evaluate(() => (window as unknown as GroupWindow).planner.selection().nodes)).toEqual(['end']);
+  await page.keyboard.press('Delete');
+  let g = await page.evaluate(() => (window as unknown as GroupWindow).planner.get());
+  expect(g.nodes.map((n) => n.id)).toEqual(['start', 'sess_a', 'rec_one', 'rec_two']);
+  await expect(page.locator('#status')).toContainText('deleted end');
+  await expect(page.locator('#status')).toContainText('undo: ⌘Z');
+
+  // ⌘Z brings it back, edges included.
+  await page.keyboard.press('Meta+z');
+  g = await page.evaluate(() => (window as unknown as GroupWindow).planner.get());
+  expect(g.nodes.map((n) => n.id)).toEqual(['start', 'sess_a', 'rec_one', 'rec_two', 'end']);
+  await expect(page.locator('#status')).toContainText('undid: delete node end');
+  await expect(page.locator('#b_undo')).toBeDisabled();
+});
+
+test('a group delete is undoable too, and the status names what went', async ({ page }) => {
+  await page.evaluate(() => { (window as unknown as GroupWindow).planner.selectMany(['rec_one', 'rec_two']); });
+  await page.locator('#b_delete').click();
+  await expect(page.locator('#status')).toContainText('deleted 2 node(s) [rec_one, rec_two]');
+  expect(await page.evaluate(() => (window as unknown as GroupWindow).planner.get().nodes.length)).toBe(3);
+  await page.locator('#b_undo').click();
+  expect(await page.evaluate(() => (window as unknown as GroupWindow).planner.get().nodes.length)).toBe(5);
+  expect(await page.evaluate(() => (window as unknown as GroupWindow).planner.get().edges.map((e) => e.id))).toEqual(['l1', 'd1', 'd2', 'j1']);
 });

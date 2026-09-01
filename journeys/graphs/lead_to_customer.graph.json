@@ -33,7 +33,7 @@
     {
       "id": "sess_sf_lead_creator",
       "type": "session",
-      "label": "Salesforce · lead_creator",
+      "label": "Salesforce \u00b7 lead_creator",
       "system": "sf",
       "actor": "lead_creator",
       "account": {
@@ -56,7 +56,7 @@
     {
       "id": "sess_sf_lead_approver",
       "type": "session",
-      "label": "Salesforce · lead_approver",
+      "label": "Salesforce \u00b7 lead_approver",
       "system": "sf",
       "actor": "lead_approver",
       "account": {
@@ -79,7 +79,7 @@
     {
       "id": "sess_sf_credit_approver",
       "type": "session",
-      "label": "Salesforce · credit_approver",
+      "label": "Salesforce \u00b7 credit_approver",
       "system": "sf",
       "actor": "credit_approver",
       "account": {
@@ -102,7 +102,7 @@
     {
       "id": "sess_sf_customer_approver",
       "type": "session",
-      "label": "Salesforce · customer_approver",
+      "label": "Salesforce \u00b7 customer_approver",
       "system": "sf",
       "actor": "customer_approver",
       "account": {
@@ -125,7 +125,7 @@
     {
       "id": "sess_siebel_admin",
       "type": "session",
-      "label": "Siebel · siebel_admin",
+      "label": "Siebel \u00b7 siebel_admin",
       "system": "siebel",
       "actor": "siebel_admin",
       "account": {
@@ -149,6 +149,7 @@
       "id": "lead",
       "type": "data",
       "label": "Lead record",
+      "sobject": "Lead",
       "expects": [
         {
           "id": "lead_created",
@@ -200,6 +201,7 @@
       "id": "customer",
       "type": "data",
       "label": "Customer record",
+      "sobject": "Account",
       "expects": [
         {
           "id": "customer_created",
@@ -234,14 +236,15 @@
       "id": "customer_siebel",
       "type": "data",
       "label": "Customer record (Siebel)",
-      "notes": "created by the SF→Siebel API integration when the customer is approved — no human session involved",
+      "sobject": "Customer",
+      "notes": "created by the SF\u2192Siebel API integration when the customer is approved \u2014 no human session involved",
       "expects": [
         {
           "id": "customer_visible_in_ui",
           "kind": "ui.text",
           "value": "E2E_",
           "after": "siebel.check_customer",
-          "note": "siebel_admin sees the E2E-prefixed customer name in the Siebel UI (DB not queryable — verify via UI)",
+          "note": "siebel_admin sees the E2E-prefixed customer name in the Siebel UI (DB not queryable \u2014 verify via UI)",
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
@@ -260,7 +263,7 @@
           "id": "customer_in_siebel",
           "kind": "api.record_exists",
           "target": "Customer",
-          "note": "in Siebel = pass; missing = the SF→Siebel integration failed",
+          "note": "in Siebel = pass; missing = the SF\u2192Siebel integration failed",
           "timeoutMs": 120000,
           "pollMs": 5000,
           "lastResult": {
@@ -277,7 +280,7 @@
           "value": "create_customer_v2",
           "timeoutMs": 60000,
           "pollMs": 5000,
-          "note": "draft — confirm the log system + search term",
+          "note": "draft \u2014 confirm the log system + search term",
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
@@ -310,7 +313,7 @@
       "id": "db_siebel",
       "type": "db",
       "label": "Siebel DB",
-      "notes": "NOT queryable until confirmed — verify via Siebel UI (siebel_admin) or the gateway logs"
+      "notes": "NOT queryable until confirmed \u2014 verify via Siebel UI (siebel_admin) or the gateway logs"
     },
     {
       "id": "log_gateway",
@@ -335,7 +338,8 @@
       "type": "does",
       "label": "create lead",
       "data": {
-        "catalog": "lead.create"
+        "catalog": "lead.create",
+        "io": "produces"
       }
     },
     {
@@ -354,7 +358,8 @@
       "type": "does",
       "label": "progress to potential lead",
       "data": {
-        "catalog": "lead.progress_to_potential"
+        "catalog": "lead.progress_to_potential",
+        "io": "updates"
       }
     },
     {
@@ -373,7 +378,8 @@
       "type": "does",
       "label": "credit check",
       "data": {
-        "catalog": "credit.check"
+        "catalog": "credit.check",
+        "io": "updates"
       }
     },
     {
@@ -392,14 +398,18 @@
       "type": "does",
       "label": "approve to customer",
       "data": {
-        "catalog": "lead.approve_to_customer"
+        "catalog": "lead.approve_to_customer",
+        "io": "produces"
       }
     },
     {
       "id": "e9",
       "from": "sess_sf_customer_approver",
       "to": "lead",
-      "type": "touches"
+      "type": "touches",
+      "data": {
+        "io": "consumes"
+      }
     },
     {
       "id": "e10",
@@ -417,7 +427,8 @@
       "type": "does",
       "label": "check customer created",
       "data": {
-        "catalog": "siebel.check_customer"
+        "catalog": "siebel.check_customer",
+        "io": "consumes"
       }
     },
     {
@@ -437,14 +448,17 @@
       "from": "customer",
       "to": "api_create_customer_v2",
       "type": "handoff",
-      "label": "API replication SF → Siebel"
+      "label": "API replication SF \u2192 Siebel"
     },
     {
       "id": "e_api2",
       "from": "api_create_customer_v2",
       "to": "customer_siebel",
       "type": "handoff",
-      "label": "creates"
+      "label": "creates",
+      "data": {
+        "io": "produces"
+      }
     },
     {
       "id": "e_api3",

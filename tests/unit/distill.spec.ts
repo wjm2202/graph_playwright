@@ -51,8 +51,11 @@ test.describe('recognizers', () => {
       { kind: 'nav', url: 'https://x.my.salesforce.com/lightning/r/Expense__c/a03xx0000012AbCDEF/view', startMs: 0, endMs: 50 },
     ]);
     expect(d.steps[0]).toMatchObject({ catalog: 'recordPage.open', args: { sobject: 'Expense__c', id: 'a03xx0000012AbCDEF' } });
-    expect(d.harvestedIds).toEqual([{ id: 'a03xx0000012AbCDEF', sobject: 'Expense__c', firstEvent: 0 }]);
-    expect(d.flags.join()).toContain('literal record id a03xx0000012AbCDEF');
+    // Opened without a preceding save → nobody in this recording created it.
+    expect(d.harvestedIds).toEqual([
+      { id: 'a03xx0000012AbCDEF', sobject: 'Expense__c', firstEvent: 0, handle: 'expense_c', origin: 'external', useSteps: [0] },
+    ]);
+    expect(d.flags.join()).toContain('record a03xx0000012AbCDEF (Expense__c) pre-existed');
   });
 
   test('non-record navigation stays nav.goto', () => {

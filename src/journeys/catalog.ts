@@ -29,6 +29,20 @@ export interface StepCtx {
   api?: unknown;
   journey: Journey;
   stepIndex: number;
+  /**
+   * Publish a record this step DEFINED (STUDY-DATA-FLOW.md §3.3) — the one
+   * non-seed writer of `refs`. Later steps resolve it as {ref:<ref>.id}.
+   * Steps emitted from a `produces` edge receive `args.produce` = the handle
+   * to use; a step that does not call this is auto-published by the runner
+   * from the record page it landed on (or fails loudly when it landed nowhere).
+   */
+  produce: (ref: string, rec: ProducedRecord) => void;
+}
+
+export interface ProducedRecord {
+  id: string;
+  sobject?: string;
+  fields?: Record<string, unknown>;
 }
 
 export type StepFn = (ctx: StepCtx) => Promise<void>;

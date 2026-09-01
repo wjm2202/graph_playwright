@@ -227,6 +227,18 @@ function renderSteps(journeyId: string, steps: DistilledStep[]): string {
     lines.push("      await page.goto('/lightning/r/' + String(args.sobject) + '/' + String(args.id) + '/view');");
     lines.push('    })');
   }
+  if (used.has('recordPage.landed')) {
+    // Lightning redirected to the record the previous save created: wait for
+    // it, then PUBLISH the id under the recording's handle (dataflow def).
+    lines.push("    .register('recordPage.landed', async ({ page, args, produce }) => {");
+    lines.push("      const re = new RegExp('/lightning/r/' + String(args.sobject) + '/[a-zA-Z0-9]{15,18}/view');");
+    lines.push('      await page.waitForURL(re);');
+    lines.push("      const m = re.exec(page.url());");
+    lines.push("      const id = m ? m[0].split('/')[4] : undefined;");
+    lines.push("      if (!id) throw new Error('recordPage.landed: not on a ' + String(args.sobject) + ' record page: ' + page.url());");
+    lines.push("      produce(String(args.produce), { id, sobject: String(args.sobject) });");
+    lines.push('    })');
+  }
   if (used.has('form.fill')) {
     lines.push("    .register('form.fill', async ({ page, args }) => {");
     lines.push('      await page.getByLabel(String(args.label)).fill(String(args.value));');

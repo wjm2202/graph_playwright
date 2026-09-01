@@ -60,6 +60,17 @@ export interface Expectation {
   lastResult?: { status: 'pass' | 'fail'; at: string; runId?: string; message?: string };
 }
 
+export type DataOrigin = 'step' | 'seed' | 'external';
+
+/**
+ * The PORT on an edge that touches a data node (STUDY-DATA-FLOW.md §3):
+ * produces = this action DEFINES the record (creates it; the step publishes
+ * its id), consumes = this action READS it (needs the id: open, verify),
+ * updates = reads AND changes it. Dataflow validity — every consume has a
+ * definition earlier in the walk — is checked by dataflowHealth() in graph/compose.ts.
+ */
+export type DataIo = 'produces' | 'consumes' | 'updates';
+
 export type NodeType =
   | 'start' | 'action' | 'decision' | 'checkpoint' | 'snapshot' | 'end'
   // process-graph/2 (state nodes — STUDY-TEST-GRAPH-REPRESENTATION.md):
@@ -92,6 +103,17 @@ export interface PNode {
   searchable?: boolean;
   /** api nodes only: the endpoint this node names (e.g. create_customer_v2). */
   endpoint?: { method?: string; path?: string };
+  /**
+   * data nodes only (STUDY-DATA-FLOW.md §3.1) — the node is a runtime
+   * VARIABLE, not just a picture. `ref` is the handle steps resolve with
+   * `{ref:<ref>.id}` (defaults to the node id); `sobject` the SObject the
+   * record is; `origin` who is expected to DEFINE it: a `produces` edge in
+   * this graph ('step', default), the journey seed block ('seed'), or a
+   * pre-existing record the run finds rather than creates ('external').
+   */
+  ref?: string;
+  sobject?: string;
+  origin?: DataOrigin;
   notes?: string;
   /** Authored canvas position; captured graphs are auto-laid-out instead. */
   pos?: { x: number; y: number };
@@ -119,6 +141,16 @@ export interface PEdge {
     catalog?: string;
     /** v2 `login_as` edges: how the session is acquired. */
     auth?: AuthMethod;
+    /** Edges landing on a data node: the port direction (see DataIo). */
+    io?: DataIo;
+    /**
+     * Port map for consumes/updates: step arg name → placeholder, e.g.
+     * { id: '{ref:customer.id}' }. Omitted = the walker's default,
+     * { record: '{ref:<ref>.id}' }.
+     */
+    bind?: Record<string, string>;
+    /** Machine-guessed port (ado:import / capture) — confirm once to clear. */
+    ioDraft?: boolean;
   };
 }
 
@@ -146,6 +178,8 @@ const NODE_TYPES: NodeType[] = ['start', 'action', 'decision', 'checkpoint', 'sn
 const EDGE_TYPES: EdgeType[] = ['next', 'navigates', 'handoff', 'deny', 'login_as', 'does', 'requires', 'touches', 'asserts', 'denied'];
 const SYSTEM_KINDS: SystemKind[] = ['salesforce', 'siebel', 'web', 'api', 'other'];
 const STATUSES: PlanStatus[] = ['planned', 'captured'];
+const DATA_IOS: DataIo[] = ['produces', 'consumes', 'updates'];
+const DATA_ORIGINS: DataOrigin[] = ['step', 'seed', 'external'];
 const EXPECTATION_KINDS: ExpectationKind[] = [
   'ui.visible', 'ui.text', 'ui.toast', 'ui.url', 'api.record_exists', 'api.field_equals',
   'db.query', 'log.traffic',
@@ -270,6 +304,31 @@ export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): Gr
     if (n?.endpoint !== undefined && n.type !== 'api') {
       errors.push(`${at}.endpoint: only api nodes name endpoints`);
     }
+    for (const field of ['ref', 'sobject', 'origin'] as const) {
+      if (n?.[field] !== undefined && n.type !== 'data') {
+        errors.push(`${at}.${field}: only data nodes carry a runtime binding`);
+      }
+    }
+    if (n?.ref !== undefined && !ID_RE.test(n.ref)) {
+      errors.push(`${at}.ref: lower_snake_case handle required (steps resolve it as {ref:${n.ref}.id})`);
+    }
+    if (n?.sobject !== undefined && (typeof n.sobject !== 'string' || !/^[A-Za-z][A-Za-z0-9_]*$/.test(n.sobject))) {
+      errors.push(`${at}.sobject: SObject API name required (e.g. Account, Custom__c)`);
+    }
+    if (n?.origin !== undefined && !DATA_ORIGINS.includes(n.origin)) {
+      errors.push(`${at}.origin: one of ${DATA_ORIGINS.join('|')}`);
+    }
+  }
+
+  // Two data nodes must not share a runtime handle — {ref:x.id} would be
+  // ambiguous at run time.
+  const refOwner = new Map<string, string>();
+  for (const n of g.nodes ?? []) {
+    if (n?.type !== 'data' || !n.id) continue;
+    const ref = n.ref ?? n.id;
+    const other = refOwner.get(ref);
+    if (other) errors.push(`nodes.${n.id}.ref: handle '${ref}' already used by data node '${other}'`);
+    else refOwner.set(ref, n.id);
   }
 
   // Infra cross-references (need the full node list, hence a second pass):
@@ -331,6 +390,29 @@ export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): Gr
     }
     if (e?.type === 'does' && !e.data?.catalog && !e.label) {
       errors.push(`${at}: does edges need data.catalog (the step) or at least a label placeholder`);
+    }
+    if (e?.data?.io !== undefined) {
+      if (!DATA_IOS.includes(e.data.io)) errors.push(`${at}.data.io: one of ${DATA_IOS.join('|')}`);
+      const target = (g.nodes ?? []).find((n) => n?.id === e.to);
+      if (target && target.type !== 'data') {
+        errors.push(`${at}.data.io: a port only makes sense on an edge landing on a data node (got '${target.type}')`);
+      }
+    }
+    if (e?.data?.ioDraft !== undefined && typeof e.data.ioDraft !== 'boolean') errors.push(`${at}.data.ioDraft: boolean`);
+    if (e?.data?.ioDraft !== undefined && e.data.io === undefined) errors.push(`${at}.data.ioDraft: needs data.io (what is drafted?)`);
+    if (e?.data?.bind !== undefined) {
+      if (e.data.io === undefined || e.data.io === 'produces') {
+        errors.push(`${at}.data.bind: only consumes/updates edges bind args (produces publishes, it does not read)`);
+      } else if (!e.data.bind || typeof e.data.bind !== 'object' || Array.isArray(e.data.bind)) {
+        errors.push(`${at}.data.bind: object of argName → '{ref:<handle>.<prop>}'`);
+      } else {
+        for (const [arg, ph] of Object.entries(e.data.bind)) {
+          if (!ID_RE.test(arg)) errors.push(`${at}.data.bind.${arg}: arg name must be lower_snake_case`);
+          if (typeof ph !== 'string' || !/\{ref:[a-z][a-z0-9_]*(?:\.[A-Za-z0-9_.]+)?\}/.test(ph)) {
+            errors.push(`${at}.data.bind.${arg}: must contain a {ref:<handle>.<prop>} placeholder`);
+          }
+        }
+      }
     }
     if (e?.data?.deltaMs !== undefined && e.data.deltaMs < 0) errors.push(`${at}.data.deltaMs: must be >= 0`);
     if (e?.data?.frequency !== undefined && !(e.data.frequency >= 1)) errors.push(`${at}.data.frequency: must be >= 1`);

@@ -20,12 +20,12 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import type { Distillation, DistilledStep } from '../pipeline/distill';
+import { mentionsRecord, type Distillation, type DistilledStep } from '../pipeline/distill';
 import { validateGraph, type Expectation, type PEdge, type PNode, type ProcessGraph, type SystemDef } from './schema';
 import { asText } from '../utils/text';
 
 const SAVEISH_RE = /^(save|submit|confirm|done|next|finish)/i;
-const NAV_CATALOGS = new Set(['nav.goto', 'recordPage.open']);
+const NAV_CATALOGS = new Set(['nav.goto', 'recordPage.open', 'recordPage.landed']);
 
 export interface FromCaptureOptions {
   graphId: string;
@@ -139,16 +139,27 @@ export function compactFromDistillation(d: Distillation, opts: FromCaptureOption
       const edgeId = `e_do_${segIdx + 1}_${k + 1}`;
 
       let targetId: string;
+      let io: 'produces' | 'consumes' | 'updates' | undefined;
       if (sobject) {
         const key = sobject.toLowerCase();
         let node = dataNodes.get(key);
         if (!node) {
-          node = { id: key, type: 'data', label: `${sobject} record`, expects: [] };
+          node = { id: key, type: 'data', label: `${sobject} record`, sobject, expects: [] };
           dataNodes.set(key, node);
           graph.nodes.push(node);
         }
         node.expects!.push(...draftExpects(sobject, edgeId, node.expects!));
         targetId = node.id;
+        // The PORT (STUDY-DATA-FLOW.md §3.4): the group holding the record's
+        // defining save PRODUCES it; a later group that saves again UPDATES;
+        // anything else merely CONSUMES. A record nobody created is external.
+        const port = portFor(g, d, sobject);
+        io = port.io;
+        if (port.external && !node.origin) {
+          node.origin = 'external';
+          flags.push(`${catalog}: ${sobject} record pre-existed in the capture — seed it or find it by name (node '${node.id}' origin: external)`);
+        }
+        if (port.handle && port.handle !== node.id) node.ref = port.handle;
       } else {
         screenSeq += 1;
         targetId = `scr_${seg.alias}_${screenSeq}`;
@@ -174,6 +185,7 @@ export function compactFromDistillation(d: Distillation, opts: FromCaptureOption
           catalog,
           stepIndexes: g.indexes,
           meanMs: Math.max(0, Math.round(g.steps.reduce((a, s) => a + s.durationMs, 0))),
+          ...(io ? { io } : {}),
         },
       } as PEdge);
     });
@@ -188,7 +200,7 @@ export function compactFromDistillation(d: Distillation, opts: FromCaptureOption
     const touching: Group[] = [];
     for (const seg of segments) {
       for (const g of seg.groups) {
-        if (g.steps.some((s) => JSON.stringify(s.args).includes(rec.id))) touching.push(g);
+        if (g.steps.some((s) => mentionsRecord(s, rec))) touching.push(g);
       }
     }
     for (let k = 1; k < touching.length; k++) {
@@ -303,13 +315,31 @@ function segmentSystem(
   return fallback;
 }
 
+/** Which way the data flows between this group and its SObject's record. */
+function portFor(
+  g: Group,
+  d: Distillation,
+  sobject: string,
+): { io: 'produces' | 'consumes' | 'updates'; external: boolean; handle?: string } {
+  const recs = d.harvestedIds.filter((r) => r.sobject === sobject && g.steps.some((s) => mentionsRecord(s, r)));
+  const defines = recs.find((r) => r.defStep !== undefined && g.indexes.includes(r.defStep));
+  if (defines) return { io: 'produces', external: false, ...(defines.handle ? { handle: defines.handle } : {}) };
+  const first = recs[0];
+  const external = recs.length > 0 && recs.every((r) => r.origin === 'external' || r.defStep === undefined);
+  const handle = first?.handle;
+  // No harvested record at all (SObject known only from the opened list/page):
+  // a save here creates one.
+  if (!recs.length) return { io: g.boundary ? 'produces' : 'consumes', external: false };
+  return { io: g.boundary ? 'updates' : 'consumes', external, ...(handle ? { handle } : {}) };
+}
+
 function groupSObject(g: Group, d: Distillation): string | undefined {
   for (const s of g.steps) {
-    if (s.catalog === 'recordPage.open' && typeof s.args.sobject === 'string') return s.args.sobject;
+    if ((s.catalog === 'recordPage.open' || s.catalog === 'recordPage.landed') && typeof s.args.sobject === 'string') return s.args.sobject;
   }
   for (const rec of d.harvestedIds) {
     if (!rec.sobject) continue;
-    if (g.steps.some((s) => JSON.stringify(s.args).includes(rec.id))) return rec.sobject;
+    if (g.steps.some((s) => mentionsRecord(s, rec))) return rec.sobject;
   }
   return undefined;
 }
