@@ -124,8 +124,28 @@ function graphLibrary() {
   return `window.GRAPH_LIBRARY = ${JSON.stringify(lib)};\nwindow.PROJECT_LIST = ${JSON.stringify(projects)};`;
 }
 
+/**
+ * Server bridge: the dev server (plain .mjs) needs the TypeScript import
+ * store (src/graph/adoImports.ts → fromAdo, fromAdoXlsx, schema). Transpile
+ * it to CommonJS under tools/.planner-build/ (gitignored) on every build so
+ * serve-planner can createRequire() it fresh after each rebuild.
+ */
+function buildServerBridge() {
+  const out = join(root, 'tools/.planner-build');
+  // tsc overwrites in place — no rm first (some sandboxes forbid unlink on
+  // mounted folders, and a stale sibling file is harmless).
+  execFileSync('npx', [
+    'tsc', join(root, 'src/graph/adoImports.ts'),
+    '--outDir', out, '--rootDir', join(root, 'src'), '--module', 'commonjs', '--target', 'es2020',
+    '--moduleResolution', 'node', '--esModuleInterop', '--skipLibCheck',
+  ], { cwd: root, stdio: 'pipe' });
+  writeFileSync(join(out, 'package.json'), '{ "type": "commonjs" }\n');
+  return out;
+}
+
 const src = readFileSync(join(root, 'tools/planner-src.html'), 'utf8');
 const shared = transpileShared();
+buildServerBridge();
 const libraryJs = graphLibrary();
 const personasJs = personaIds();
 

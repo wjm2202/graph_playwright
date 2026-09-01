@@ -61,6 +61,7 @@
     </select>
     <button id="b_new" class="editonly" title="start a fresh graph (pre-filled with start + end)">new</button>
     <label class="editonly"><input id="f_import" type="file" accept=".json" class="hide" /><button id="b_import">import</button></label>
+    <button id="b_cases" class="editonly" title="import test cases from an Azure DevOps export (.xlsx or .csv) into a project — pick the cases, each becomes a draft graph">import cases</button>
     <select id="f_insert" class="editonly" title="bring another graph in as a SEPARATE island — nothing is auto-wired; you draw the login_as connection from a previous step and relink end. check ✓ lists the unwired sessions until you do" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; max-width:180px;">
       <option value="">insert ▾</option>
     </select>
@@ -132,6 +133,44 @@
     <button id="ro_close" title="close" style="margin-left:auto; padding:1px 7px;">✕</button>
   </div>
   <div id="ro_list"></div>
+</div>
+<!-- import test cases (ADO .xlsx/.csv → draft graphs in a project). Served mode only: the dev server stores the file under projects/<p>/imports/. -->
+<div id="p_cases" class="hide" style="position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index:40; width:560px; max-height:80vh; overflow:auto; background:var(--panel); border:1px solid var(--accent); border-radius:10px; padding:12px 14px; font-size:12px; box-shadow:0 10px 30px rgba(0,0,0,.55);">
+  <div style="display:flex; align-items:center; margin-bottom:8px;">
+    <b>import test cases</b><span style="color:var(--muted); margin-left:8px;">ADO export (.xlsx / .csv) → one draft graph per case, kept in the project</span>
+    <button id="ic_close" title="close" style="margin-left:auto; padding:1px 7px;">✕</button>
+  </div>
+  <div id="ic_step1">
+    <div class="field"><label>project</label>
+      <select id="ic_project" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; width:100%;"></select>
+      <input id="ic_newproject" class="mono hide" placeholder="new project name (lower-case, digits, _ or -)" style="margin-top:4px; width:100%;" />
+    </div>
+    <div class="field"><label>previous imports in this project</label>
+      <select id="ic_previous" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; width:100%;"><option value="">— upload a new file —</option></select>
+    </div>
+    <div class="field" id="ic_filerow"><label>ADO export file</label><input id="ic_file" type="file" accept=".xlsx,.xls,.xlsm,.csv" /></div>
+    <div style="display:flex; gap:8px; align-items:center; margin-top:6px;">
+      <button id="ic_read" class="editonly">read test cases</button>
+      <span id="ic_msg" style="color:var(--muted);"></span>
+    </div>
+  </div>
+  <div id="ic_step2" class="hide">
+    <div style="display:flex; align-items:center; gap:8px; margin:6px 0;">
+      <span id="ic_summary" style="color:var(--muted);"></span>
+      <button id="ic_all" style="margin-left:auto; padding:1px 7px;">all</button><button id="ic_none" style="padding:1px 7px;">none</button>
+    </div>
+    <div id="ic_list" style="max-height:44vh; overflow:auto; border:1px solid var(--line); border-radius:6px; padding:4px 6px;"></div>
+    <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+      <button id="ic_back" style="padding:3px 8px;">← back</button>
+      <button id="ic_apply" class="editonly" style="border-color:var(--accent);">import selected</button>
+      <span id="ic_msg2" style="color:var(--muted);"></span>
+    </div>
+  </div>
+  <div id="ic_step3" class="hide">
+    <div id="ic_results"></div>
+    <div style="color:var(--muted); margin-top:8px;">Each graph is a DRAFT: every guess is flagged and every check is marked <i>draft?</i>. Open one, run <b>check</b>, or hand the files under projects/&lt;p&gt;/graphs/ to your AI for review.</div>
+    <div style="display:flex; gap:8px; margin-top:8px;"><button id="ic_more" style="padding:3px 8px;">import more</button><button id="ic_done" style="padding:3px 8px;">done</button></div>
+  </div>
 </div>
 <div id="groupbox" class="hide">
   <div class="gb_frame"></div>
@@ -5406,16 +5445,17 @@ var exports = {};
  * standalone so the web view validates with the SAME code.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.EXPECTATION_KINDS = exports.DATA_ORIGINS = exports.DATA_IOS = exports.STATUSES = exports.SYSTEM_KINDS = exports.EDGE_TYPES = exports.NODE_TYPES = void 0;
 exports.validateGraph = validateGraph;
 const ID_RE = /^[a-z][a-z0-9_]*$/;
 const ENV_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
-const NODE_TYPES = ['start', 'action', 'decision', 'checkpoint', 'snapshot', 'end', 'session', 'screen', 'data', 'db', 'logger', 'api'];
-const EDGE_TYPES = ['next', 'navigates', 'handoff', 'deny', 'login_as', 'does', 'requires', 'touches', 'asserts', 'denied'];
-const SYSTEM_KINDS = ['salesforce', 'siebel', 'web', 'api', 'other'];
-const STATUSES = ['planned', 'captured'];
-const DATA_IOS = ['produces', 'consumes', 'updates'];
-const DATA_ORIGINS = ['step', 'seed', 'external'];
-const EXPECTATION_KINDS = [
+exports.NODE_TYPES = ['start', 'action', 'decision', 'checkpoint', 'snapshot', 'end', 'session', 'screen', 'data', 'db', 'logger', 'api'];
+exports.EDGE_TYPES = ['next', 'navigates', 'handoff', 'deny', 'login_as', 'does', 'requires', 'touches', 'asserts', 'denied'];
+exports.SYSTEM_KINDS = ['salesforce', 'siebel', 'web', 'api', 'other'];
+exports.STATUSES = ['planned', 'captured'];
+exports.DATA_IOS = ['produces', 'consumes', 'updates'];
+exports.DATA_ORIGINS = ['step', 'seed', 'external'];
+exports.EXPECTATION_KINDS = [
     'ui.visible', 'ui.text', 'ui.toast', 'ui.url', 'api.record_exists', 'api.field_equals',
     'db.query', 'log.traffic',
 ];
@@ -5443,8 +5483,8 @@ function validateGraph(doc, opts = {}) {
         }
         if (!s.label)
             errors.push(`${at}.label: required`);
-        if (!SYSTEM_KINDS.includes(s.kind))
-            errors.push(`${at}.kind: one of ${SYSTEM_KINDS.join('|')}`);
+        if (!exports.SYSTEM_KINDS.includes(s.kind))
+            errors.push(`${at}.kind: one of ${exports.SYSTEM_KINDS.join('|')}`);
         if (s.urlEnv !== undefined && !ENV_NAME_RE.test(s.urlEnv)) {
             errors.push(`${at}.urlEnv: must be an ENV VAR NAME (looks like an inline value)`);
         }
@@ -5474,8 +5514,8 @@ function validateGraph(doc, opts = {}) {
             errors.push(`${at}: duplicate node id`);
         else
             nodeIds.add(n.id);
-        if (!NODE_TYPES.includes(n === null || n === void 0 ? void 0 : n.type))
-            errors.push(`${at}.type: one of ${NODE_TYPES.join('|')}`);
+        if (!exports.NODE_TYPES.includes(n === null || n === void 0 ? void 0 : n.type))
+            errors.push(`${at}.type: one of ${exports.NODE_TYPES.join('|')}`);
         if (!(n === null || n === void 0 ? void 0 : n.label) && (n === null || n === void 0 ? void 0 : n.type) !== 'start' && (n === null || n === void 0 ? void 0 : n.type) !== 'end')
             errors.push(`${at}.label: required`);
         if ((n === null || n === void 0 ? void 0 : n.type) === 'session' && !n.system)
@@ -5492,11 +5532,11 @@ function validateGraph(doc, opts = {}) {
         if ((n === null || n === void 0 ? void 0 : n.url) !== undefined && /:\/\/[^/]*:[^/@]*@/.test(n.url)) {
             errors.push(`${at}.url: embeds credentials — never store user:pass in URLs`);
         }
-        if ((n === null || n === void 0 ? void 0 : n.steps) !== undefined && !STATUSES.includes(n.steps.status)) {
-            errors.push(`${at}.steps.status: one of ${STATUSES.join('|')}`);
+        if ((n === null || n === void 0 ? void 0 : n.steps) !== undefined && !exports.STATUSES.includes(n.steps.status)) {
+            errors.push(`${at}.steps.status: one of ${exports.STATUSES.join('|')}`);
         }
-        if ((n === null || n === void 0 ? void 0 : n.snapshot) !== undefined && !STATUSES.includes(n.snapshot.status)) {
-            errors.push(`${at}.snapshot.status: one of ${STATUSES.join('|')}`);
+        if ((n === null || n === void 0 ? void 0 : n.snapshot) !== undefined && !exports.STATUSES.includes(n.snapshot.status)) {
+            errors.push(`${at}.snapshot.status: one of ${exports.STATUSES.join('|')}`);
         }
         if (((_g = n === null || n === void 0 ? void 0 : n.timing) === null || _g === void 0 ? void 0 : _g.plannedMs) !== undefined && !(n.timing.plannedMs > 0)) {
             errors.push(`${at}.timing.plannedMs: must be > 0`);
@@ -5510,8 +5550,8 @@ function validateGraph(doc, opts = {}) {
                 errors.push(`${xat}: duplicate expectation id on this node`);
             else
                 expectIds.add(x.id);
-            if (!EXPECTATION_KINDS.includes(x === null || x === void 0 ? void 0 : x.kind)) {
-                errors.push(`${xat}.kind: one of ${EXPECTATION_KINDS.join('|')}`);
+            if (!exports.EXPECTATION_KINDS.includes(x === null || x === void 0 ? void 0 : x.kind)) {
+                errors.push(`${xat}.kind: one of ${exports.EXPECTATION_KINDS.join('|')}`);
             }
             if (((x === null || x === void 0 ? void 0 : x.kind) === 'api.record_exists' || (x === null || x === void 0 ? void 0 : x.kind) === 'api.field_equals') && !x.target) {
                 errors.push(`${xat}: api.* expectations need target (the SObject)`);
@@ -5564,8 +5604,8 @@ function validateGraph(doc, opts = {}) {
         if ((n === null || n === void 0 ? void 0 : n.sobject) !== undefined && (typeof n.sobject !== 'string' || !/^[A-Za-z][A-Za-z0-9_]*$/.test(n.sobject))) {
             errors.push(`${at}.sobject: SObject API name required (e.g. Account, Custom__c)`);
         }
-        if ((n === null || n === void 0 ? void 0 : n.origin) !== undefined && !DATA_ORIGINS.includes(n.origin)) {
-            errors.push(`${at}.origin: one of ${DATA_ORIGINS.join('|')}`);
+        if ((n === null || n === void 0 ? void 0 : n.origin) !== undefined && !exports.DATA_ORIGINS.includes(n.origin)) {
+            errors.push(`${at}.origin: one of ${exports.DATA_ORIGINS.join('|')}`);
         }
     }
     // Two data nodes must not share a runtime handle — {ref:x.id} would be
@@ -5615,8 +5655,8 @@ function validateGraph(doc, opts = {}) {
             errors.push(`${at}: duplicate edge id`);
         else
             edgeIds.add(e.id);
-        if (!EDGE_TYPES.includes(e === null || e === void 0 ? void 0 : e.type))
-            errors.push(`${at}.type: one of ${EDGE_TYPES.join('|')}`);
+        if (!exports.EDGE_TYPES.includes(e === null || e === void 0 ? void 0 : e.type))
+            errors.push(`${at}.type: one of ${exports.EDGE_TYPES.join('|')}`);
         for (const end of ['from', 'to']) {
             if (!(e === null || e === void 0 ? void 0 : e[end]) || !nodeIds.has(e[end]))
                 errors.push(`${at}.${end}: unknown node '${e === null || e === void 0 ? void 0 : e[end]}'`);
@@ -5646,8 +5686,8 @@ function validateGraph(doc, opts = {}) {
             errors.push(`${at}: does edges need data.catalog (the step) or at least a label placeholder`);
         }
         if (((_z = e === null || e === void 0 ? void 0 : e.data) === null || _z === void 0 ? void 0 : _z.io) !== undefined) {
-            if (!DATA_IOS.includes(e.data.io))
-                errors.push(`${at}.data.io: one of ${DATA_IOS.join('|')}`);
+            if (!exports.DATA_IOS.includes(e.data.io))
+                errors.push(`${at}.data.io: one of ${exports.DATA_IOS.join('|')}`);
             const target = ((_0 = g.nodes) !== null && _0 !== void 0 ? _0 : []).find((n) => (n === null || n === void 0 ? void 0 : n.id) === e.to);
             if (target && target.type !== 'data') {
                 errors.push(`${at}.data.io: a port only makes sense on an edge landing on a data node (got '${target.type}')`);
@@ -6176,6 +6216,7 @@ window.ProcessGraphCompose = exports;
 var exports = {};
 var require = function (m) { return /compose/.test(m) ? window.ProcessGraphCompose : window.ProcessGraphSchema; };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.GRILLME_OPS = exports.GAP_KINDS = void 0;
 exports.computeGaps = computeGaps;
 exports.applyAnswers = applyAnswers;
 /**
@@ -6191,6 +6232,16 @@ exports.applyAnswers = applyAnswers;
  */
 const schema_1 = require("./schema");
 const compose_1 = require("./compose");
+/** Every gap kind the engine can emit (kept in step with GapKind by the spec drift test). */
+exports.GAP_KINDS = [
+    'role_unbound', 'does_unbound', 'not_captured', 'session_no_url', 'no_oracles', 'draft_oracle',
+    'api_no_timeout', 'no_deny_coverage', 'no_session_policy', 'data_io_draft', 'data_no_port', 'data_unproduced',
+];
+/** Every write-back op (kept in step with GrillmeOp by the spec drift test). */
+exports.GRILLME_OPS = [
+    'bindRole', 'setCatalog', 'confirmExpect', 'removeExpect', 'setOracleBudget', 'setUrl', 'addDeny', 'setSessionPolicy',
+    'setIo', 'confirmIo', 'setOrigin',
+];
 function computeGaps(graph, opts = {}) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q;
     const gaps = [];
@@ -7166,9 +7217,22 @@ function exportGraph() {
 }
 
 var ID_OK = /^[a-z][a-z0-9_]*$/;
+/** Where the open graph came from / should go back to: a project, or nothing. */
+var G_PROJECT = '';
+function graphProject() {
+  if (G_PROJECT && PROJECTS.some(function (p) { return p.project === G_PROJECT; })) return G_PROJECT;
+  if (currentProject && PROJECTS.some(function (p) { return p.project === currentProject; })) return currentProject;
+  return '';
+}
 function refreshSaveMenu() {
   var sel = document.getElementById('f_save');
   sel.innerHTML = '<option value="">save ▾</option>';
+  // Served: the repo is the real home — projects/<p>/graphs/<id>.graph.json.
+  if (icServed()) {
+    var target = graphProject();
+    if (target) sel.add(new Option('save to project "' + target + '"', 'project:' + target));
+    sel.add(new Option(target ? 'save to another project…' : 'save to project…', 'project:'));
+  }
   var inBrowser = !!browserSaves()[G.id];
   // Library keys are refs — a project graph's id sits behind 'project/'.
   var lib = window.GRAPH_LIBRARY || {};
@@ -7177,11 +7241,47 @@ function refreshSaveMenu() {
     return slash > 0 && k.slice(slash + 1) === G.id;
   });
   if (inBrowser) {
-    sel.add(new Option('overwrite "' + G.id + '"', 'overwrite'));
+    sel.add(new Option('overwrite "' + G.id + '" in this browser', 'overwrite'));
   } else {
-    sel.add(new Option('save "' + G.id + '"' + (inRepo ? ' (browser copy of built-in)' : ''), 'save'));
+    sel.add(new Option('save "' + G.id + '" in this browser' + (inRepo ? ' (copy of built-in)' : ''), 'save'));
   }
-  sel.add(new Option('save as…', 'saveas'));
+  sel.add(new Option('save as… (browser)', 'saveas'));
+}
+/** Save the open graph into projects/<p>/graphs/ through the dev server. */
+function saveToProject(project, overwrite) {
+  syncPositions();
+  var v = validateGraph(G);
+  var el = document.getElementById('status');
+  if (!v.ok) { el.className = 'bad'; el.textContent = 'cannot save an invalid graph: ' + v.errors.join(' | '); return Promise.resolve({ ok: false, errors: v.errors }); }
+  if (!G.id) { el.className = 'bad'; el.textContent = 'give the graph an id first (graph → id)'; return Promise.resolve({ ok: false, errors: ['no id'] }); }
+  if (!project) {
+    var names = PROJECTS.map(function (p) { return p.project; });
+    var picked = prompt('save "' + G.id + '" to which project?' + (names.length ? '\n' + names.join(', ') : '\n(no projects yet — PROJECT → ＋ new project… first)'), graphProject() || names[0] || '');
+    if (picked === null) { setStatus('save cancelled'); return Promise.resolve({ ok: false, errors: ['cancelled'] }); }
+    project = picked.trim();
+  }
+  var body = { project: project, graph: G, overwrite: !!overwrite };
+  return fetch('/__graphs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function (r) { return r.json().then(function (j) { return { status: r.status, j: j }; }); })
+    .then(function (res) {
+      if (res.status === 409 && res.j && res.j.exists) {
+        if (!confirm('"' + project + '/' + G.id + '" already exists in the project. Overwrite it?')) { setStatus('save cancelled — "' + project + '/' + G.id + '" kept as it was'); return { ok: false, errors: ['exists'] }; }
+        return saveToProject(project, true);
+      }
+      if (res.status !== 200 || !res.j || !res.j.ok) {
+        el.className = 'bad';
+        el.textContent = 'NOT saved — ' + ((res.j && res.j.error) || 'dev server refused');
+        return { ok: false, errors: [(res.j && res.j.error) || 'refused'] };
+      }
+      G_PROJECT = project;
+      setProject(project);
+      refreshSaveMenu();
+      // The dev server rebuilds the library and reloads this tab — come back to this graph.
+      try { sessionStorage.setItem('planner.reopen', 'lib:' + res.j.ref); } catch (e) { /* ignore */ }
+      setStatus((res.j.overwritten ? 'overwrote ' : 'saved ') + res.j.file + ' — the library refreshes when the rebuild lands');
+      return { ok: true, ref: res.j.ref, file: res.j.file };
+    })
+    .catch(function () { el.className = 'bad'; el.textContent = 'NOT saved — dev server unreachable'; return { ok: false, errors: ['unreachable'] }; });
 }
 function doSave(mode) {
   syncPositions();
@@ -7321,7 +7421,11 @@ function openFromLibrary(value) {
   var source = value.slice(0, sep);
   var id = value.slice(sep + 1);
   var doc = source === 'lib' ? (window.GRAPH_LIBRARY || {})[id] : browserSaves()[id];
-  if (doc) { clearUndo(); loadGraph(JSON.parse(JSON.stringify(doc))); }
+  if (doc) {
+    clearUndo();
+    G_PROJECT = source === 'lib' && id.indexOf('/') > 0 ? id.slice(0, id.indexOf('/')) : '';
+    loadGraph(JSON.parse(JSON.stringify(doc)));
+  }
   document.getElementById('f_library').value = '';
 }
 
@@ -7433,7 +7537,7 @@ function setMode(m) {
   // gesture). Hold SPACE in edit mode to rubber-band select instead.
   cy.boxSelectionEnabled(false);
   cy.userPanningEnabled(true);
-  ['b_add', 'b_connect', 'b_delete', 'b_meta_apply', 'b_import', 'f_save', 'b_new', 'f_insert'].forEach(function (id) { document.getElementById(id).disabled = m === 'view'; });
+  ['b_add', 'b_connect', 'b_delete', 'b_meta_apply', 'b_import', 'f_save', 'b_new', 'f_insert', 'b_cases'].forEach(function (id) { document.getElementById(id).disabled = m === 'view'; });
   refreshUndoButton();
   connectMode = false;
   clearPendingSource();
@@ -7965,7 +8069,9 @@ document.getElementById('f_save').addEventListener('mousedown', refreshSaveMenu)
 document.getElementById('f_save').addEventListener('change', function (ev) {
   var mode = ev.target.value;
   ev.target.value = '';
-  if (mode) doSave(mode);
+  if (!mode) return;
+  if (mode.indexOf('project:') === 0) { saveToProject(mode.slice(8)); return; }
+  doSave(mode);
 });
 document.addEventListener('keydown', function (ev) {
   if (ev.key === 'Escape' && connectMode) toggleConnect(false);
@@ -8033,6 +8139,188 @@ document.getElementById('f_test').addEventListener('change', function (ev) {
   if (v === 'run') copyCmd(c.run, 'run spec (add --headed to watch; every run repaints this graph pass/fail)');
 });
 
+// ---- import test cases (owner 2026-09-02): ADO .xlsx/.csv → project → pick
+// cases → one draft graph each. The file is stored under the project so the
+// cases skipped today import tomorrow without re-uploading. Served mode only.
+var IC = { project: '', importId: '', cases: [] };
+function icServed() { return /^https?:$/.test(location.protocol) || !!window.PLANNER_FORCE_SERVED; }
+function icShow(step) {
+  ['ic_step1', 'ic_step2', 'ic_step3'].forEach(function (id) { document.getElementById(id).classList.toggle('hide', id !== 'ic_step' + step); });
+}
+function icMsg(id, text, bad) { var el = document.getElementById(id); el.textContent = text || ''; el.style.color = bad ? '#e2604f' : 'var(--muted)'; }
+function icFetch(url, body) {
+  return fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined)
+    .then(function (r) { return r.json().then(function (j) { if (!r.ok || j.ok === false) throw new Error((j && j.error) || 'server refused'); return j; }); });
+}
+function openImportCases() {
+  if (!icServed()) { setStatus('importing test cases needs the dev server — run: npm run planner'); return; }
+  var sel = document.getElementById('ic_project');
+  sel.innerHTML = '';
+  sel.appendChild(new Option('— choose a project —', ''));
+  PROJECTS.forEach(function (p) { sel.appendChild(new Option(p.project + (p.graphs ? ' (' + p.graphs + ' graphs)' : ''), p.project)); });
+  sel.appendChild(new Option('＋ new project…', '__new'));
+  sel.value = currentProject && PROJECTS.some(function (p) { return p.project === currentProject; }) ? currentProject : '';
+  document.getElementById('ic_newproject').classList.toggle('hide', sel.value !== '__new');
+  document.getElementById('ic_file').value = '';
+  icMsg('ic_msg', ''); icMsg('ic_msg2', '');
+  icShow(1);
+  icRefreshPrevious();
+  document.getElementById('p_cases').classList.remove('hide');
+}
+function icRefreshPrevious() {
+  var prev = document.getElementById('ic_previous');
+  prev.innerHTML = '';
+  prev.appendChild(new Option('— upload a new file —', ''));
+  var project = document.getElementById('ic_project').value;
+  document.getElementById('ic_filerow').classList.remove('hide');
+  if (!project || project === '__new' || !window.fetch) return;
+  icFetch('/__imports?project=' + encodeURIComponent(project)).then(function (j) {
+    (j.imports || []).forEach(function (m) {
+      var left = m.cases.filter(function (c) { return !c.graphId; }).length;
+      prev.appendChild(new Option(m.originalName + ' · ' + m.at.slice(0, 16).replace('T', ' ') + ' · ' + m.cases.length + ' cases, ' + left + ' not yet imported', m.id));
+    });
+  }).catch(function () { /* no previous imports is fine */ });
+}
+/** Resolve the project (creating it when asked), then either re-open a stored import or upload the chosen file. */
+function icRead() {
+  var sel = document.getElementById('ic_project');
+  var project = sel.value;
+  var ensure = Promise.resolve(project);
+  if (project === '__new') {
+    var name = document.getElementById('ic_newproject').value.trim();
+    if (!name) { icMsg('ic_msg', 'name the new project first', true); return; }
+    ensure = icFetch('/__projects', { project: name }).then(function (j) {
+      PROJECTS = j.projects || PROJECTS; refreshProjects();
+      return j.project.project;
+    });
+  } else if (!project) { icMsg('ic_msg', 'choose a project (or create one)', true); return; }
+  var prevId = document.getElementById('ic_previous').value;
+  var file = document.getElementById('ic_file').files[0];
+  if (!prevId && !file) { icMsg('ic_msg', 'choose the ADO export file (.xlsx or .csv)', true); return; }
+  icMsg('ic_msg', prevId ? 'opening stored import…' : 'uploading + reading ' + file.name + '…');
+  ensure.then(function (p) {
+    IC.project = p;
+    setProject(p);
+    if (prevId) {
+      return icFetch('/__imports?project=' + encodeURIComponent(p)).then(function (j) {
+        var m = (j.imports || []).filter(function (x) { return x.id === prevId; })[0];
+        if (!m) throw new Error('stored import not found any more');
+        return m;
+      });
+    }
+    return new Promise(function (resolveFile, rejectFile) {
+      var r = new FileReader();
+      r.onerror = function () { rejectFile(new Error('could not read the file')); };
+      r.onload = function () {
+        var b64 = String(r.result).split(',')[1] || '';
+        icFetch('/__imports', { project: p, filename: file.name, contentBase64: b64 }).then(function (j) { resolveFile(j['import']); }, rejectFile);
+      };
+      r.readAsDataURL(file);
+    });
+  }).then(function (manifest) {
+    IC.importId = manifest.id; IC.cases = manifest.cases;
+    icRenderCases(manifest);
+    icShow(2);
+  }).catch(function (e) { icMsg('ic_msg', e.message, true); });
+}
+function icRenderCases(manifest) {
+  var list = document.getElementById('ic_list');
+  list.innerHTML = '';
+  var pending = 0;
+  manifest.cases.forEach(function (c) {
+    var row = document.createElement('label');
+    row.style.cssText = 'display:flex; gap:8px; align-items:center; padding:3px 0; border-bottom:1px solid var(--line);';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.dataset.index = String(c.index);
+    if (c.graphId) { cb.disabled = true; } else { cb.checked = true; pending += 1; }
+    var text = document.createElement('span');
+    text.innerHTML = (c.id ? '<span class="mono" style="color:var(--muted)">' + escHtml(c.id) + '</span> ' : '') + escHtml(c.title) +
+      ' <span style="color:var(--muted)">· ' + c.steps + ' step' + (c.steps === 1 ? '' : 's') + '</span>' +
+      (c.graphId ? ' <span style="color:#7dcf85">→ ' + escHtml(c.graphId) + ' (imported)</span>' : '');
+    row.appendChild(cb); row.appendChild(text);
+    list.appendChild(row);
+  });
+  document.getElementById('ic_summary').textContent = manifest.originalName + ' — ' + manifest.cases.length + ' test case' + (manifest.cases.length === 1 ? '' : 's') + ', ' + pending + ' to import into ' + IC.project;
+}
+function icChecked() {
+  return Array.prototype.slice.call(document.querySelectorAll('#ic_list input[type=checkbox]'))
+    .filter(function (cb) { return cb.checked && !cb.disabled; })
+    .map(function (cb) { return parseInt(cb.dataset.index, 10); });
+}
+function icApply() {
+  var indexes = icChecked();
+  if (!indexes.length) { icMsg('ic_msg2', 'tick at least one test case', true); return; }
+  icMsg('ic_msg2', 'creating ' + indexes.length + ' graph' + (indexes.length === 1 ? '' : 's') + '…');
+  icFetch('/__imports/apply', { project: IC.project, importId: IC.importId, indexes: indexes }).then(function (j) {
+    var res = j.results || [];
+    // The dev server rebuilds the library and live-reloads this tab; leave a
+    // note so the reload lands on the first new graph with the list intact.
+    try { sessionStorage.setItem('planner.lastImport', JSON.stringify({ project: IC.project, results: res.map(function (r) { return { graphId: r.graphId, title: r.title }; }) })); } catch (e) { /* storage may be blocked */ }
+    icRenderResults(res);
+    icShow(3);
+    setStatus('imported ' + res.length + ' test case' + (res.length === 1 ? '' : 's') + ' into projects/' + IC.project + '/graphs/ — the library refreshes when the rebuild lands');
+  }).catch(function (e) { icMsg('ic_msg2', e.message, true); });
+}
+function icRenderResults(res) {
+  var out = document.getElementById('ic_results');
+  out.innerHTML = '';
+  res.forEach(function (r) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex; gap:8px; align-items:center; padding:3px 0; border-bottom:1px solid var(--line);';
+    row.innerHTML = '<span class="mono">' + escHtml(IC.project + '/' + r.graphId) + '</span><span style="color:var(--muted)">' + escHtml(r.title) + ' · ' + r.nodes + ' nodes · ' + r.edges + ' edges · ' + r.flags.length + ' flag' + (r.flags.length === 1 ? '' : 's') + '</span>';
+    var b = document.createElement('button'); b.textContent = 'open'; b.style.cssText = 'margin-left:auto; padding:1px 7px;';
+    b.dataset.ref = IC.project + '/' + r.graphId;
+    b.addEventListener('click', function () { icOpen(b.dataset.ref); });
+    row.appendChild(b);
+    out.appendChild(row);
+  });
+}
+function icOpen(ref) {
+  var lib = window.GRAPH_LIBRARY || {};
+  if (lib[ref]) { document.getElementById('p_cases').classList.add('hide'); openFromLibrary('lib:' + ref); return; }
+  setStatus('"' + ref + '" is not in the library yet — the dev server is rebuilding; this tab reloads when it lands');
+}
+document.getElementById('b_cases').addEventListener('click', openImportCases);
+document.getElementById('ic_close').addEventListener('click', function () { document.getElementById('p_cases').classList.add('hide'); });
+document.getElementById('ic_done').addEventListener('click', function () { document.getElementById('p_cases').classList.add('hide'); });
+document.getElementById('ic_more').addEventListener('click', openImportCases);
+document.getElementById('ic_back').addEventListener('click', function () { icShow(1); });
+document.getElementById('ic_read').addEventListener('click', icRead);
+document.getElementById('ic_apply').addEventListener('click', icApply);
+document.getElementById('ic_all').addEventListener('click', function () { document.querySelectorAll('#ic_list input[type=checkbox]').forEach(function (cb) { if (!cb.disabled) cb.checked = true; }); });
+document.getElementById('ic_none').addEventListener('click', function () { document.querySelectorAll('#ic_list input[type=checkbox]').forEach(function (cb) { cb.checked = false; }); });
+document.getElementById('ic_project').addEventListener('change', function (ev) {
+  document.getElementById('ic_newproject').classList.toggle('hide', ev.target.value !== '__new');
+  icRefreshPrevious();
+});
+document.getElementById('ic_previous').addEventListener('change', function (ev) {
+  document.getElementById('ic_filerow').classList.toggle('hide', !!ev.target.value);
+});
+// After a save-triggered reload: reopen the graph that was just saved.
+(function () {
+  var ref = null;
+  try { ref = sessionStorage.getItem('planner.reopen'); if (ref) sessionStorage.removeItem('planner.reopen'); } catch (e) { /* ignore */ }
+  if (!ref || !(window.GRAPH_LIBRARY || {})[ref.slice(4)]) return;
+  window.setTimeout(function () { openFromLibrary(ref); setStatus('reopened ' + ref.slice(4) + ' from the project'); }, 0);
+})();
+// After the post-import reload: land on the first new graph, list the rest.
+(function () {
+  var raw = null;
+  try { raw = sessionStorage.getItem('planner.lastImport'); if (raw) sessionStorage.removeItem('planner.lastImport'); } catch (e) { /* ignore */ }
+  if (!raw) return;
+  try {
+    var last = JSON.parse(raw);
+    var lib = window.GRAPH_LIBRARY || {};
+    var refs = (last.results || []).map(function (r) { return last.project + '/' + r.graphId; }).filter(function (ref) { return !!lib[ref]; });
+    if (!refs.length) return;
+    window.setTimeout(function () {
+      openFromLibrary('lib:' + refs[0]);
+      setProject(last.project);
+      setStatus('imported ' + refs.length + ' graph' + (refs.length === 1 ? '' : 's') + ': ' + refs.join(', ') + ' — opened the first; the rest are in open graph… under ' + last.project);
+    }, 0);
+  } catch (e) { /* ignore */ }
+})();
+
 window.planner = {
   load: loadGraph, export: exportGraph, get: function () { return G; },
   addNode: addNode, connect: connect,
@@ -8057,6 +8345,9 @@ window.planner = {
   },
   setProject: setProject,
   insertGraph: insertGraph,
+  importCases: { open: openImportCases, read: icRead, apply: icApply, checked: icChecked, state: function () { return IC; } },
+  saveToProject: saveToProject,
+  graphProject: graphProject,
   runOrder: function () {
     var C = window.ProcessGraphCompose;
     return C && C.runOrder ? C.runOrder(G) : { steps: [] };

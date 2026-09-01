@@ -35,30 +35,83 @@ export interface AdoImportResult {
   flags: string[];
 }
 
-// ---------- parsing: CSV export ----------
+// ---------- parsing: CSV / Excel rows ----------
 
 export function parseAdoCsv(text: string): AdoCase[] {
-  const rows = parseCsv(text);
-  const headerRow = rows[0];
-  if (!headerRow) return [];
-  const header = headerRow.map((h) => h.trim().toLowerCase());
-  const col = (name: string) => header.findIndex((h) => h === name || h.replace(/\s+/g, '') === name.replace(/\s+/g, ''));
+  return casesFromRows(parseCsv(text));
+}
+
+/**
+ * Cases from a grid of cells — the ONE parser behind CSV and Excel. Two
+ * ADO export layouts are recognised by their header row:
+ *  - QUERY export: one row per test case, a `Steps` column holding the
+ *    steps XML (or plain numbered lines);
+ *  - TEST PLANS "Export to Excel": one row per STEP — `Step Action` /
+ *    `Step Expected` (or `Action` / `Expected Result`) columns; the case's
+ *    Title (and ID) sit on its first row and later rows leave them blank,
+ *    or repeat them — both are grouped by ID when present, else by title.
+ * The header row is found by name anywhere in the first 20 rows (ADO
+ * exports often carry a title/summary row above it), so leading noise is
+ * skipped rather than fatal.
+ */
+export function casesFromRows(rows: string[][]): AdoCase[] {
+  const headerAt = rows.slice(0, 20).findIndex((r) => r.some((c) => /^\s*title\s*$/i.test(c)));
+  const headerRow = headerAt >= 0 ? rows[headerAt]! : undefined;
+  if (!headerRow) {
+    if (!rows.length) return [];
+    throw new Error(`ADO import: no 'Title' column — got: ${(rows[0] ?? []).join(', ')}`);
+  }
+  const header = headerRow.map((h) => h.trim().toLowerCase().replace(/\s+/g, ' '));
+  const col = (...names: string[]) => {
+    for (const name of names) {
+      const i = header.findIndex((h) => h === name || h.replace(/\s+/g, '') === name.replace(/\s+/g, ''));
+      if (i >= 0) return i;
+    }
+    return -1;
+  };
   const titleIdx = col('title');
-  if (titleIdx < 0) throw new Error(`ADO csv: no 'Title' column — got: ${headerRow.join(', ')}`);
-  const idIdx = col('id');
-  const stepsIdx = col('steps');
-  const typeIdx = col('work item type');
+  const idIdx = col('id', 'work item id', 'test case id');
+  const stepsIdx = col('steps', 'test steps');
+  const typeIdx = col('work item type', 'type');
+  const actionIdx = col('step action', 'action', 'test step action', 'step');
+  const expectedIdx = col('step expected', 'expected result', 'expected', 'step expected result');
+  const stepNoIdx = col('step number', 'test step', 'step #', 'step no');
+  const perRow = actionIdx >= 0 && (stepsIdx < 0 || expectedIdx >= 0);
 
   const cases: AdoCase[] = [];
-  for (const row of rows.slice(1)) {
-    const title = (row[titleIdx] ?? '').trim();
-    if (!title) continue;
-    if (typeIdx >= 0 && row[typeIdx] && !/test\s*case/i.test(row[typeIdx])) continue;
-    cases.push({
-      ...(idIdx >= 0 && row[idIdx]?.trim() ? { id: row[idIdx].trim() } : {}),
-      title,
-      steps: stepsIdx >= 0 ? parseStepsField(row[stepsIdx] ?? '') : [],
-    });
+  let current: AdoCase | undefined;
+  let currentKey = '';
+  for (const row of rows.slice(headerAt + 1)) {
+    const cell = (i: number) => (i >= 0 ? (row[i] ?? '').trim() : '');
+    const title = cell(titleIdx);
+    const id = cell(idIdx);
+    const type = cell(typeIdx);
+    if (type && !/test\s*case/i.test(type) && (title || !perRow)) continue; // shared steps, requirements…
+
+    if (!perRow) {
+      if (!title) continue;
+      cases.push({ ...(id ? { id } : {}), title, steps: stepsIdx >= 0 ? parseStepsField(cell(stepsIdx)) : [] });
+      continue;
+    }
+
+    // Step-per-row: a title (or a new id) opens a case; blank title rows
+    // belong to the case above.
+    const key = id || title;
+    if (title && (!current || key !== currentKey)) {
+      current = { ...(id ? { id } : {}), title, steps: [] };
+      currentKey = key;
+      cases.push(current);
+    }
+    if (!current) continue;
+    const action = cell(actionIdx);
+    const expected = cell(expectedIdx);
+    // The case's own row may carry step 1 (Test Plans export) or nothing.
+    if (action) current.steps.push({ action: cleanAdoHtml(action), ...(expected ? { expected: cleanAdoHtml(expected) } : {}) });
+    else if (expected && current.steps.length) {
+      const last = current.steps[current.steps.length - 1]!;
+      last.expected = [last.expected, cleanAdoHtml(expected)].filter(Boolean).join(' ');
+    }
+    void stepNoIdx; // ordering is row order; the step number column is informational
   }
   return cases;
 }

@@ -174,13 +174,13 @@ export interface GraphValidation {
 
 const ID_RE = /^[a-z][a-z0-9_]*$/;
 const ENV_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
-const NODE_TYPES: NodeType[] = ['start', 'action', 'decision', 'checkpoint', 'snapshot', 'end', 'session', 'screen', 'data', 'db', 'logger', 'api'];
-const EDGE_TYPES: EdgeType[] = ['next', 'navigates', 'handoff', 'deny', 'login_as', 'does', 'requires', 'touches', 'asserts', 'denied'];
-const SYSTEM_KINDS: SystemKind[] = ['salesforce', 'siebel', 'web', 'api', 'other'];
-const STATUSES: PlanStatus[] = ['planned', 'captured'];
-const DATA_IOS: DataIo[] = ['produces', 'consumes', 'updates'];
-const DATA_ORIGINS: DataOrigin[] = ['step', 'seed', 'external'];
-const EXPECTATION_KINDS: ExpectationKind[] = [
+export const NODE_TYPES: NodeType[] = ['start', 'action', 'decision', 'checkpoint', 'snapshot', 'end', 'session', 'screen', 'data', 'db', 'logger', 'api'];
+export const EDGE_TYPES: EdgeType[] = ['next', 'navigates', 'handoff', 'deny', 'login_as', 'does', 'requires', 'touches', 'asserts', 'denied'];
+export const SYSTEM_KINDS: SystemKind[] = ['salesforce', 'siebel', 'web', 'api', 'other'];
+export const STATUSES: PlanStatus[] = ['planned', 'captured'];
+export const DATA_IOS: DataIo[] = ['produces', 'consumes', 'updates'];
+export const DATA_ORIGINS: DataOrigin[] = ['step', 'seed', 'external'];
+export const EXPECTATION_KINDS: ExpectationKind[] = [
   'ui.visible', 'ui.text', 'ui.toast', 'ui.url', 'api.record_exists', 'api.field_equals',
   'db.query', 'log.traffic',
 ];

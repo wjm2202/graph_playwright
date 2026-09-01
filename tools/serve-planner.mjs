@@ -12,11 +12,50 @@
  * single-file planner stays clean for file:// double-clicks and the artifact.
  */
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync, renameSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, watch, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { listProjects, scaffoldProject } from './scaffold-project.mjs';
+
+/**
+ * The TypeScript import store, transpiled by build-planner into
+ * tools/.planner-build/ (see buildServerBridge). Required lazily and with
+ * the cache dropped, so a rebuild is picked up without restarting.
+ */
+const requireCjs = createRequire(import.meta.url);
+function importStore() {
+  const file = join(toolsDir, '.planner-build', 'graph', 'adoImports.js');
+  if (!existsSync(file)) throw new Error('import store not built — run npm run build:planner (the dev server does this on start)');
+  for (const key of Object.keys(requireCjs.cache)) if (key.startsWith(join(toolsDir, '.planner-build'))) delete requireCjs.cache[key];
+  return requireCjs(file);
+}
+/** The transpiled validator — the SAME code the planner and the suite run. */
+function importSchema() {
+  const file = join(toolsDir, '.planner-build', 'graph', 'schema.js');
+  if (!existsSync(file)) throw new Error('validator bridge not built — run npm run build:planner (the dev server does this on start)');
+  return requireCjs(file);
+}
+/** Persona ids from the data root's personas.json (draft-graph role binding hints). */
+function knownPersonas() {
+  try {
+    const doc = JSON.parse(readFileSync(join(dataRoot, 'personas.json'), 'utf8'));
+    return Object.keys(doc.personas ?? {});
+  } catch { return []; }
+}
+function readJson(req, limit) {
+  return new Promise((resolveBody, rejectBody) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; if (raw.length > limit) { req.destroy(); rejectBody(new Error(`body over ${limit} bytes`)); } });
+    req.on('end', () => { try { resolveBody(JSON.parse(raw || '{}')); } catch (e) { rejectBody(new Error(`bad json: ${e.message}`)); } });
+    req.on('error', rejectBody);
+  });
+}
+function sendJson(res, code, body) {
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(body));
+}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const toolsDir = join(root, 'tools');
@@ -55,6 +94,9 @@ if (isMain) {
   let queued = false;
 
   const rebuild = (reason) => {
+    // Tests run the server on a sandbox root while OTHER tests load the
+    // committed planner file — a rebuild mid-read would tear it. Opt out.
+    if (process.env.PLANNER_NO_REBUILD) { console.log(`· rebuild skipped (${reason}) — PLANNER_NO_REBUILD`); return; }
     if (building) { queued = true; return; }
     building = true;
     const t0 = Date.now();
@@ -221,6 +263,77 @@ if (isMain) {
           ? { ok: true, project: out.manifest, projects: listProjects(dataRoot) }
           : { ok: false, error: out.error }));
       });
+      return;
+    }
+    // ---- test-case imports (STUDY: "import test cases" — owner 2026-09-02) ----
+    // GET  /__imports?project=p            → { imports: manifest[] }
+    // POST /__imports  {project, filename, contentBase64}
+    //                                      → { ok, import: manifest, skippedSheets }
+    // POST /__imports/apply {project, importId, indexes[]}
+    //                                      → { ok, results[], import: manifest }
+    if (url.pathname === '/__imports' && req.method === 'GET') {
+      try {
+        const project = String(url.searchParams.get('project') ?? '');
+        sendJson(res, 200, { ok: true, imports: importStore().listImports(dataRoot, project) });
+      } catch (e) { sendJson(res, 400, { ok: false, error: e.message }); }
+      return;
+    }
+    if (url.pathname === '/__imports' && req.method === 'POST') {
+      readJson(req, 25_000_000).then((body) => {
+        try {
+          const data = Buffer.from(String(body.contentBase64 ?? ''), 'base64');
+          if (!data.length) throw new Error('empty file');
+          const { manifest, skippedSheets } = importStore().storeImport(dataRoot, String(body.project ?? ''), String(body.filename ?? 'import.csv'), data);
+          sendJson(res, 200, { ok: true, import: manifest, skippedSheets });
+        } catch (e) { sendJson(res, 400, { ok: false, error: e.message }); }
+      }).catch((e) => sendJson(res, 400, { ok: false, error: e.message }));
+      return;
+    }
+    if (url.pathname === '/__imports/apply' && req.method === 'POST') {
+      readJson(req, 100_000).then((body) => {
+        try {
+          const indexes = Array.isArray(body.indexes) ? body.indexes.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n >= 0) : [];
+          if (!indexes.length) throw new Error('pick at least one test case');
+          const { manifest, results } = importStore().applyImport(
+            dataRoot, String(body.project ?? ''), String(body.importId ?? ''), indexes, { knownPersonas: knownPersonas() },
+          );
+          rebuild(`imported ${results.length} test case(s) into '${body.project}'`); // the library regroups
+          sendJson(res, 200, { ok: true, results, import: manifest });
+        } catch (e) { sendJson(res, 400, { ok: false, error: e.message }); }
+      }).catch((e) => sendJson(res, 400, { ok: false, error: e.message }));
+      return;
+    }
+    // ---- save a graph INTO a project (owner 2026-09-02: "set save up so it
+    // does this for us"). POST /__graphs {project, graph, overwrite?}
+    // → 200 {ok, ref, file} · 409 {exists:true} when the file is there and
+    // overwrite is not set · 400 on an invalid graph / unknown project.
+    if (url.pathname === '/__graphs' && req.method === 'POST') {
+      readJson(req, 5_000_000).then((body) => {
+        try {
+          const project = String(body.project ?? '').trim();
+          if (!/^[a-z][a-z0-9_-]*$/.test(project)) throw new Error(`project '${project}' must be lower-case letters, digits, _ or -`);
+          const projectDir = join(dataRoot, 'projects', project);
+          if (!existsSync(join(projectDir, 'project.json'))) throw new Error(`project '${project}' does not exist — create it first`);
+          const graph = body.graph;
+          if (!graph || typeof graph !== 'object') throw new Error('graph object required');
+          const { validateGraph } = importSchema();
+          const v = validateGraph(graph);
+          if (!v.ok) throw new Error(`graph invalid: ${v.errors.join(' | ')}`);
+          const id = String(graph.id);
+          const dir = join(projectDir, 'graphs');
+          const file = join(dir, `${id}.graph.json`);
+          if (existsSync(file) && !body.overwrite) {
+            sendJson(res, 409, { ok: false, exists: true, error: `'${project}/${id}' already exists — overwrite?` });
+            return;
+          }
+          mkdirSync(dir, { recursive: true });
+          const tmp = `${file}.${process.pid}.tmp`;
+          writeFileSync(tmp, JSON.stringify(graph, null, 2) + '\n');
+          renameSync(tmp, file);
+          rebuild(`saved '${project}/${id}'`); // the library picks it up
+          sendJson(res, 200, { ok: true, ref: `${project}/${id}`, file: `projects/${project}/graphs/${id}.graph.json`, overwritten: !!body.overwrite });
+        } catch (e) { sendJson(res, 400, { ok: false, error: e.message }); }
+      }).catch((e) => sendJson(res, 400, { ok: false, error: e.message }));
       return;
     }
     if (url.pathname === '/__envstatus') {

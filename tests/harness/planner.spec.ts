@@ -378,7 +378,9 @@ test('save menu: new id saves; existing id offers overwrite; save-as renames', a
 
   // New id → the menu's first action is a plain save.
   await page.locator('#f_save').dispatchEvent('mousedown');
-  await expect(page.locator('#f_save option[value="save"]')).toHaveText('save "my_local_process"');
+  // file:// mode: no project targets, browser saves say so in their label.
+  await expect(page.locator('#f_save option[value^="project:"]')).toHaveCount(0);
+  await expect(page.locator('#f_save option[value="save"]')).toHaveText('save "my_local_process" in this browser');
   await page.locator('#f_save').selectOption('save');
   await expect(page.locator('#status')).toContainText('saved "my_local_process" in this browser');
   let lib = await page.evaluate(() => window.planner.library());
@@ -389,7 +391,7 @@ test('save menu: new id saves; existing id offers overwrite; save-as renames', a
   await page.locator('#nf_label').fill('Submit expense OVERWRITTEN');
   await page.locator('#nf_label').dispatchEvent('change');
   await page.locator('#f_save').dispatchEvent('mousedown');
-  await expect(page.locator('#f_save option[value="overwrite"]')).toHaveText('overwrite "my_local_process"');
+  await expect(page.locator('#f_save option[value="overwrite"]')).toHaveText('overwrite "my_local_process" in this browser');
   await page.locator('#f_save').selectOption('overwrite');
   await expect(page.locator('#status')).toContainText('overwrote "my_local_process" in this browser');
   const storedLabel = await page.evaluate(() => {

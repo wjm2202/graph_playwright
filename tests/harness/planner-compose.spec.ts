@@ -85,7 +85,7 @@ test('the island arrives laid out to the RIGHT of the host, selected as a group 
     cy: { $id(id: string): { position(): { x: number; y: number } } };
   };
   // Host gets real positions first (a laid-out graph the human has arranged).
-  await page.evaluate(() => (window as unknown as W).planner.layout());
+  await page.evaluate(() => { (window as unknown as W).planner.layout(); });
   const hostBefore = await page.evaluate(() => {
     const w = window as unknown as W;
     const r = (p: { x: number; y: number }) => ({ x: Math.round(p.x), y: Math.round(p.y) });

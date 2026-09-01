@@ -40,6 +40,117 @@ GRAPH_DOCTOR=all npm run doctor
 
 ---
 
+## Creating a graph
+
+Two ways in. Both end at the same place: a `.graph.json` in a project, a
+**check ✓** badge in the planner, and a capture queue. The rules every graph
+must satisfy are in [docs/GRAPH-SPEC.md](docs/GRAPH-SPEC.md); an AI can
+follow [skills/graph-author/SKILL.md](skills/graph-author/SKILL.md) to do
+the completing with you.
+
+Before either path, once:
+
+```bash
+npm run planner                     # http://127.0.0.1:8765 — auto-rebuild, live reload
+```
+
+and make sure the roles you will use exist in `personas.json` (a graph binds
+*role aliases* to persona ids — it never invents accounts).
+
+### Path A — draw it by hand
+
+1. **Project.** In the toolbar, PROJECT → `＋ new project…` and name it
+   (lower-case, e.g. `crm`). This creates `projects/crm/` with `graphs/`,
+   `imports/`, `steps/`, `specs/`… A graph belongs to a project.
+2. **New graph.** FILE → **new**. You get `start` and `end` waiting. Click
+   **graph** and give it an id (`create_customer`) and a title; add the
+   systems it touches (`sf` is there; add `siebel` with *one session max* if
+   the flow crosses into Siebel).
+3. **Sessions — who, where.** EDIT → **add ▾ → session** once per role ×
+   system: e.g. `Salesforce · admin`, `Salesforce · approver`. On each
+   session's card pick the **system**, the **role** (an alias) and bind the
+   alias to a **persona**; set the **landing URL** (the list or record page the
+   role starts on — this enables pre-navigation so captures skip login).
+4. **Wire the login chain.** Drag from the edge of `start` to the first
+   session, then from each session to the next: these are `login_as` edges
+   (select one to set the auth method if it differs from the persona's). One
+   linear chain — no branches, no cycles; every session must be on it.
+5. **Records — what exists.** **add ▾ → data** for each business record the
+   flow creates or touches (`Customer record`, SObject `Account`). One data
+   node per record, even if several roles touch it — that node is the join.
+6. **Steps — what each role does.** Drag from a session to a data node (or a
+   screen/checkpoint): a `does` edge. On its card: the **label** ("create
+   customer"), the **step catalog** name (`cust.create`, `<noun>.<verb>`),
+   and — for edges onto data — the **data port**: *produces* (this step
+   creates the record), *consumes* (reads it), *updates*. The port is how the
+   record's id reaches later steps, including steps in a graph you insert
+   later.
+7. **What must be true.** On each data/checkpoint node's card, add checks:
+   `api.record_exists` / `api.field_equals` (SObject, `Field=Value`),
+   `ui.toast` / `ui.text` / `ui.url`, or `db.query` / `log.traffic` against a
+   db/logger node. Use **after** to tie a check to the step that causes it;
+   give backend checks on async integrations a polling budget.
+8. **What must be refused.** For any multi-role flow, drag from a session to
+   the record and set the relation to `denied` with the capability
+   (`cust.delete`) — the security half of the test.
+9. **Check.** Click **check** — MUST FIX (validator) and TO FINISH (gap
+   questions) grouped by element; each row jumps to the culprit. Iterate
+   until the badge is **check ✓** with only *not captured* left. `⌘Z` undoes
+   any delete/insert/connect.
+10. **Save into the project.** FILE → **save ▾ → save to project "crm"**.
+    The dev server validates and writes
+    `projects/crm/graphs/create_customer.graph.json` (asks before
+    overwriting), the library refreshes and the graph reopens from the
+    project. *save … in this browser* is the offline fallback; **download**
+    gives you the file to place by hand.
+11. **Capture and run.** Double-click each session to copy its record
+    command (`RECORD_PERSONA=… RECORD_JOURNEY=… npm run record`), record it
+    once as that human; then `GRAPH_SPEC=crm/create_customer npm run
+    graph:spec` writes the standing Playwright spec and every run repaints
+    the graph.
+
+Extending a flow: FILE → **insert ▾** brings another graph in as a
+selected island parked to the right; drag it where you want, draw one
+`login_as` into it, relink `end`. Shared data nodes merge, and the status
+line names which session the island must follow so its records exist first.
+
+### Path B — import test cases from Azure DevOps (Excel)
+
+1. **Export from ADO.** Either
+   *Test Plans → your suite → ⋯ → Export test cases → Excel* (one row per
+   step: `ID · Work Item Type · Title · Test Step · Step Action · Step
+   Expected`), or *Queries → your query → Export to CSV* with the **Steps**
+   column included. Both layouts are recognised; keep the **Title** column.
+   Write the steps ADO-style — `As <role>, <action>` with an expected result
+   — and the importer gets the roles, records and checks right.
+2. **Planner → import cases.** FILE → **import cases** (dev server only).
+3. **Project.** Pick an existing project or `＋ new project…` and name it.
+   The file will be stored under that project.
+4. **File.** Choose the `.xlsx` / `.csv`, click **read test cases**. The file
+   is copied verbatim to `projects/<p>/imports/<stamp>-<name>.xlsx` next to
+   a manifest, then parsed.
+5. **Pick.** Every test case is listed with its step count, ticked by
+   default. Untick what you don't want now — it stays in the stored import
+   for later (*previous imports in this project* re-opens it, no re-upload).
+6. **Import selected.** One draft graph per case lands in
+   `projects/<p>/graphs/<slug-of-title>.graph.json`; the results list has an
+   **open** button for each and the planner lands on the first after the
+   rebuild.
+7. **Understand what you got.** `As admin, …` → a session bound to alias
+   `admin`; each step → a `does` edge named `<object>.<verb>`; nouns the
+   expected result says were created/saved → data nodes; the verb → a *draft*
+   port; the expected text → a *draft* check. Every guess is flagged.
+8. **Complete each graph.** Open it, click **check**, and answer the TO
+   FINISH questions (bind roles, confirm or drop each `draft?` check, confirm
+   ports, session policy, URLs). Or from a terminal:
+   `GRILLME=<p>/<id> npm run grillme` lists the same questions; answers go
+   back as a JSON ops file with `GRILLME_APPLY=`. Point your own AI at
+   `skills/graph-author/SKILL.md` and it will run this loop with you.
+9. **Capture and run** — as in Path A step 11.
+
+CLI equivalent of steps 2–6: `ADO_FILE=export.xlsx npm run ado:import`
+(writes to `journeys/graphs/`).
+
 ## Features
 
 ### The graph model
@@ -82,6 +193,10 @@ auto-rebuild and live reload.
 - **Readiness cockpit** in the status bar — `captured n/m · bound n/m ·
   checks n (k drafts)`; captured sessions wear a `✓rec` chip; draft checks
   carry a confirm-once button.
+- **Save straight into the project.** Served, *save ▾* writes
+  `projects/<p>/graphs/<id>.graph.json` through the dev server — validated
+  first, atomic, overwrite only on confirmation — and the library refreshes.
+  Browser-local saves remain for offline work.
 - **Editable env wiring.** Rename a credential's env *variable name* right on
   the card (`SF_SALES_USERNAME` → `SFDC_UAT_USERNAME`) — the dev server
   validates it and atomically rewrites `personas.json`. Your `.env` is never
@@ -92,13 +207,26 @@ auto-rebuild and live reload.
 
 ### Getting a graph without drawing one
 
-- **`npm run ado:import`** — an Azure DevOps test case (CSV file or pasted
-  text) becomes a draft graph: roles → sessions, steps → `does` edges,
-  expected results → draft oracles. Every inference is flagged; it never
-  clobbers an existing graph.
+- **import cases** (planner button, dev server) — an Azure DevOps export
+  (`.xlsx` from Test Plans "Export to Excel", or `.csv`) goes into a project
+  you pick or create: the file is stored verbatim under
+  `projects/<p>/imports/` with a manifest, you tick the test cases, and each
+  becomes a draft graph in `projects/<p>/graphs/`. Cases you skip stay in the
+  stored import for next time. The AI review of the drafts is *your* step —
+  point any model at the graph files.
+- **`npm run ado:import`** — the same mapping from the CLI
+  (`ADO_FILE=<xlsx|csv>` or pasted text): roles → sessions, steps → `does`
+  edges (verb → data port), expected results → draft oracles. Every
+  inference is flagged; it never clobbers an existing graph.
 - **Capture-first** — `PIPELINE_GRAPH=1 npm run pipeline` turns one recording
   into a compact session→does→data graph with post-save redirects folded in,
   SObjects inferred, and draft oracles marked `draft?`.
+- **The graph spec + an AI-facing skill** — `docs/GRAPH-SPEC.md` is the
+  normative contract (types, rules, ports, every gap question and its
+  write-back op, a complete minimal graph, the "done" checklist), drift-tested
+  against the code. `skills/graph-author/SKILL.md` hands it to any AI agent
+  together with the import → draft → grill → capture workflow, so an
+  external model can complete graphs correctly without bypassing the validator.
 - **`npm run grillme`** — the gap engine reads a draft graph and emits every
   hole as an answerable multiple-choice question (12 gap kinds), with 11
   validated write-back operations that apply your answers. Runs as a CLI or
@@ -217,7 +345,7 @@ Honest about where the line is:
 | `npm run graph:spec` | `GRAPH_SPEC=<id>` — emit a standing spec that runs + repaints the graph |
 | `npm run graph:compose` | `COMPOSE=<host> COMPOSE_WITH=<sub>` — extend one graph with another (sessions merge, chain splices; also planner insert ▾) |
 | `npm run simulate` | `SIMULATE=<id>` — no-org dry run: fabricated green report through the real merge-back (`sim_` runId, throwing step placeholders) |
-| `npm run ado:import` | `ADO_FILE=<csv>` or `ADO_PASTE=<text>` — Azure DevOps test case → draft graph |
+| `npm run ado:import` | `ADO_FILE=<xlsx|csv>` or `ADO_PASTE=<text>` — Azure DevOps test cases → draft graphs (the planner's **import cases** button does this into a project) |
 | `npm run grillme` | `GRILLME=<id>` — every gap in a graph as answerable questions |
 | `npm run sweep` | find (and with `SWEEP_DELETE=1`, remove) `E2E-` tagged test data |
 | `npm run labour` | scaffold→first-green wall clock per process |

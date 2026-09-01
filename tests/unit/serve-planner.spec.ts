@@ -37,7 +37,7 @@ test.beforeAll(async () => {
     Object.entries(process.env).filter(([k]) => !/^(SF_|SFDC_|SIEBEL_)/.test(k)),
   );
   child = spawn('node', [path.resolve('tools/serve-planner.mjs')], {
-    env: { ...cleanEnv, PLANNER_ROOT: tmp, PLANNER_PORT: '0' },
+    env: { ...cleanEnv, PLANNER_ROOT: tmp, PLANNER_PORT: '0', PLANNER_NO_REBUILD: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   base = await new Promise<string>((resolve, reject) => {
@@ -156,4 +156,107 @@ test('refusals: pasted secrets, empty username, unknown/guest personas — file 
   expect((await post({ personaId: 'guest', usernameEnv: 'X_USER' })).status).toBe(400);
 
   expect(JSON.stringify(personas())).toBe(before);
+});
+
+test('imports: POST stores + parses into the project, GET lists, apply writes graphs and refuses repeats', async () => {
+  // The project from the test above ('web_shop') exists in the sandbox root;
+  // create a dedicated one so ordering between tests never matters.
+  const mk = await fetch(`${base}/__projects`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: 'crm_imports', team: 'CRM' }),
+  });
+  expect(mk.status).toBe(200);
+
+  const csv =
+    'ID,Work Item Type,Title,Steps\n' +
+    '11,Test Case,Create customer,"1. As admin, create a new customer | Customer record is created"\n' +
+    '12,Test Case,Add address,"1. Add a new address to existing customer | Address saved"\n';
+  const up = await fetch(`${base}/__imports`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: 'crm_imports', filename: 'plan.csv', contentBase64: Buffer.from(csv).toString('base64') }),
+  });
+  expect(up.status).toBe(200);
+  const stored = await up.json();
+  expect(stored.ok).toBe(true);
+  expect(stored.import.cases.map((c: { title: string }) => c.title)).toEqual(['Create customer', 'Add address']);
+  expect(fs.existsSync(path.join(tmp, 'projects', 'crm_imports', 'imports', stored.import.file))).toBe(true);
+
+  const list = await (await fetch(`${base}/__imports?project=crm_imports`)).json();
+  expect(list.imports.map((m: { id: string }) => m.id)).toEqual([stored.import.id]);
+
+  const apply = await fetch(`${base}/__imports/apply`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: 'crm_imports', importId: stored.import.id, indexes: [1] }),
+  });
+  expect(apply.status).toBe(200);
+  const applied = await apply.json();
+  expect(applied.results.map((r: { graphId: string }) => r.graphId)).toEqual(['add_address']);
+  expect(fs.existsSync(path.join(tmp, 'projects', 'crm_imports', 'graphs', 'add_address.graph.json'))).toBe(true);
+  expect(applied.import.cases[1].graphId).toBe('add_address');
+  expect(applied.import.cases[0].graphId).toBeUndefined();
+
+  const again = await fetch(`${base}/__imports/apply`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: 'crm_imports', importId: stored.import.id, indexes: [1] }),
+  });
+  expect(again.status).toBe(400);
+  expect((await again.json()).error).toContain('already imported');
+
+  const nothing = await fetch(`${base}/__imports/apply`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: 'crm_imports', importId: stored.import.id, indexes: [] }),
+  });
+  expect((await nothing.json()).error).toContain('pick at least one');
+
+  const badProject = await fetch(`${base}/__imports`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: 'ghost', filename: 'plan.csv', contentBase64: Buffer.from(csv).toString('base64') }),
+  });
+  expect(badProject.status).toBe(400);
+  expect((await badProject.json()).error).toContain("project 'ghost' does not exist");
+});
+
+test('graphs: POST saves a valid graph into the project (atomic), 409s on an existing file until overwrite, 400s otherwise', async () => {
+  await fetch(`${base}/__projects`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: 'saves' }),
+  });
+  const graph = {
+    schema: 'process-graph/2', id: 'tiny', systems: { sf: { label: 'Salesforce', kind: 'salesforce' } }, actors: { a: 'admin' },
+    nodes: [
+      { id: 'start', type: 'start', label: '' },
+      { id: 'sess', type: 'session', label: 'SF · a', system: 'sf', actor: 'a' },
+      { id: 'rec', type: 'data', label: 'Record', sobject: 'Account' },
+      { id: 'end', type: 'end', label: '' },
+    ],
+    edges: [
+      { id: 'l', from: 'start', to: 'sess', type: 'login_as' },
+      { id: 'd', from: 'sess', to: 'rec', type: 'does', data: { catalog: 'rec.create', io: 'produces' } },
+      { id: 'n', from: 'rec', to: 'end', type: 'next' },
+    ],
+  };
+  const post = (body: unknown) => fetch(`${base}/__graphs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  const first = await post({ project: 'saves', graph });
+  expect(first.status).toBe(200);
+  expect(await first.json()).toEqual({ ok: true, ref: 'saves/tiny', file: 'projects/saves/graphs/tiny.graph.json', overwritten: false });
+  const file = path.join(tmp, 'projects', 'saves', 'graphs', 'tiny.graph.json');
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual(graph);
+  expect(fs.readdirSync(path.dirname(file)).filter((f) => f.endsWith('.tmp'))).toEqual([]); // atomic: no temp left
+
+  const again = await post({ project: 'saves', graph: { ...graph, title: 'v2' } });
+  expect(again.status).toBe(409);
+  expect(await again.json()).toMatchObject({ ok: false, exists: true });
+  expect(JSON.parse(fs.readFileSync(file, 'utf8')).title).toBeUndefined(); // untouched
+
+  const over = await post({ project: 'saves', graph: { ...graph, title: 'v2' }, overwrite: true });
+  expect(await over.json()).toMatchObject({ ok: true, overwritten: true });
+  expect(JSON.parse(fs.readFileSync(file, 'utf8')).title).toBe('v2');
+
+  const invalid = await post({ project: 'saves', graph: { ...graph, nodes: graph.nodes.slice(1) } });
+  expect(invalid.status).toBe(400);
+  expect((await invalid.json()).error).toContain('graph invalid');
+  const ghost = await post({ project: 'ghost', graph });
+  expect((await ghost.json()).error).toContain("project 'ghost' does not exist");
+  const bad = await post({ project: 'Bad', graph });
+  expect((await bad.json()).error).toContain('lower-case');
 });

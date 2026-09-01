@@ -38,6 +38,17 @@ export interface Gap {
   options?: string[];
 }
 
+/** Every gap kind the engine can emit (kept in step with GapKind by the spec drift test). */
+export const GAP_KINDS: GapKind[] = [
+  'role_unbound', 'does_unbound', 'not_captured', 'session_no_url', 'no_oracles', 'draft_oracle',
+  'api_no_timeout', 'no_deny_coverage', 'no_session_policy', 'data_io_draft', 'data_no_port', 'data_unproduced',
+];
+/** Every write-back op (kept in step with GrillmeOp by the spec drift test). */
+export const GRILLME_OPS = [
+  'bindRole', 'setCatalog', 'confirmExpect', 'removeExpect', 'setOracleBudget', 'setUrl', 'addDeny', 'setSessionPolicy',
+  'setIo', 'confirmIo', 'setOrigin',
+] as const;
+
 export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[] } = {}): Gap[] {
   const gaps: Gap[] = [];
   const known = opts.knownPersonas;

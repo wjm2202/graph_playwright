@@ -1,6 +1,6 @@
 /**
  * S5 — ado:import CLI:
- *   ADO_FILE=path/to/export.csv npm run ado:import       (CSV export)
+ *   ADO_FILE=path/to/export.xlsx npm run ado:import      (Excel or CSV export)
  *   ADO_PASTE="Title: x\n1. as a user, ... | ..." npm run ado:import
  * Writes journeys/graphs/<slug>.graph.json as a DRAFT (never overwrites an
  * existing graph — suffixes _ado) and prints every confidence flag for
@@ -8,14 +8,15 @@
  */
 import { test } from '@playwright/test';
 import * as fs from 'fs';
-import { adoCaseToGraph, parseAdoCsv, parseAdoPaste, writeAdoGraph } from '../../src/graph/fromAdo';
+import { adoCaseToGraph, parseAdoPaste, writeAdoGraph } from '../../src/graph/fromAdo';
+import { parseAdoFile } from '../../src/graph/fromAdoXlsx';
 import { PersonaRegistry } from '../../src/personas/registry';
 
 test('import an ADO test plan into draft process graphs', async () => {
   test.skip(!process.env.ADO_FILE && !process.env.ADO_PASTE, 'set ADO_FILE=<csv> or ADO_PASTE=<text>');
 
   const cases = process.env.ADO_FILE
-    ? parseAdoCsv(fs.readFileSync(process.env.ADO_FILE ?? '', 'utf8'))
+    ? parseAdoFile(process.env.ADO_FILE, fs.readFileSync(process.env.ADO_FILE)).cases // .xlsx or .csv
     : [parseAdoPaste(process.env.ADO_PASTE ?? '')];
   if (!cases.length) throw new Error('no test cases found in the input');
 
