@@ -146,6 +146,18 @@ test.describe('toSpec', () => {
     expect(src).not.toContain('networkidle');
   });
 
+  test('wires the SalesforceApi oracle so backend checks assert persistence', () => {
+    const src = toSpec(goodGraphV2());
+    // Bound only when a REST token exists; otherwise checks skip, never pass.
+    expect(src).toContain('const env = loadEnv();');
+    expect(src).toContain('env?.accessToken');
+    expect(src).toContain('salesforceApiOracle(new SalesforceApi(request, env.instanceUrl, env.accessToken, env.apiVersion), {');
+    // Default scope = THIS run's records; ORACLE_SCOPE=suite widens it.
+    expect(src).toContain("scope: process.env.ORACLE_SCOPE === 'suite' ? 'suite' : 'run'");
+    expect(src).toContain('...(apiOracle ? { apiOracle } : {})');
+    expect(src).toContain("async ({ cast, request }, testInfo)");
+  });
+
   test('refuses invalid graphs', () => {
     const bad = goodGraphV2();
     bad.edges.push({ id: 'x', from: 'start', to: 'ghost', type: 'next' });

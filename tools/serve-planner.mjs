@@ -16,6 +16,7 @@ import { existsSync, readFileSync, renameSync, watch, writeFileSync } from 'node
 import { createServer } from 'node:http';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listProjects, scaffoldProject } from './scaffold-project.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const toolsDir = join(root, 'tools');
@@ -82,6 +83,7 @@ if (isMain) {
     join(root, 'src', 'graph', 'gaps.ts'),
     join(root, 'personas.json'),
     join(root, 'journeys', 'graphs'),
+    join(root, 'projects'),
   ];
   for (const target of watchTargets) {
     if (!existsSync(target)) continue;
@@ -190,6 +192,35 @@ if (isMain) {
       res.write(': connected\n\n');
       clients.add(res);
       req.on('close', () => clients.delete(res));
+      return;
+    }
+    if (url.pathname === '/__projects' && req.method === 'GET') {
+      // The filesystem IS the registry — projects/*/project.json, no names in code.
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ projects: listProjects(dataRoot) }));
+      return;
+    }
+    if (url.pathname === '/__projects' && req.method === 'POST') {
+      let raw = '';
+      req.on('data', (c) => { raw += c; if (raw.length > 10_000) req.destroy(); });
+      req.on('end', () => {
+        let out;
+        try {
+          const body = JSON.parse(raw);
+          const { manifest } = scaffoldProject(dataRoot, {
+            project: String(body.project ?? '').trim(),
+            team: String(body.team ?? '').trim(),
+          });
+          out = { code: 200, manifest };
+          rebuild(`new project '${manifest.project}'`); // regroup the built-in library
+        } catch (e) {
+          out = { code: 400, error: e.message };
+        }
+        res.writeHead(out.code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+        res.end(JSON.stringify(out.code === 200
+          ? { ok: true, project: out.manifest, projects: listProjects(dataRoot) }
+          : { ok: false, error: out.error }));
+      });
       return;
     }
     if (url.pathname === '/__envstatus') {

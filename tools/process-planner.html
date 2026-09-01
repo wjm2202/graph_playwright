@@ -7,9 +7,22 @@
 <style>
   :root { --bg:#14161a; --panel:#1d2026; --line:#31353d; --text:#e8e9eb; --muted:#9aa0a8; --accent:#5aa9e6; --danger:#e2604f; }
   * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.45 -apple-system, Segoe UI, sans-serif; }
+  /* The planner is a full-viewport app: the PAGE must never scroll. Overlays
+     (cards, group box, panels) position with viewport coords — any part that
+     pokes past an edge would otherwise create body overflow, and a drag near
+     the edge auto-scrolls the toolbar out of view (bit 2026-09-01). */
+  html, body { margin:0; height:100%; overflow:hidden; background:var(--bg); color:var(--text); font:13px/1.45 -apple-system, Segoe UI, sans-serif; }
   header { display:flex; gap:6px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
   header .title { font-weight:600; margin-right:8px; }
+  /* Toolbar groups — features clustered by workflow (file/edit/view/test),
+     each with a tiny uppercase label; ids inside are unchanged. */
+  .tbg { display:flex; align-items:center; gap:6px; padding-left:10px; margin-left:2px; border-left:1px solid var(--line); }
+  .tbg .tbl { font-size:9px; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); user-select:none; }
+  /* Group-selection bounding box: visual frame (inert) + draggable edges/grip. */
+  #groupbox { position:absolute; z-index:25; pointer-events:none; }
+  #groupbox .gb_frame { position:absolute; inset:0; border:1.5px dashed var(--accent); border-radius:6px; }
+  #groupbox .gb_hit { position:absolute; pointer-events:auto; cursor:move; }
+  #gb_grip { position:absolute; top:-24px; left:0; pointer-events:auto; cursor:grab; background:var(--panel); border:1px solid var(--accent); color:var(--accent); border-radius:5px; padding:1px 8px; font-size:10px; font-weight:600; white-space:nowrap; user-select:none; }
   button { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:12px; }
   button:hover { border-color:var(--accent); }
   button.on { border-color:var(--accent); color:var(--accent); }
@@ -41,44 +54,70 @@
 <body>
 <header>
   <span class="title">process planner</span>
-  <button id="b_new" class="editonly" title="start a fresh graph (pre-filled with start + end)">new</button>
-  <button id="b_graphmeta" title="the graph's own settings — id, title, systems, actors">graph</button>
-  <select id="f_library" title="open an existing graph" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; max-width:220px;">
-    <option value="">open graph…</option>
-  </select>
-  <select id="b_add" class="editonly" title="add a node — pick what it represents" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px;">
-    <option value="">add ▾</option>
-    <option value="session">session — who, in which system</option>
-    <option value="data">data — a record</option>
-    <option value="screen">screen</option>
-    <option value="checkpoint">checkpoint — verify here</option>
-    <option value="api">api endpoint</option>
-    <option value="db">database</option>
-    <option value="logger">log system</option>
-    <option value="decision">decision</option>
-    <option value="action">plain step</option>
-  </select>
-  <button id="b_connect" class="editonly" title="draw a relation: click this, then a source node, then a target node — or just drag from a node's edge">connect</button>
-  <button id="b_delete" class="editonly" title="remove the selected node/edge (Del key works too)">delete</button>
-  <button id="b_layout" title="auto-arrange the graph (your manual positions are replaced)">layout</button>
-  <button id="b_fit" title="zoom to see everything">fit</button>
-  <button id="b_check" title="is this graph runnable? lists every problem and unfinished part, with hints — click an item to jump to it">check ✓</button>
-  <label class="editonly" style="margin-left:8px"><input id="f_import" type="file" accept=".json" class="hide" /><button id="b_import">import</button></label>
-  <select id="f_save" class="editonly" title="save to this browser" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; max-width:230px;">
-    <option value="">save ▾</option>
-  </select>
-  <button id="b_export" title="print the graph JSON into the bar below (nothing is saved)">export</button>
-  <button id="b_download" title="download the graph as a .graph.json file">download</button>
-  <select id="f_test" title="turn this graph into a runnable Playwright spec — commands copy to your clipboard" style="background:var(--panel); color:var(--text); border:1px solid #5aa9e6; border-radius:5px; padding:4px; color:#5aa9e6; font-weight:600;">
-    <option value="">▶ test ▾</option>
-    <option value="spec">copy: make spec</option>
-    <option value="run">copy: run spec</option>
-  </select>
-  <span style="margin-left:auto; color:var(--muted)">mode:</span>
-  <select id="f_mode" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px;">
-    <option value="edit">edit</option><option value="view">view</option>
-  </select>
-  <button id="b_help" title="what the shapes mean + how to drive this">?</button>
+  <span class="tbg" id="tbg_file">
+    <span class="tbl">file</span>
+    <select id="f_library" title="open an existing graph" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; max-width:220px;">
+      <option value="">open graph…</option>
+    </select>
+    <button id="b_new" class="editonly" title="start a fresh graph (pre-filled with start + end)">new</button>
+    <label class="editonly"><input id="f_import" type="file" accept=".json" class="hide" /><button id="b_import">import</button></label>
+    <select id="f_insert" class="editonly" title="bring another graph in as a SEPARATE island — nothing is auto-wired; you draw the login_as connection from a previous step and relink end. check ✓ lists the unwired sessions until you do" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; max-width:180px;">
+      <option value="">insert ▾</option>
+    </select>
+    <select id="f_save" class="editonly" title="save to this browser" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; max-width:230px;">
+      <option value="">save ▾</option>
+    </select>
+    <button id="b_export" title="print the graph JSON into the bar below (nothing is saved)">export</button>
+    <button id="b_download" title="download the graph as a .graph.json file">download</button>
+  </span>
+  <span class="tbg" id="tbg_edit">
+    <span class="tbl">edit</span>
+    <select id="b_add" class="editonly" title="add a node — pick what it represents" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px;">
+      <option value="">add ▾</option>
+      <option value="session">session — who, in which system</option>
+      <option value="data">data — a record</option>
+      <option value="screen">screen</option>
+      <option value="checkpoint">checkpoint — verify here</option>
+      <option value="api">api endpoint</option>
+      <option value="db">database</option>
+      <option value="logger">log system</option>
+      <option value="decision">decision</option>
+      <option value="action">plain step</option>
+    </select>
+    <button id="b_connect" class="editonly" title="draw a relation: click this, then a source node, then a target node — or just drag from a node's edge">connect</button>
+    <button id="b_delete" class="editonly" title="remove the selected node/edge (Del key works too)">delete</button>
+    <button id="b_graphmeta" title="the graph's own settings — id, title, systems, actors">graph</button>
+  </span>
+  <span class="tbg" id="tbg_view">
+    <span class="tbl">view</span>
+    <button id="b_layout" title="auto-arrange the graph (your manual positions are replaced)">layout</button>
+    <button id="b_fit" title="zoom to see everything">fit</button>
+    <button id="b_help" title="what the shapes mean + how to drive this">?</button>
+  </span>
+  <span class="tbg" id="tbg_test">
+    <span class="tbl">test</span>
+    <button id="b_check" title="is this graph runnable? lists every problem and unfinished part, with hints — click an item to jump to it">check ✓</button>
+    <select id="f_test" title="turn this graph into a runnable Playwright spec — commands copy to your clipboard" style="background:var(--panel); color:var(--text); border:1px solid #5aa9e6; border-radius:5px; padding:4px; color:#5aa9e6; font-weight:600;">
+      <option value="">▶ test ▾</option>
+      <option value="order">run order…</option>
+      <option value="spec">copy: make spec</option>
+      <option value="run">copy: run spec</option>
+    </select>
+  </span>
+  <span style="margin-left:auto"></span>
+  <span class="tbg" id="tbg_project">
+    <span class="tbl">project</span>
+    <select id="f_project" title="scope the graph library to one team's project — or create a new one (teams name their own; nothing is hardcoded)" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px; max-width:200px;">
+      <option value="">all projects</option>
+      <option value="__new">＋ new project…</option>
+    </select>
+  </span>
+  <span class="tbg" id="tbg_mode">
+    <span class="tbl">mode</span>
+    <select id="f_mode" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px;">
+      <option value="edit">edit</option><option value="view">view</option>
+    </select>
+  </span>
 </header>
 <div id="issues" class="hide" style="position:absolute; top:44px; left:10px; z-index:30; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; width:380px; max-height:70vh; overflow:auto; font-size:11px; box-shadow:0 6px 24px rgba(0,0,0,.4);">
   <div style="display:flex; align-items:center; margin-bottom:6px;">
@@ -86,6 +125,21 @@
     <button id="iss_close" title="close" style="margin-left:auto; padding:1px 7px;">✕</button>
   </div>
   <div id="iss_list"></div>
+</div>
+<div id="runorder" class="hide" style="position:absolute; top:44px; left:400px; z-index:30; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; width:400px; max-height:70vh; overflow:auto; font-size:11px; box-shadow:0 6px 24px rgba(0,0,0,.4);">
+  <div style="display:flex; align-items:center; margin-bottom:6px;">
+    <b>run order</b><span style="color:var(--muted); margin-left:6px;">the sequence a run executes — drawing order decides it</span>
+    <button id="ro_close" title="close" style="margin-left:auto; padding:1px 7px;">✕</button>
+  </div>
+  <div id="ro_list"></div>
+</div>
+<div id="groupbox" class="hide">
+  <div class="gb_frame"></div>
+  <div id="gb_grip" title="drag to move the whole selection">⠿ <span id="gb_count"></span></div>
+  <div class="gb_hit" style="left:0; right:0; top:-5px; height:10px;"></div>
+  <div class="gb_hit" style="left:0; right:0; bottom:-5px; height:10px;"></div>
+  <div class="gb_hit" style="top:0; bottom:0; left:-5px; width:10px;"></div>
+  <div class="gb_hit" style="top:0; bottom:0; right:-5px; width:10px;"></div>
 </div>
 <div id="legend" class="hide" title="click anywhere on this card to close it" style="position:absolute; top:44px; right:10px; z-index:30; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; max-width:340px; font-size:11px; line-height:1.7; box-shadow:0 6px 24px rgba(0,0,0,.4); cursor:pointer;">
   <div style="float:right; color:var(--muted);">✕</div>
@@ -5364,7 +5418,7 @@ const EXPECTATION_KINDS = [
 /** Backend oracle kinds evaluate server-side and may poll (async settles). */
 const BACKEND_KIND_RE = /^(api|db|log)\./;
 function validateGraph(doc, opts = {}) {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y;
     const errors = [];
     const g = doc;
     if (!g || typeof g !== 'object')
@@ -5402,9 +5456,14 @@ function validateGraph(doc, opts = {}) {
         if (typeof persona !== 'string' || !persona)
             errors.push(`actors.${alias}: personaId must be a non-empty string`);
     }
+    for (const [i, c] of ((_d = g.composedFrom) !== null && _d !== void 0 ? _d : []).entries()) {
+        if (!c || typeof c.ref !== 'string' || !c.ref || typeof c.graphId !== 'string' || !c.graphId || typeof c.at !== 'string' || !c.at) {
+            errors.push(`composedFrom[${i}]: needs { ref, graphId, at } strings`);
+        }
+    }
     const nodeIds = new Set();
-    for (const n of (_d = g.nodes) !== null && _d !== void 0 ? _d : []) {
-        const at = `nodes.${(_e = n === null || n === void 0 ? void 0 : n.id) !== null && _e !== void 0 ? _e : '?'}`;
+    for (const n of (_e = g.nodes) !== null && _e !== void 0 ? _e : []) {
+        const at = `nodes.${(_f = n === null || n === void 0 ? void 0 : n.id) !== null && _f !== void 0 ? _f : '?'}`;
         if (!(n === null || n === void 0 ? void 0 : n.id) || !ID_RE.test(n.id))
             errors.push(`${at}: id lower_snake_case required`);
         else if (nodeIds.has(n.id))
@@ -5435,12 +5494,12 @@ function validateGraph(doc, opts = {}) {
         if ((n === null || n === void 0 ? void 0 : n.snapshot) !== undefined && !STATUSES.includes(n.snapshot.status)) {
             errors.push(`${at}.snapshot.status: one of ${STATUSES.join('|')}`);
         }
-        if (((_f = n === null || n === void 0 ? void 0 : n.timing) === null || _f === void 0 ? void 0 : _f.plannedMs) !== undefined && !(n.timing.plannedMs > 0)) {
+        if (((_g = n === null || n === void 0 ? void 0 : n.timing) === null || _g === void 0 ? void 0 : _g.plannedMs) !== undefined && !(n.timing.plannedMs > 0)) {
             errors.push(`${at}.timing.plannedMs: must be > 0`);
         }
         const expectIds = new Set();
-        for (const x of (_g = n === null || n === void 0 ? void 0 : n.expects) !== null && _g !== void 0 ? _g : []) {
-            const xat = `${at}.expects.${(_h = x === null || x === void 0 ? void 0 : x.id) !== null && _h !== void 0 ? _h : '?'}`;
+        for (const x of (_h = n === null || n === void 0 ? void 0 : n.expects) !== null && _h !== void 0 ? _h : []) {
+            const xat = `${at}.expects.${(_j = x === null || x === void 0 ? void 0 : x.id) !== null && _j !== void 0 ? _j : '?'}`;
             if (!(x === null || x === void 0 ? void 0 : x.id) || !ID_RE.test(x.id))
                 errors.push(`${xat}: id lower_snake_case required`);
             else if (expectIds.has(x.id))
@@ -5493,11 +5552,11 @@ function validateGraph(doc, opts = {}) {
     }
     // Infra cross-references (need the full node list, hence a second pass):
     // a db.query must point at a QUERYABLE db node; log.traffic at a logger.
-    for (const n of (_j = g.nodes) !== null && _j !== void 0 ? _j : []) {
-        for (const x of (_k = n === null || n === void 0 ? void 0 : n.expects) !== null && _k !== void 0 ? _k : []) {
-            const xat = `nodes.${(_l = n === null || n === void 0 ? void 0 : n.id) !== null && _l !== void 0 ? _l : '?'}.expects.${(_m = x === null || x === void 0 ? void 0 : x.id) !== null && _m !== void 0 ? _m : '?'}`;
+    for (const n of (_k = g.nodes) !== null && _k !== void 0 ? _k : []) {
+        for (const x of (_l = n === null || n === void 0 ? void 0 : n.expects) !== null && _l !== void 0 ? _l : []) {
+            const xat = `nodes.${(_m = n === null || n === void 0 ? void 0 : n.id) !== null && _m !== void 0 ? _m : '?'}.expects.${(_o = x === null || x === void 0 ? void 0 : x.id) !== null && _o !== void 0 ? _o : '?'}`;
             if ((x === null || x === void 0 ? void 0 : x.kind) === 'db.query' && x.target) {
-                const dbNode = ((_o = g.nodes) !== null && _o !== void 0 ? _o : []).find((d) => (d === null || d === void 0 ? void 0 : d.id) === x.target);
+                const dbNode = ((_p = g.nodes) !== null && _p !== void 0 ? _p : []).find((d) => (d === null || d === void 0 ? void 0 : d.id) === x.target);
                 if ((dbNode === null || dbNode === void 0 ? void 0 : dbNode.type) !== 'db') {
                     errors.push(`${xat}: target '${x.target}' is not a db node`);
                 }
@@ -5506,7 +5565,7 @@ function validateGraph(doc, opts = {}) {
                 }
             }
             if ((x === null || x === void 0 ? void 0 : x.kind) === 'log.traffic' && x.target) {
-                const logNode = ((_p = g.nodes) !== null && _p !== void 0 ? _p : []).find((d) => (d === null || d === void 0 ? void 0 : d.id) === x.target);
+                const logNode = ((_q = g.nodes) !== null && _q !== void 0 ? _q : []).find((d) => (d === null || d === void 0 ? void 0 : d.id) === x.target);
                 if ((logNode === null || logNode === void 0 ? void 0 : logNode.type) !== 'logger') {
                     errors.push(`${xat}: target '${x.target}' is not a logger node`);
                 }
@@ -5517,8 +5576,8 @@ function validateGraph(doc, opts = {}) {
         }
     }
     const edgeIds = new Set();
-    for (const e of (_q = g.edges) !== null && _q !== void 0 ? _q : []) {
-        const at = `edges.${(_r = e === null || e === void 0 ? void 0 : e.id) !== null && _r !== void 0 ? _r : '?'}`;
+    for (const e of (_r = g.edges) !== null && _r !== void 0 ? _r : []) {
+        const at = `edges.${(_s = e === null || e === void 0 ? void 0 : e.id) !== null && _s !== void 0 ? _s : '?'}`;
         if (!(e === null || e === void 0 ? void 0 : e.id) || !ID_RE.test(e.id))
             errors.push(`${at}: id lower_snake_case required`);
         else if (edgeIds.has(e.id))
@@ -5531,18 +5590,18 @@ function validateGraph(doc, opts = {}) {
             if (!(e === null || e === void 0 ? void 0 : e[end]) || !nodeIds.has(e[end]))
                 errors.push(`${at}.${end}: unknown node '${e === null || e === void 0 ? void 0 : e[end]}'`);
         }
-        if (((e === null || e === void 0 ? void 0 : e.type) === 'deny' || (e === null || e === void 0 ? void 0 : e.type) === 'denied') && !((_s = e.data) === null || _s === void 0 ? void 0 : _s.capability)) {
+        if (((e === null || e === void 0 ? void 0 : e.type) === 'deny' || (e === null || e === void 0 ? void 0 : e.type) === 'denied') && !((_t = e.data) === null || _t === void 0 ? void 0 : _t.capability)) {
             errors.push(`${at}: deny edges require data.capability (what is being refused)`);
         }
         if ((e === null || e === void 0 ? void 0 : e.type) === 'login_as') {
-            const target = ((_t = g.nodes) !== null && _t !== void 0 ? _t : []).find((n) => n.id === e.to);
+            const target = ((_u = g.nodes) !== null && _u !== void 0 ? _u : []).find((n) => n.id === e.to);
             if (target && target.type !== 'session') {
                 errors.push(`${at}: login_as must land on a session node (got '${target.type}')`);
             }
             // The edge DECLARES how the session is acquired; personas.json DECIDES.
             // Cast reads the persona, so a disagreement makes the graph document a
             // login that will never happen. Caught here rather than at run time.
-            const declared = (_u = e.data) === null || _u === void 0 ? void 0 : _u.auth;
+            const declared = (_v = e.data) === null || _v === void 0 ? void 0 : _v.auth;
             if (declared && opts.personaAuth && (target === null || target === void 0 ? void 0 : target.actor)) {
                 const personaId = actors[target.actor];
                 const actual = personaId ? opts.personaAuth[personaId] : undefined;
@@ -5552,12 +5611,12 @@ function validateGraph(doc, opts = {}) {
                 }
             }
         }
-        if ((e === null || e === void 0 ? void 0 : e.type) === 'does' && !((_v = e.data) === null || _v === void 0 ? void 0 : _v.catalog) && !e.label) {
+        if ((e === null || e === void 0 ? void 0 : e.type) === 'does' && !((_w = e.data) === null || _w === void 0 ? void 0 : _w.catalog) && !e.label) {
             errors.push(`${at}: does edges need data.catalog (the step) or at least a label placeholder`);
         }
-        if (((_w = e === null || e === void 0 ? void 0 : e.data) === null || _w === void 0 ? void 0 : _w.deltaMs) !== undefined && e.data.deltaMs < 0)
+        if (((_x = e === null || e === void 0 ? void 0 : e.data) === null || _x === void 0 ? void 0 : _x.deltaMs) !== undefined && e.data.deltaMs < 0)
             errors.push(`${at}.data.deltaMs: must be >= 0`);
-        if (((_x = e === null || e === void 0 ? void 0 : e.data) === null || _x === void 0 ? void 0 : _x.frequency) !== undefined && !(e.data.frequency >= 1))
+        if (((_y = e === null || e === void 0 ? void 0 : e.data) === null || _y === void 0 ? void 0 : _y.frequency) !== undefined && !(e.data.frequency >= 1))
             errors.push(`${at}.data.frequency: must be >= 1`);
     }
     return { ok: errors.length === 0, errors };
@@ -5776,7 +5835,355 @@ window.ProcessGraphGaps = exports;
 })();
 </script>
 <script>
-window.GRAPH_LIBRARY = {"expense_to_siebel":{"schema":"process-graph/2","id":"expense_to_siebel","title":"Expense flows into Siebel","systems":{"sf":{"label":"Salesforce UAT","kind":"salesforce","urlEnv":"SF_INSTANCE_URL"},"siebel":{"label":"Siebel","kind":"siebel","urlEnv":"SIEBEL_URL","sessionPolicy":{"maxConcurrent":1}}},"actors":{"submitter":"sales_user","approver":"admin","siebel_approver":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_sf_sales","type":"session","label":"Salesforce · submitter","system":"sf","actor":"submitter","account":{"usernameEnv":"SF_SALES_USERNAME"}},{"id":"sess_sf_admin","type":"session","label":"Salesforce · approver","system":"sf","actor":"approver","account":{"usernameEnv":"SF_ADMIN_USERNAME"}},{"id":"sess_siebel_admin","type":"session","label":"Siebel · approver","system":"siebel","actor":"siebel_approver","account":{"usernameEnv":"SIEBEL_ADMIN_USERNAME"},"snapshot":{"status":"planned"}},{"id":"expense","type":"data","label":"Expense record","expects":[{"id":"expense_saved","kind":"api.record_exists","target":"Expense__c","after":"expense.submit","note":"expense row persisted"},{"id":"expense_approved","kind":"api.field_equals","target":"Expense__c","value":"Status__c=Approved","after":"expense.approve"}]},{"id":"end","type":"end","label":""}],"edges":[{"id":"e1","from":"start","to":"sess_sf_sales","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e2","from":"sess_sf_sales","to":"expense","type":"does","label":"submit expense","data":{"catalog":"expense.submit"}},{"id":"e3","from":"sess_sf_sales","to":"expense","type":"denied","data":{"capability":"expense.approve"}},{"id":"e4","from":"sess_sf_sales","to":"sess_sf_admin","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e5","from":"sess_sf_admin","to":"expense","type":"does","label":"approve expense","data":{"catalog":"expense.approve","deltaMs":1200}},{"id":"e6","from":"sess_sf_admin","to":"sess_siebel_admin","type":"login_as","data":{"auth":"ui"}},{"id":"e7","from":"sess_siebel_admin","to":"expense","type":"does","label":"verify expense","data":{"catalog":"siebel.verify_expense"}},{"id":"e8","from":"sess_siebel_admin","to":"end","type":"next"}]},"lead_to_customer":{"schema":"process-graph/2","id":"lead_to_customer","title":"Lead to customer, verified in Siebel","systems":{"sf":{"label":"Salesforce UAT","kind":"salesforce","urlEnv":"SF_INSTANCE_URL"},"siebel":{"label":"Siebel","kind":"siebel","urlEnv":"SIEBEL_URL","sessionPolicy":{"maxConcurrent":1}}},"actors":{"lead_creator":"lead_creator","lead_approver":"lead_approver","credit_approver":"credit_approver","customer_approver":"sales_user","siebel_admin":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_sf_lead_creator","type":"session","label":"Salesforce · lead_creator","system":"sf","actor":"lead_creator","account":{"usernameEnv":"SF_LEAD_CREATOR_USERNAME"}},{"id":"sess_sf_lead_approver","type":"session","label":"Salesforce · lead_approver","system":"sf","actor":"lead_approver","account":{"usernameEnv":"SF_LEAD_APPROVER_USERNAME"}},{"id":"sess_sf_credit_approver","type":"session","label":"Salesforce · credit_approver","system":"sf","actor":"credit_approver","account":{"usernameEnv":"SF_CREDIT_APPROVER_USERNAME"}},{"id":"sess_sf_customer_approver","type":"session","label":"Salesforce · customer_approver","system":"sf","actor":"customer_approver","account":{"usernameEnv":"SF_SALES_USERNAME"}},{"id":"sess_siebel_admin","type":"session","label":"Siebel · siebel_admin","system":"siebel","actor":"siebel_admin","account":{"usernameEnv":"SIEBEL_ADMIN_USERNAME"},"snapshot":{"status":"planned"}},{"id":"lead","type":"data","label":"Lead record","expects":[{"id":"lead_created","kind":"api.record_exists","target":"Lead","after":"lead.create","note":"lead row persisted"},{"id":"lead_potential","kind":"api.field_equals","target":"Lead","value":"Status=Potential","after":"lead.progress_to_potential","note":"progressed by the approver"},{"id":"credit_approved","kind":"api.field_equals","target":"Lead","value":"Credit_Status__c=Approved","after":"credit.check","note":"credit check outcome persisted"}]},{"id":"customer","type":"data","label":"Customer record","expects":[{"id":"customer_created","kind":"api.record_exists","target":"Account","after":"lead.approve_to_customer","note":"conversion produced the customer account"},{"id":"conversion_toast","kind":"ui.toast","value":"converted","after":"lead.approve_to_customer","note":"UI confirms the conversion"}]},{"id":"customer_siebel","type":"data","label":"Customer record (Siebel)","notes":"created by the SF→Siebel API integration when the customer is approved — no human session involved"},{"id":"chk_customer","type":"checkpoint","label":"Customer exists in Siebel","expects":[{"id":"customer_in_siebel","kind":"api.record_exists","target":"Customer","note":"in Siebel = pass; missing = the SF→Siebel integration failed","timeoutMs":120000,"pollMs":5000},{"id":"endpoint_traffic","kind":"log.traffic","target":"log_gateway","value":"create_customer_v2","timeoutMs":60000,"pollMs":5000,"draft":true,"note":"draft — confirm the log system + search term"}]},{"id":"end","type":"end","label":""},{"id":"api_create_customer_v2","type":"api","label":"create_customer_v2","endpoint":{"method":"POST","path":"/services/apexrest/create_customer_v2"}},{"id":"db_siebel","type":"db","label":"Siebel DB","notes":"NOT queryable until confirmed — verify via Siebel UI (siebel_admin) or the gateway logs"},{"id":"log_gateway","type":"logger","label":"API gateway logs"}],"edges":[{"id":"e1","from":"start","to":"sess_sf_lead_creator","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e2","from":"sess_sf_lead_creator","to":"lead","type":"does","label":"create lead","data":{"catalog":"lead.create"}},{"id":"e3","from":"sess_sf_lead_creator","to":"sess_sf_lead_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e4","from":"sess_sf_lead_approver","to":"lead","type":"does","label":"progress to potential lead","data":{"catalog":"lead.progress_to_potential"}},{"id":"e5","from":"sess_sf_lead_approver","to":"sess_sf_credit_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e6","from":"sess_sf_credit_approver","to":"lead","type":"does","label":"credit check","data":{"catalog":"credit.check"}},{"id":"e7","from":"sess_sf_credit_approver","to":"sess_sf_customer_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e8","from":"sess_sf_customer_approver","to":"customer","type":"does","label":"approve to customer","data":{"catalog":"lead.approve_to_customer"}},{"id":"e9","from":"sess_sf_customer_approver","to":"lead","type":"touches"},{"id":"e10","from":"sess_sf_customer_approver","to":"sess_siebel_admin","type":"login_as","data":{"auth":"ui"}},{"id":"e11","from":"sess_siebel_admin","to":"customer_siebel","type":"does","label":"check customer created","data":{"catalog":"siebel.check_customer"}},{"id":"e12","from":"sess_siebel_admin","to":"chk_customer","type":"asserts"},{"id":"e13","from":"chk_customer","to":"end","type":"next"},{"id":"e_api","from":"customer","to":"api_create_customer_v2","type":"handoff","label":"API replication SF → Siebel"},{"id":"e_api2","from":"api_create_customer_v2","to":"customer_siebel","type":"handoff","label":"creates"},{"id":"e_api3","from":"api_create_customer_v2","to":"db_siebel","type":"touches","label":"writes"},{"id":"e_api4","from":"api_create_customer_v2","to":"log_gateway","type":"touches","label":"logged in"}]},"lead_to_customer_via_ado":{"schema":"process-graph/2","id":"lead_to_customer_via_ado","title":"Lead to customer via ADO","systems":{"sf":{"label":"Salesforce","kind":"salesforce"},"siebel":{"label":"Siebel","kind":"siebel","sessionPolicy":{"maxConcurrent":1}}},"actors":{"lead_creator":"lead_creator","lead_approver":"lead_approver","credit_approver":"credit_approver","salesforce_user":"salesforce_user","siebel_admin":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_lead_creator","type":"session","label":"Salesforce · lead_creator","system":"sf","actor":"lead_creator"},{"id":"lead","type":"data","label":"Lead record","expects":[{"id":"check_lead_record_is_created","after":"e_do_1","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Lead"}]},{"id":"sess_lead_approver","type":"session","label":"Salesforce · lead_approver","system":"sf","actor":"lead_approver"},{"id":"scr_1","type":"screen","label":"progress the lead to potential lead","expects":[{"id":"check_toast_shows_lead_updat","after":"e_do_2","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"ui.toast","value":"Lead updated"}]},{"id":"sess_credit_approver","type":"session","label":"Salesforce · credit_approver","system":"sf","actor":"credit_approver"},{"id":"scr_2","type":"screen","label":"do the credit check","expects":[{"id":"check_credit_check_screen_sho","after":"e_do_3","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"ui.text","value":"Credit check screen shows Approved"}]},{"id":"sess_salesforce_user","type":"session","label":"Salesforce · salesforce_user","system":"sf","actor":"salesforce_user"},{"id":"customer","type":"data","label":"Customer record","expects":[{"id":"check_customer_record_is_crea","after":"e_do_4","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Customer"},{"id":"check_customer_record_exists","after":"e_do_5","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Customer"}]},{"id":"sess_siebel_admin","type":"session","label":"Siebel · siebel_admin","system":"siebel","actor":"siebel_admin"},{"id":"end","type":"end","label":""}],"edges":[{"id":"e_login_1","from":"start","to":"sess_lead_creator","type":"login_as"},{"id":"e_do_1","from":"sess_lead_creator","to":"lead","type":"does","label":"create a lead","data":{"catalog":"lead.create"}},{"id":"e_login_2","from":"sess_lead_creator","to":"sess_lead_approver","type":"login_as"},{"id":"e_do_2","from":"sess_lead_approver","to":"scr_1","type":"does","label":"progress the lead to potential lead","data":{"catalog":"lead.progress"}},{"id":"e_login_3","from":"sess_lead_approver","to":"sess_credit_approver","type":"login_as"},{"id":"e_do_3","from":"sess_credit_approver","to":"scr_2","type":"does","label":"do the credit check","data":{"catalog":"scr_2.do"}},{"id":"e_login_4","from":"sess_credit_approver","to":"sess_salesforce_user","type":"login_as"},{"id":"e_do_4","from":"sess_salesforce_user","to":"customer","type":"does","label":"approve to customer","data":{"catalog":"customer.approve"}},{"id":"e_login_5","from":"sess_salesforce_user","to":"sess_siebel_admin","type":"login_as"},{"id":"e_do_5","from":"sess_siebel_admin","to":"customer","type":"does","label":"check the customer is created","data":{"catalog":"customer.check"}},{"id":"e_end","from":"sess_siebel_admin","to":"end","type":"next"}]}};
+(function () {
+var exports = {};
+var require = function () { return window.ProcessGraphSchema; };
+/**
+ * Graph composition — import one graph INTO another to extend a workflow
+ * (DESIGN-PROJECTS.md: "by joining add_address to create_customer the test
+ * covers more functionality").
+ *
+ * This is a COPY-MERGE, not a live reference: the sub-graph's nodes and
+ * edges are copied in and stitched, and `composedFrom` records provenance
+ * (ref + graph id + when) so staleness is detectable later. The result stays
+ * a self-contained document the whole toolchain already understands —
+ * walker, runner, planner, merge-back all unchanged.
+ *
+ * TWO MODES (owner decision 2026-09-01: "I add the connection in the editor"):
+ *  - 'island' (DEFAULT): the sub arrives intact but DISCONNECTED — sessions
+ *    never merge, the chain is not touched, edges to the sub's end are
+ *    dropped (relink after wiring). Its internal login_as chain is kept, so
+ *    wiring in = one login_as edge from a previous session, then
+ *    unlink/relink end. chainHealth lists the stranded sessions until then.
+ *  - 'splice' (opt-in via `after` or mode): auto-wire — SESSIONS MERGE when
+ *    system+actor+account agree (the sub's steps append AFTER the host's for
+ *    that session) and the sub-chain splices in after the chosen session
+ *    with a return edge; edges to the sub's end re-aim at the host's end.
+ * Both modes: other nodes keep their ids and MERGE on same id+type (data
+ * nodes union their checks, duplicates collapse, clashing check ids get a
+ * prefix); a same-id/different-type clash imports under `<sub_id>_<id>`;
+ * actor aliases must agree (same alias → same persona) and systems must
+ * agree (same key → same definition) — anything else errors, never a silent
+ * rebind. Rename in the sub first.
+ *
+ * NO imports beyond ./schema — the planner build inlines this file so the
+ * browser insert does exactly what the CLI does.
+ */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.loginChain = loginChain;
+exports.chainHealth = chainHealth;
+exports.runOrder = runOrder;
+exports.composeGraphs = composeGraphs;
+const schema_1 = require("./schema");
+/** The login_as chain from start: [sessionId…]; throws on branch/cycle. */
+function loginChain(g, label) {
+    var _a, _b;
+    const out = new Map();
+    for (const e of g.edges) {
+        if (e.type !== 'login_as')
+            continue;
+        if (!out.has(e.from))
+            out.set(e.from, []);
+        out.get(e.from).push(e.to);
+    }
+    for (const [from, tos] of out) {
+        if (tos.length > 1)
+            throw new Error(`${label}: '${from}' has ${tos.length} outgoing login_as edges — one linear chain required`);
+    }
+    const start = g.nodes.find((n) => n.type === 'start');
+    if (!start)
+        throw new Error(`${label}: no start node`);
+    const chain = [];
+    const seen = new Set();
+    let cursor = (_a = out.get(start.id)) === null || _a === void 0 ? void 0 : _a[0];
+    while (cursor) {
+        if (seen.has(cursor))
+            throw new Error(`${label}: login_as cycle at '${cursor}'`);
+        seen.add(cursor);
+        chain.push(cursor);
+        cursor = (_b = out.get(cursor)) === null || _b === void 0 ? void 0 : _b[0];
+    }
+    return chain;
+}
+function chainHealth(g) {
+    if (g.schema !== 'process-graph/2')
+        return { errors: [], stranded: [] };
+    const sessions = g.nodes.filter((n) => n.type === 'session').map((n) => n.id);
+    if (!sessions.length)
+        return { errors: [], stranded: [] };
+    let chain;
+    try {
+        chain = loginChain(g, 'login chain');
+    }
+    catch (e) {
+        return { errors: [e.message], stranded: [] };
+    }
+    if (!chain.length) {
+        return {
+            errors: ["start is not connected to any session — draw a login_as edge from start to the first session"],
+            stranded: sessions,
+        };
+    }
+    const onChain = new Set(chain);
+    return { errors: [], stranded: sessions.filter((id) => !onChain.has(id)) };
+}
+function runOrder(g) {
+    var _a, _b, _c, _d, _e, _f;
+    if (g.schema !== 'process-graph/2')
+        return { steps: [], problem: 'run-order preview needs a process-graph/2 graph' };
+    let chain;
+    try {
+        chain = loginChain(g, 'login chain');
+    }
+    catch (e) {
+        return { steps: [], problem: e.message };
+    }
+    const nodeById = new Map(g.nodes.map((n) => [n.id, n]));
+    const steps = [];
+    for (const sessId of chain) {
+        const actor = (_b = (_a = nodeById.get(sessId)) === null || _a === void 0 ? void 0 : _a.actor) !== null && _b !== void 0 ? _b : '?';
+        for (const e of g.edges) {
+            if (e.from !== sessId)
+                continue;
+            if (e.type === 'does') {
+                steps.push({
+                    index: steps.length, sessionId: sessId, actor, kind: 'does',
+                    name: (_d = (_c = e.data) === null || _c === void 0 ? void 0 : _c.catalog) !== null && _d !== void 0 ? _d : `plan.${e.id}`,
+                    ...(e.label ? { label: e.label } : {}), edgeId: e.id,
+                });
+            }
+            else if (e.type === 'asserts') {
+                const target = nodeById.get(e.to);
+                if ((target === null || target === void 0 ? void 0 : target.type) === 'checkpoint') {
+                    steps.push({
+                        index: steps.length, sessionId: sessId, actor, kind: 'asserts',
+                        name: `assert.${target.id}`,
+                        ...(target.label ? { label: target.label } : {}), edgeId: e.id,
+                    });
+                }
+            }
+            else if (e.type === 'denied') {
+                steps.push({
+                    index: steps.length, sessionId: sessId, actor, kind: 'denied',
+                    name: (_f = (_e = e.data) === null || _e === void 0 ? void 0 : _e.capability) !== null && _f !== void 0 ? _f : '?',
+                    ...(e.label ? { label: e.label } : {}), edgeId: e.id,
+                });
+            }
+        }
+    }
+    return { steps };
+}
+function sameJson(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+}
+function uniqueId(taken, prefix, base) {
+    if (!taken.has(base))
+        return base;
+    let candidate = `${prefix}${base}`;
+    let n = 2;
+    while (taken.has(candidate))
+        candidate = `${prefix}${base}_${n++}`;
+    return candidate;
+}
+function composeGraphs(host, sub, opts = {}) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p;
+    for (const [name, doc] of [['host', host], ['sub', sub]]) {
+        const v = (0, schema_1.validateGraph)(doc);
+        if (!v.ok)
+            throw new Error(`${name} graph invalid:\n - ${v.errors.join('\n - ')}`);
+        if (doc.schema !== 'process-graph/2')
+            throw new Error(`${name} graph is ${doc.schema} — compose needs process-graph/2 (open + re-save to upgrade)`);
+    }
+    if (host.id === sub.id)
+        throw new Error(`cannot import '${sub.id}' into itself`);
+    const g = JSON.parse(JSON.stringify(host));
+    const s = JSON.parse(JSON.stringify(sub));
+    const summary = [];
+    const prefix = `${s.id}_`;
+    const mode = (_a = opts.mode) !== null && _a !== void 0 ? _a : (opts.after ? 'splice' : 'island');
+    // ---- actors + systems: agree or error --------------------------------
+    for (const [alias, persona] of Object.entries(s.actors)) {
+        const existing = g.actors[alias];
+        if (existing === undefined) {
+            g.actors[alias] = persona;
+            summary.push(`actor ${alias} → ${persona} (imported)`);
+        }
+        else if (existing !== persona) {
+            throw new Error(`actor alias '${alias}' means '${existing}' here but '${persona}' in '${s.id}' — rename the alias in one graph first`);
+        }
+    }
+    for (const [key, def] of Object.entries(s.systems)) {
+        const existing = g.systems[key];
+        if (existing === undefined) {
+            g.systems[key] = def;
+            summary.push(`system ${key} (imported)`);
+        }
+        else if (!sameJson(existing, def)) {
+            throw new Error(`system '${key}' is defined differently in '${s.id}' — align the definitions (urlEnv/sessionPolicy) before composing`);
+        }
+    }
+    // ---- node mapping ----------------------------------------------------
+    const hostNodeById = new Map(g.nodes.map((n) => [n.id, n]));
+    const nodeIds = new Set(g.nodes.map((n) => n.id));
+    const hostChain = loginChain(g, `'${g.id}'`);
+    const subChain = loginChain(s, `'${s.id}'`);
+    const hostEnd = g.nodes.find((n) => n.type === 'end');
+    /** sub node id → id in the composed graph ('' = dropped). */
+    const nodeMap = new Map();
+    const importedNodes = [];
+    const sessionMatch = (sess) => g.nodes.find((n) => n.type === 'session' && n.system === sess.system && n.actor === sess.actor &&
+        sameJson(n.account, sess.account));
+    for (const n of s.nodes) {
+        if (n.type === 'start' || n.type === 'end') {
+            nodeMap.set(n.id, '');
+            continue;
+        }
+        if (n.type === 'session') {
+            // Island mode never merges sessions — the human decides every join.
+            const match = mode === 'splice' ? sessionMatch(n) : undefined;
+            if (match) {
+                nodeMap.set(n.id, match.id);
+                summary.push(`session ${n.id} merged into ${match.id} (same system · actor · account); its steps run after the host's`);
+                continue;
+            }
+        }
+        else {
+            const same = hostNodeById.get(n.id);
+            if ((same === null || same === void 0 ? void 0 : same.type) === n.type) {
+                // Merge: union the checks; host keeps its other fields.
+                const existingIds = new Set(((_b = same.expects) !== null && _b !== void 0 ? _b : []).map((x) => x.id));
+                for (const x of (_c = n.expects) !== null && _c !== void 0 ? _c : []) {
+                    const dup = ((_d = same.expects) !== null && _d !== void 0 ? _d : []).find((h) => h.id === x.id);
+                    if (dup && sameJson({ k: dup.kind, t: dup.target, v: dup.value, a: dup.after }, { k: x.kind, t: x.target, v: x.value, a: x.after })) {
+                        continue; // identical check — one copy is enough
+                    }
+                    const xid = existingIds.has(x.id) ? uniqueId(existingIds, prefix, x.id) : x.id;
+                    existingIds.add(xid);
+                    same.expects = [...((_e = same.expects) !== null && _e !== void 0 ? _e : []), { ...x, id: xid }];
+                }
+                nodeMap.set(n.id, same.id);
+                summary.push(`${n.type} ${n.id} merged (checks unioned)`);
+                continue;
+            }
+        }
+        const newId = uniqueId(nodeIds, prefix, n.id);
+        nodeIds.add(newId);
+        if (newId !== n.id)
+            summary.push(`${n.type} ${n.id} imported as ${newId}`);
+        nodeMap.set(n.id, newId);
+        importedNodes.push({ ...n, id: newId });
+    }
+    g.nodes.push(...importedNodes);
+    // ---- edges: remap endpoints; splice the login chain ------------------
+    const edgeIds = new Set(g.edges.map((e) => e.id));
+    const subStartId = (_f = s.nodes.find((n) => n.type === 'start')) === null || _f === void 0 ? void 0 : _f.id;
+    const subLoginAuth = new Map(); // to-session id → login edge data
+    for (const e of s.edges)
+        if (e.type === 'login_as')
+            subLoginAuth.set(e.to, e.data);
+    const edgeIdMap = new Map(); // sub edge id → composed edge id
+    const importedEdges = [];
+    for (const e of s.edges) {
+        // Splice consumes ALL login_as edges (rebuilt below). Island keeps the
+        // sub's INTERNAL chain wiring — only the entry edge from its start goes.
+        if (e.type === 'login_as' && mode === 'splice')
+            continue;
+        if (e.from === subStartId)
+            continue;
+        const from = (_g = nodeMap.get(e.from)) !== null && _g !== void 0 ? _g : e.from;
+        let to = (_h = nodeMap.get(e.to)) !== null && _h !== void 0 ? _h : e.to;
+        if (to === '') {
+            if (mode === 'island' || !hostEnd) {
+                summary.push(`edge ${e.id} (…→ end) dropped — relink to end once the island is wired in`);
+                continue;
+            }
+            to = hostEnd.id; // splice: sub's end → host's end
+        }
+        if (from === '') {
+            summary.push(`edge ${e.id} dropped (source was the sub's start)`);
+            continue;
+        }
+        const newId = uniqueId(edgeIds, prefix, e.id);
+        edgeIds.add(newId);
+        edgeIdMap.set(e.id, newId);
+        importedEdges.push({ ...e, id: newId, from, to });
+    }
+    g.edges.push(...importedEdges);
+    // Checks imported with an `after` pointing at a renamed edge follow it.
+    for (const n of g.nodes) {
+        for (const x of (_j = n.expects) !== null && _j !== void 0 ? _j : []) {
+            if (x.after && edgeIdMap.has(x.after) && edgeIdMap.get(x.after) !== x.after) {
+                x.after = edgeIdMap.get(x.after);
+            }
+        }
+    }
+    // Island: nothing is wired — report what waits for the human's hand.
+    if (mode === 'island') {
+        const arrivals = subChain.map((id) => nodeMap.get(id)).filter((id) => id !== '');
+        if (arrivals.length) {
+            summary.push(`island: ${arrivals.join(' → ')} arrived UNWIRED — draw a login_as edge from a previous session into ${arrivals[0]}, ` +
+                `then unlink/relink end. check ✓ lists them until you do`);
+        }
+        else {
+            summary.push('island: no sessions to wire — only data/infra arrived');
+        }
+    }
+    // Splice: sub-chain sessions that did NOT merge into the host enter the
+    // chain after `opts.after` (default: the last host session).
+    const inserted = mode === 'splice'
+        ? subChain.map((id) => nodeMap.get(id)).filter((id) => id !== '' && !hostChain.includes(id))
+        : [];
+    if (inserted.length) {
+        const after = (_k = opts.after) !== null && _k !== void 0 ? _k : hostChain[hostChain.length - 1];
+        if (!after || !hostChain.includes(after)) {
+            throw new Error(`after '${(_l = opts.after) !== null && _l !== void 0 ? _l : '(none)'}' is not a session in the host chain — chain: ${hostChain.join(' → ')}`);
+        }
+        const oldNext = g.edges.find((e) => e.type === 'login_as' && e.from === after);
+        if (oldNext)
+            g.edges = g.edges.filter((e) => e !== oldNext);
+        const authFor = (composedId) => {
+            for (const [subId, mapped] of nodeMap)
+                if (mapped === composedId)
+                    return subLoginAuth.get(subId);
+            return undefined;
+        };
+        let cursor = after;
+        for (const sessId of inserted) {
+            const id = uniqueId(edgeIds, prefix, `e_login_${sessId}`);
+            edgeIds.add(id);
+            const data = authFor(sessId);
+            g.edges.push({ id, from: cursor, to: sessId, type: 'login_as', ...(data ? { data } : {}) });
+            cursor = sessId;
+        }
+        if (oldNext) {
+            const id = uniqueId(edgeIds, prefix, `e_login_return`);
+            edgeIds.add(id);
+            g.edges.push({ id, from: cursor, to: oldNext.to, type: 'login_as', ...(oldNext.data ? { data: oldNext.data } : {}) });
+        }
+        summary.push(`chain spliced after ${after}: + ${inserted.join(' → ')}${oldNext ? ` → back to ${oldNext.to}` : ''}`);
+    }
+    else if (mode === 'splice') {
+        summary.push('no new sessions — every sub session merged into the host chain');
+    }
+    g.composedFrom = [
+        ...((_m = g.composedFrom) !== null && _m !== void 0 ? _m : []),
+        { ref: (_o = opts.ref) !== null && _o !== void 0 ? _o : s.id, graphId: s.id, at: (_p = opts.now) !== null && _p !== void 0 ? _p : new Date().toISOString() },
+    ];
+    // ---- the composed graph must still validate AND walk linearly --------
+    const v = (0, schema_1.validateGraph)(g);
+    if (!v.ok)
+        throw new Error(`compose produced an invalid graph (bug):\n - ${v.errors.join('\n - ')}`);
+    loginChain(g, 'composed graph');
+    summary.push(`now ${g.nodes.length} nodes · ${g.edges.length} edges · imported from '${s.id}'`);
+    return { graph: g, summary };
+}
+
+window.ProcessGraphCompose = exports;
+})();
+</script>
+<script>
+window.GRAPH_LIBRARY = {"expense_to_siebel":{"schema":"process-graph/2","id":"expense_to_siebel","title":"Expense flows into Siebel","systems":{"sf":{"label":"Salesforce UAT","kind":"salesforce","urlEnv":"SF_INSTANCE_URL"},"siebel":{"label":"Siebel","kind":"siebel","urlEnv":"SIEBEL_URL","sessionPolicy":{"maxConcurrent":1}}},"actors":{"submitter":"sales_user","approver":"admin","siebel_approver":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_sf_sales","type":"session","label":"Salesforce · submitter","system":"sf","actor":"submitter","account":{"usernameEnv":"SF_SALES_USERNAME"}},{"id":"sess_sf_admin","type":"session","label":"Salesforce · approver","system":"sf","actor":"approver","account":{"usernameEnv":"SF_ADMIN_USERNAME"}},{"id":"sess_siebel_admin","type":"session","label":"Siebel · approver","system":"siebel","actor":"siebel_approver","account":{"usernameEnv":"SIEBEL_ADMIN_USERNAME"},"snapshot":{"status":"planned"}},{"id":"expense","type":"data","label":"Expense record","expects":[{"id":"expense_saved","kind":"api.record_exists","target":"Expense__c","after":"expense.submit","note":"expense row persisted"},{"id":"expense_approved","kind":"api.field_equals","target":"Expense__c","value":"Status__c=Approved","after":"expense.approve"}]},{"id":"end","type":"end","label":""}],"edges":[{"id":"e1","from":"start","to":"sess_sf_sales","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e2","from":"sess_sf_sales","to":"expense","type":"does","label":"submit expense","data":{"catalog":"expense.submit"}},{"id":"e3","from":"sess_sf_sales","to":"expense","type":"denied","data":{"capability":"expense.approve"}},{"id":"e4","from":"sess_sf_sales","to":"sess_sf_admin","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e5","from":"sess_sf_admin","to":"expense","type":"does","label":"approve expense","data":{"catalog":"expense.approve","deltaMs":1200}},{"id":"e6","from":"sess_sf_admin","to":"sess_siebel_admin","type":"login_as","data":{"auth":"ui"}},{"id":"e7","from":"sess_siebel_admin","to":"expense","type":"does","label":"verify expense","data":{"catalog":"siebel.verify_expense"}},{"id":"e8","from":"sess_siebel_admin","to":"end","type":"next"}]},"lead_to_customer":{"schema":"process-graph/2","id":"lead_to_customer","title":"Lead to customer, verified in Siebel","systems":{"sf":{"label":"Salesforce UAT","kind":"salesforce","urlEnv":"SF_INSTANCE_URL"},"siebel":{"label":"Siebel","kind":"siebel","urlEnv":"SIEBEL_URL","sessionPolicy":{"maxConcurrent":1}}},"actors":{"lead_creator":"lead_creator","lead_approver":"lead_approver","credit_approver":"credit_approver","customer_approver":"sales_user","siebel_admin":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_sf_lead_creator","type":"session","label":"Salesforce · lead_creator","system":"sf","actor":"lead_creator","account":{"usernameEnv":"SF_LEAD_CREATOR_USERNAME"},"url":"/lightning/o/Lead/list","steps":{"status":"captured","journeyId":"lead_to_customer"},"timing":{"capturedMeanMs":1100},"snapshot":{"status":"captured","ref":"data:image/jpeg;base64,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","capturedAt":"2026-08-31T21:37:57.560Z"}},{"id":"sess_sf_lead_approver","type":"session","label":"Salesforce · lead_approver","system":"sf","actor":"lead_approver","account":{"usernameEnv":"SF_LEAD_APPROVER_USERNAME"},"url":"/lightning/o/Lead/list","steps":{"status":"captured","journeyId":"lead_to_customer"},"timing":{"capturedMeanMs":1237},"snapshot":{"status":"captured","ref":"data:image/jpeg;base64,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","capturedAt":"2026-08-31T21:37:57.560Z"}},{"id":"sess_sf_credit_approver","type":"session","label":"Salesforce · credit_approver","system":"sf","actor":"credit_approver","account":{"usernameEnv":"SF_CREDIT_APPROVER_USERNAME"},"url":"/lightning/o/Lead/list","steps":{"status":"captured","journeyId":"lead_to_customer"},"timing":{"capturedMeanMs":1374},"snapshot":{"status":"captured","ref":"data:image/jpeg;base64,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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//Z","capturedAt":"2026-08-31T21:37:57.560Z"}},{"id":"sess_sf_customer_approver","type":"session","label":"Salesforce · customer_approver","system":"sf","actor":"customer_approver","account":{"usernameEnv":"SF_SALES_USERNAME"},"url":"/lightning/o/Opportunity/list","steps":{"status":"captured","journeyId":"lead_to_customer"},"timing":{"capturedMeanMs":1511},"snapshot":{"status":"captured","ref":"data:image/jpeg;base64,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","capturedAt":"2026-08-31T21:37:57.560Z"}},{"id":"sess_siebel_admin","type":"session","label":"Siebel · siebel_admin","system":"siebel","actor":"siebel_admin","account":{"usernameEnv":"SIEBEL_ADMIN_USERNAME"},"snapshot":{"status":"captured","ref":"data:image/jpeg;base64,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AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/9k=","capturedAt":"2026-08-31T21:37:57.560Z"},"url":"/","steps":{"status":"captured","journeyId":"lead_to_customer"},"timing":{"capturedMeanMs":1785}},{"id":"lead","type":"data","label":"Lead record","expects":[{"id":"lead_created","kind":"api.record_exists","target":"Lead","after":"lead.create","note":"lead row persisted","timeoutMs":10000,"lastResult":{"status":"pass","at":"2026-08-31T21:37:57.560Z","runId":"sim_mthrf41j","message":"simulated"}},{"id":"lead_potential","kind":"api.field_equals","target":"Lead","value":"Status=Potential","after":"lead.progress_to_potential","note":"progressed by the approver","timeoutMs":10000,"lastResult":{"status":"pass","at":"2026-08-31T21:37:57.560Z","runId":"sim_mthrf41j","message":"simulated"}},{"id":"credit_approved","kind":"api.field_equals","target":"Lead","value":"Credit_Status__c=Approved","after":"credit.check","note":"credit check outcome persisted","timeoutMs":10000,"lastResult":{"status":"pass","at":"2026-08-31T21:37:57.560Z","runId":"sim_mthrf41j","message":"simulated"}}]},{"id":"customer","type":"data","label":"Customer record","expects":[{"id":"customer_created","kind":"api.record_exists","target":"Account","after":"lead.approve_to_customer","note":"conversion produced the customer account","timeoutMs":10000,"lastResult":{"status":"pass","at":"2026-08-31T21:37:57.560Z","runId":"sim_mthrf41j","message":"simulated"}},{"id":"conversion_toast","kind":"ui.toast","value":"converted","after":"lead.approve_to_customer","note":"UI confirms the conversion","lastResult":{"status":"pass","at":"2026-08-31T21:37:57.560Z","runId":"sim_mthrf41j","message":"simulated"}}]},{"id":"customer_siebel","type":"data","label":"Customer record (Siebel)","notes":"created by the SF→Siebel API integration when the customer is approved — no human session involved","expects":[{"id":"customer_visible_in_ui","kind":"ui.text","value":"E2E_","after":"siebel.check_customer","note":"siebel_admin sees the E2E-prefixed customer name in the Siebel UI (DB not queryable — verify via UI)","lastResult":{"status":"pass","at":"2026-08-31T21:37:57.560Z","runId":"sim_mthrf41j","message":"simulated"}}]},{"id":"chk_customer","type":"checkpoint","label":"Customer exists in Siebel","expects":[{"id":"customer_in_siebel","kind":"api.record_exists","target":"Customer","note":"in Siebel = pass; missing = the SF→Siebel integration failed","timeoutMs":120000,"pollMs":5000,"lastResult":{"status":"pass","at":"2026-08-31T21:37:57.560Z","runId":"sim_mthrf41j","message":"simulated"}},{"id":"endpoint_traffic","kind":"log.traffic","target":"log_gateway","value":"create_customer_v2","timeoutMs":60000,"pollMs":5000,"note":"draft — confirm the log system + search term","lastResult":{"status":"pass","at":"2026-08-31T21:37:57.560Z","runId":"sim_mthrf41j","message":"simulated"}}],"snapshot":{"status":"captured","ref":"data:image/jpeg;base64,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","capturedAt":"2026-08-31T21:37:57.560Z"}},{"id":"end","type":"end","label":""},{"id":"api_create_customer_v2","type":"api","label":"create_customer_v2","endpoint":{"method":"POST","path":"/services/apexrest/create_customer_v2"}},{"id":"db_siebel","type":"db","label":"Siebel DB","notes":"NOT queryable until confirmed — verify via Siebel UI (siebel_admin) or the gateway logs"},{"id":"log_gateway","type":"logger","label":"API gateway logs"}],"edges":[{"id":"e1","from":"start","to":"sess_sf_lead_creator","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e2","from":"sess_sf_lead_creator","to":"lead","type":"does","label":"create lead","data":{"catalog":"lead.create"}},{"id":"e3","from":"sess_sf_lead_creator","to":"sess_sf_lead_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e4","from":"sess_sf_lead_approver","to":"lead","type":"does","label":"progress to potential lead","data":{"catalog":"lead.progress_to_potential"}},{"id":"e5","from":"sess_sf_lead_approver","to":"sess_sf_credit_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e6","from":"sess_sf_credit_approver","to":"lead","type":"does","label":"credit check","data":{"catalog":"credit.check"}},{"id":"e7","from":"sess_sf_credit_approver","to":"sess_sf_customer_approver","type":"login_as","data":{"auth":"frontdoor"}},{"id":"e8","from":"sess_sf_customer_approver","to":"customer","type":"does","label":"approve to customer","data":{"catalog":"lead.approve_to_customer"}},{"id":"e9","from":"sess_sf_customer_approver","to":"lead","type":"touches"},{"id":"e10","from":"sess_sf_customer_approver","to":"sess_siebel_admin","type":"login_as","data":{"auth":"ui"}},{"id":"e11","from":"sess_siebel_admin","to":"customer_siebel","type":"does","label":"check customer created","data":{"catalog":"siebel.check_customer"}},{"id":"e12","from":"sess_siebel_admin","to":"chk_customer","type":"asserts"},{"id":"e13","from":"chk_customer","to":"end","type":"next"},{"id":"e_api","from":"customer","to":"api_create_customer_v2","type":"handoff","label":"API replication SF → Siebel"},{"id":"e_api2","from":"api_create_customer_v2","to":"customer_siebel","type":"handoff","label":"creates"},{"id":"e_api3","from":"api_create_customer_v2","to":"db_siebel","type":"touches","label":"writes"},{"id":"e_api4","from":"api_create_customer_v2","to":"log_gateway","type":"touches","label":"logged in"}]},"lead_to_customer_via_ado":{"schema":"process-graph/2","id":"lead_to_customer_via_ado","title":"Lead to customer via ADO","systems":{"sf":{"label":"Salesforce","kind":"salesforce"},"siebel":{"label":"Siebel","kind":"siebel","sessionPolicy":{"maxConcurrent":1}}},"actors":{"lead_creator":"lead_creator","lead_approver":"lead_approver","credit_approver":"credit_approver","salesforce_user":"salesforce_user","siebel_admin":"siebel_admin"},"nodes":[{"id":"start","type":"start","label":""},{"id":"sess_lead_creator","type":"session","label":"Salesforce · lead_creator","system":"sf","actor":"lead_creator"},{"id":"lead","type":"data","label":"Lead record","expects":[{"id":"check_lead_record_is_created","after":"e_do_1","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Lead"}]},{"id":"sess_lead_approver","type":"session","label":"Salesforce · lead_approver","system":"sf","actor":"lead_approver"},{"id":"scr_1","type":"screen","label":"progress the lead to potential lead","expects":[{"id":"check_toast_shows_lead_updat","after":"e_do_2","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"ui.toast","value":"Lead updated"}]},{"id":"sess_credit_approver","type":"session","label":"Salesforce · credit_approver","system":"sf","actor":"credit_approver"},{"id":"scr_2","type":"screen","label":"do the credit check","expects":[{"id":"check_credit_check_screen_sho","after":"e_do_3","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"ui.text","value":"Credit check screen shows Approved"}]},{"id":"sess_salesforce_user","type":"session","label":"Salesforce · salesforce_user","system":"sf","actor":"salesforce_user"},{"id":"customer","type":"data","label":"Customer record","expects":[{"id":"check_customer_record_is_crea","after":"e_do_4","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Customer"},{"id":"check_customer_record_exists","after":"e_do_5","draft":true,"note":"draft from ADO — confirm once (planner: draft? button)","kind":"api.record_exists","target":"Customer"}]},{"id":"sess_siebel_admin","type":"session","label":"Siebel · siebel_admin","system":"siebel","actor":"siebel_admin"},{"id":"end","type":"end","label":""}],"edges":[{"id":"e_login_1","from":"start","to":"sess_lead_creator","type":"login_as"},{"id":"e_do_1","from":"sess_lead_creator","to":"lead","type":"does","label":"create a lead","data":{"catalog":"lead.create"}},{"id":"e_login_2","from":"sess_lead_creator","to":"sess_lead_approver","type":"login_as"},{"id":"e_do_2","from":"sess_lead_approver","to":"scr_1","type":"does","label":"progress the lead to potential lead","data":{"catalog":"lead.progress"}},{"id":"e_login_3","from":"sess_lead_approver","to":"sess_credit_approver","type":"login_as"},{"id":"e_do_3","from":"sess_credit_approver","to":"scr_2","type":"does","label":"do the credit check","data":{"catalog":"scr_2.do"}},{"id":"e_login_4","from":"sess_credit_approver","to":"sess_salesforce_user","type":"login_as"},{"id":"e_do_4","from":"sess_salesforce_user","to":"customer","type":"does","label":"approve to customer","data":{"catalog":"customer.approve"}},{"id":"e_login_5","from":"sess_salesforce_user","to":"sess_siebel_admin","type":"login_as"},{"id":"e_do_5","from":"sess_siebel_admin","to":"customer","type":"does","label":"check the customer is created","data":{"catalog":"customer.check"}},{"id":"e_end","from":"sess_siebel_admin","to":"end","type":"next"}]}};
+window.PROJECT_LIST = [];
 </script>
 <script>
 window.PERSONA_IDS = ["admin","credit_approver","guest","lead_approver","lead_creator","portal_user","sales_user","siebel_admin"];
@@ -6395,6 +6802,7 @@ function addNode(partial) {
   if (!n.pos) { var p = { x: cy.width() / 2, y: cy.height() / 2 }; var rp = cy.pan(); var z = cy.zoom(); n.pos = { x: (p.x - rp.x) / z, y: (p.y - rp.y) / z }; }
   G.nodes.push(n);
   cy.add({ group: 'nodes', data: { id: n.id, label: displayLabel(n), type: n.type, color: n.system ? sysColor(n.system) : '#555b64' }, position: { x: n.pos.x, y: n.pos.y } });
+  cy.$(':selected').unselect(); // single-select the newcomer — its card must open
   cy.$id(n.id).select();
   setStatus();
   return n.id;
@@ -6407,6 +6815,21 @@ function connect(from, to, type) {
   return e.id;
 }
 function deleteSelected() {
+  var sel = cy.$(':selected');
+  if (sel.length > 1) {
+    // Group delete: every selected node (with its edges) + selected edges.
+    var nodeIds = {};
+    sel.nodes().forEach(function (n) { nodeIds[n.id()] = true; });
+    var edgeIds = {};
+    sel.edges().forEach(function (e) { edgeIds[e.id()] = true; });
+    var nCount = sel.nodes().length;
+    var eCount = sel.edges().length;
+    G.nodes = G.nodes.filter(function (n) { return !nodeIds[n.id]; });
+    G.edges = G.edges.filter(function (e) { return !edgeIds[e.id] && !nodeIds[e.from] && !nodeIds[e.to]; });
+    hideForms(); render();
+    setStatus('deleted ' + nCount + ' node(s) · ' + eCount + ' edge(s)');
+    return;
+  }
   if (!selected) return;
   if (selected.kind === 'node') {
     G.nodes = G.nodes.filter(function (n) { return n.id !== selected.id; });
@@ -6437,7 +6860,12 @@ function refreshSaveMenu() {
   var sel = document.getElementById('f_save');
   sel.innerHTML = '<option value="">save ▾</option>';
   var inBrowser = !!browserSaves()[G.id];
-  var inRepo = !!(window.GRAPH_LIBRARY || {})[G.id];
+  // Library keys are refs — a project graph's id sits behind 'project/'.
+  var lib = window.GRAPH_LIBRARY || {};
+  var inRepo = !!lib[G.id] || Object.keys(lib).some(function (k) {
+    var slash = k.indexOf('/');
+    return slash > 0 && k.slice(slash + 1) === G.id;
+  });
   if (inBrowser) {
     sel.add(new Option('overwrite "' + G.id + '"', 'overwrite'));
   } else {
@@ -6491,16 +6919,83 @@ function persistToBrowser(graph) {
     localStorage.setItem(LS_KEY, JSON.stringify(all));
   } catch (e) { /* storage unavailable (private window etc.) — dropdown just won't remember */ }
 }
+// ---- projects (DESIGN-PROJECTS.md) — filesystem is the registry ------------
+// PROJECT_LIST is inlined at build; served mode refreshes it live.
+var PROJECTS = (window.PROJECT_LIST || []).slice();
+var currentProject = '';
+function refreshProjects() {
+  var sel = document.getElementById('f_project');
+  sel.innerHTML = '';
+  sel.appendChild(new Option('all projects', ''));
+  PROJECTS.forEach(function (p) {
+    sel.appendChild(new Option(p.project + (p.graphs ? ' (' + p.graphs + ')' : ''), p.project));
+  });
+  sel.appendChild(new Option('＋ new project…', '__new'));
+  sel.value = currentProject;
+}
+function setProject(p) {
+  currentProject = p || '';
+  var sel = document.getElementById('f_project');
+  if (sel.value !== currentProject) sel.value = currentProject;
+  refreshLibrary();
+}
+function newProjectFlow() {
+  var served = /^https?:$/.test(location.protocol) || !!window.PLANNER_FORCE_SERVED;
+  if (!served) {
+    setStatus('creating a project needs the dev server — run: npm run planner');
+    refreshProjects();
+    return;
+  }
+  var name = prompt('new project name (lower-case letters, digits, _ or -):');
+  if (name === null) { refreshProjects(); return; }
+  fetch('/__projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: name.trim() }) })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (res) {
+      var el = document.getElementById('status');
+      if (!res.ok) {
+        el.className = 'bad';
+        el.textContent = 'project NOT created — ' + ((res.j && res.j.error) || 'server refused');
+        refreshProjects();
+        return;
+      }
+      PROJECTS = res.j.projects || PROJECTS;
+      currentProject = res.j.project.project;
+      refreshProjects();
+      refreshLibrary();
+      setStatus('project "' + currentProject + '" created — projects/' + currentProject + '/ (drop graphs in graphs/, or save from here once the rebuild lands)');
+    })
+    .catch(function () {
+      var el = document.getElementById('status');
+      el.className = 'bad';
+      el.textContent = 'project NOT created — dev server unreachable';
+      refreshProjects();
+    });
+}
+
 function refreshLibrary() {
   var sel = document.getElementById('f_library');
   sel.innerHTML = '<option value="">open graph…</option>';
   var builtIn = window.GRAPH_LIBRARY || {};
-  var names = Object.keys(builtIn).sort();
-  if (names.length) {
+  // Library keys are REFS: bare ids = legacy repo folder, project/id = owned.
+  var legacy = [];
+  var byProject = {};
+  Object.keys(builtIn).sort().forEach(function (ref) {
+    var slash = ref.indexOf('/');
+    if (slash < 0) { legacy.push(ref); return; }
+    var p = ref.slice(0, slash);
+    (byProject[p] = byProject[p] || []).push(ref);
+  });
+  if (legacy.length && !currentProject) {
     var g1 = document.createElement('optgroup'); g1.label = 'built-in (repo)';
-    names.forEach(function (id) { g1.appendChild(new Option(id, 'lib:' + id)); });
+    legacy.forEach(function (id) { g1.appendChild(new Option(id, 'lib:' + id)); });
     sel.appendChild(g1);
   }
+  Object.keys(byProject).sort().forEach(function (p) {
+    if (currentProject && p !== currentProject) return;
+    var og = document.createElement('optgroup'); og.label = 'project · ' + p;
+    byProject[p].forEach(function (ref) { og.appendChild(new Option(ref.slice(p.length + 1), 'lib:' + ref)); });
+    sel.appendChild(og);
+  });
   var saves = browserSaves();
   var saveNames = Object.keys(saves).sort();
   if (saveNames.length) {
@@ -6520,20 +7015,179 @@ function openFromLibrary(value) {
   document.getElementById('f_library').value = '';
 }
 
+// ---- insert ▾: compose another graph INTO this one (copy-merge) ------------
+function refreshInsertMenu() {
+  var sel = document.getElementById('f_insert');
+  sel.innerHTML = '<option value="">insert ▾</option>';
+  var builtIn = window.GRAPH_LIBRARY || {};
+  Object.keys(builtIn).sort().forEach(function (ref) {
+    var doc = builtIn[ref];
+    if (doc && doc.id === G.id) return; // never into itself
+    sel.appendChild(new Option(ref, 'lib:' + ref));
+  });
+  Object.keys(browserSaves()).sort().forEach(function (id) {
+    if (id === G.id) return;
+    sel.appendChild(new Option(id + ' (browser)', 'ls:' + id));
+  });
+}
+function insertGraph(value) {
+  document.getElementById('f_insert').value = '';
+  if (!value) return { ok: false, errors: ['nothing chosen'] };
+  var sep = value.indexOf(':');
+  var source = value.slice(0, sep);
+  var ref = value.slice(sep + 1);
+  var doc = source === 'lib' ? (window.GRAPH_LIBRARY || {})[ref] : browserSaves()[ref];
+  var el = document.getElementById('status');
+  if (!doc) { el.className = 'bad'; el.textContent = 'insert failed: "' + ref + '" is not in the library'; return { ok: false, errors: ['unknown ref'] }; }
+  if (!window.ProcessGraphCompose) { el.className = 'bad'; el.textContent = 'insert unavailable — rebuild the planner (npm run build:planner)'; return { ok: false, errors: ['compose not inlined'] }; }
+  // Island by design: the import lands SEPARATE — you draw the connection
+  // from a previous step, then unlink/relink end. check ✓ referees.
+  syncPositions();
+  try {
+    var r = window.ProcessGraphCompose.composeGraphs(
+      JSON.parse(JSON.stringify(G)),
+      JSON.parse(JSON.stringify(doc)),
+      { ref: ref, mode: 'island' },
+    );
+    loadGraph(r.graph);
+    var islandLine = '';
+    r.summary.forEach(function (line) { if (line.indexOf('island:') === 0) islandLine = line; });
+    setStatus('inserted "' + ref + '" — ' + (islandLine || r.summary[r.summary.length - 1]));
+    return { ok: true, summary: r.summary };
+  } catch (e) {
+    el.className = 'bad';
+    el.textContent = 'insert refused: ' + e.message.split('\n')[0];
+    return { ok: false, errors: [e.message] };
+  }
+}
+
 function setMode(m) {
   document.body.classList.toggle('view', m === 'view');
   document.getElementById('f_mode').value = m;
   cy.autoungrabify(m === 'view');
-  ['b_add', 'b_connect', 'b_delete', 'b_meta_apply', 'b_import', 'f_save', 'b_new'].forEach(function (id) { document.getElementById(id).disabled = m === 'view'; });
+  // Plain drag ALWAYS pans (owner correction: navigation is the default
+  // gesture). Hold SPACE in edit mode to rubber-band select instead.
+  cy.boxSelectionEnabled(false);
+  cy.userPanningEnabled(true);
+  ['b_add', 'b_connect', 'b_delete', 'b_meta_apply', 'b_import', 'f_save', 'b_new', 'f_insert'].forEach(function (id) { document.getElementById(id).disabled = m === 'view'; });
   connectMode = false;
   clearPendingSource();
   if (eh) eh.disableDrawMode();
   document.getElementById('b_connect').classList.remove('on');
 }
 
-cy.on('select', 'node', function (ev) { showNodeForm(nodeById(ev.target.id())); });
-cy.on('select', 'edge', function (ev) { showEdgeForm(edgeById(ev.target.id())); });
+cy.on('select', 'node', function (ev) {
+  if (cy.$(':selected').length > 1) { hideForms(); selected = null; return; } // group — no card
+  showNodeForm(nodeById(ev.target.id()));
+});
+cy.on('select', 'edge', function (ev) {
+  if (cy.$(':selected').length > 1) { hideForms(); selected = null; return; }
+  showEdgeForm(edgeById(ev.target.id()));
+});
 cy.on('unselect', function () { if (cy.$(':selected').length === 0) hideForms(); });
+
+// ---- group selection: SPACE + drag rubber-bands (owner-corrected gesture:
+// plain drag stays pan/zoom navigation); a dashed bounding box appears
+// around 2+ selected nodes. Dragging any selected node moves the whole
+// selection (cytoscape native); the frame's edges and grip do the same
+// without risking a mis-click on a node.
+var groupRaf = null;
+function refreshGroupBox() {
+  if (groupRaf) return;
+  groupRaf = window.requestAnimationFrame(function () {
+    groupRaf = null;
+    try { placeGroupBox(); } catch (e) { /* never break canvas interaction */ }
+  });
+}
+function placeGroupBox() {
+  var box = document.getElementById('groupbox');
+  var nodes = cy.$('node:selected');
+  if (nodes.length < 2) { box.classList.add('hide'); return; }
+  var rect = document.getElementById('cy').getBoundingClientRect();
+  var bb = nodes.renderedBoundingBox();
+  box.style.left = Math.round(rect.left + bb.x1 - 10) + 'px';
+  box.style.top = Math.round(rect.top + bb.y1 - 10) + 'px';
+  box.style.width = Math.round(bb.w + 20) + 'px';
+  box.style.height = Math.round(bb.h + 20) + 'px';
+  var edges = cy.$('edge:selected').length;
+  document.getElementById('gb_count').textContent =
+    nodes.length + ' nodes' + (edges ? ' · ' + edges + ' edges' : '');
+  // Grip rides above the frame — unless that would push it under the
+  // toolbar; then it tucks inside the frame's top-left corner.
+  var headerBottom = document.querySelector('header').getBoundingClientRect().bottom;
+  document.getElementById('gb_grip').style.top =
+    (rect.top + bb.y1 - 10) - headerBottom < 28 ? '4px' : '-24px';
+  box.classList.remove('hide');
+}
+cy.on('select unselect pan zoom', refreshGroupBox);
+cy.on('position', 'node', refreshGroupBox);
+window.addEventListener('resize', refreshGroupBox);
+cy.on('boxend', function () {
+  window.setTimeout(function () {
+    var n = cy.$('node:selected').length;
+    var e = cy.$('edge:selected').length;
+    if (n + e > 1) setStatus(n + ' nodes · ' + e + ' edges selected — drag the frame to move · Del deletes');
+  }, 0);
+});
+
+(function groupDrag() {
+  var last = null;
+  function move(ev) {
+    if (!last) return;
+    var z = cy.zoom() || 1;
+    var dx = (ev.clientX - last.x) / z;
+    var dy = (ev.clientY - last.y) / z;
+    last = { x: ev.clientX, y: ev.clientY };
+    cy.$('node:selected').positions(function (n) {
+      var p = n.position();
+      return { x: p.x + dx, y: p.y + dy };
+    });
+    refreshGroupBox();
+  }
+  function end() {
+    if (!last) return;
+    last = null;
+    syncPositions();
+    setStatus('moved ' + cy.$('node:selected').length + ' nodes together');
+  }
+  document.getElementById('groupbox').addEventListener('mousedown', function (ev) {
+    if (document.body.classList.contains('view')) return;
+    var t = ev.target;
+    var onHandle = t && t.closest && (t.closest('.gb_hit') || t.closest('#gb_grip'));
+    if (!onHandle) return;
+    last = { x: ev.clientX, y: ev.clientY };
+    ev.preventDefault();
+    ev.stopPropagation();
+  });
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', end);
+})();
+
+// SPACE held (edit mode) = rubber-band select with drag; release to get the
+// normal pan/zoom canvas back. Plain drag always pans, wheel always zooms.
+var spaceHeld = false;
+function endSpaceSelect() {
+  if (!spaceHeld) return;
+  spaceHeld = false;
+  document.getElementById('cy').style.cursor = '';
+  cy.boxSelectionEnabled(false);
+  cy.userPanningEnabled(true);
+}
+document.addEventListener('keydown', function (ev) {
+  if (ev.code !== 'Space' || spaceHeld) return;
+  var t = ev.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+  if (document.body.classList.contains('view')) return;
+  spaceHeld = true;
+  cy.boxSelectionEnabled(true);
+  cy.userPanningEnabled(false);
+  document.getElementById('cy').style.cursor = 'crosshair';
+  ev.preventDefault(); // keep the page from scrolling
+});
+document.addEventListener('keyup', function (ev) {
+  if (ev.code === 'Space') endSpaceSelect();
+});
+window.addEventListener('blur', endSpaceSelect);
 cy.on('dbltap', function (ev) { if (ev.target === cy && !document.body.classList.contains('view')) addNode({ pos: { x: ev.position.x, y: ev.position.y } }); });
 cy.on('dbltap', 'node', function (ev) {
   var n = nodeById(ev.target.id());
@@ -6675,9 +7329,25 @@ document.getElementById('legend').addEventListener('click', function () {
 // ---- graph check: every problem and unfinished part, with hints ----------
 function graphIssues() {
   var v = validateGraph(G, { personaAuth: PERSONA_AUTH });
+  var errors = v.errors.slice();
   var gaps = [];
   try { gaps = computeGaps(G, { knownPersonas: PERSONA_IDS }); } catch (e) { /* engine absent → errors alone */ }
-  return { errors: v.errors, gaps: gaps };
+  // Chain health — the hand-wiring referee: a branched/cyclic/disconnected
+  // login chain is un-walkable (red, must fix); a session the chain never
+  // reaches will silently never run (amber, to finish).
+  var C = window.ProcessGraphCompose;
+  if (C && C.chainHealth) {
+    var h = C.chainHealth(G);
+    errors = errors.concat(h.errors);
+    h.stranded.forEach(function (id) {
+      gaps.push({
+        kind: 'session_off_chain', at: id,
+        question: "Session '" + id + "' is not on the login chain — a run will never reach it. Draw a login_as edge into it, or delete it.",
+        short: 'not on the login chain — wire a login_as edge into it, or delete it',
+      });
+    });
+  }
+  return { errors: errors, gaps: gaps };
 }
 function refreshCheckBadge(pre) {
   var i = pre || graphIssues();
@@ -6798,7 +7468,12 @@ function renderIssues() {
 document.getElementById('b_check').addEventListener('click', function () {
   var panel = document.getElementById('issues');
   panel.classList.toggle('hide');
-  if (!panel.classList.contains('hide')) renderIssues();
+  if (!panel.classList.contains('hide')) {
+    // Anchor below the REAL header edge — the grouped toolbar wraps to two
+    // rows on narrow windows, and a fixed 44px would cover its second row.
+    panel.style.top = (document.querySelector('header').getBoundingClientRect().bottom + 6) + 'px';
+    renderIssues();
+  }
 });
 document.getElementById('iss_close').addEventListener('click', function () {
   document.getElementById('issues').classList.add('hide');
@@ -6906,6 +7581,12 @@ document.getElementById('b_meta_apply').addEventListener('click', function () {
 });
 document.getElementById('f_mode').addEventListener('change', function (ev) { setMode(ev.target.value); });
 document.getElementById('f_library').addEventListener('change', function (ev) { openFromLibrary(ev.target.value); });
+document.getElementById('f_project').addEventListener('change', function (ev) {
+  if (ev.target.value === '__new') { newProjectFlow(); return; }
+  setProject(ev.target.value);
+});
+document.getElementById('f_insert').addEventListener('mousedown', refreshInsertMenu);
+document.getElementById('f_insert').addEventListener('change', function (ev) { insertGraph(ev.target.value); });
 document.getElementById('f_save').addEventListener('mousedown', refreshSaveMenu);
 document.getElementById('f_save').addEventListener('change', function (ev) {
   var mode = ev.target.value;
@@ -6914,7 +7595,7 @@ document.getElementById('f_save').addEventListener('change', function (ev) {
 });
 document.addEventListener('keydown', function (ev) {
   if (ev.key === 'Escape' && connectMode) toggleConnect(false);
-  if ((ev.key === 'Delete' || ev.key === 'Backspace') && selected && document.activeElement === document.body) deleteSelected();
+  if ((ev.key === 'Delete' || ev.key === 'Backspace') && (selected || cy.$(':selected').length > 1) && document.activeElement === document.body) deleteSelected();
 });
 
 // ▶ test — graph-level commands. The planner is a static page, so like the
@@ -6932,9 +7613,45 @@ function copyCmd(cmd, what) {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(cmd).then(done, done);
   else done();
 }
+function showRunOrder() {
+  var panel = document.getElementById('runorder');
+  panel.style.top = (document.querySelector('header').getBoundingClientRect().bottom + 6) + 'px';
+  var list = document.getElementById('ro_list');
+  var C = window.ProcessGraphCompose;
+  if (!C || !C.runOrder) {
+    list.innerHTML = '<i>run order unavailable — rebuild the planner (npm run build:planner)</i>';
+  } else {
+    var r = C.runOrder(G);
+    if (r.problem) {
+      list.innerHTML = '<div style="color:var(--danger);">' + escHtml(r.problem) + ' — see check ✓</div>';
+    } else if (!r.steps.length) {
+      list.innerHTML = '<i>no runnable steps yet — sessions on the chain need does / asserts edges</i>';
+    } else {
+      list.innerHTML = r.steps.map(function (s) {
+        var badge = s.kind === 'denied'
+          ? ' <span style="color:var(--danger);">must NOT</span>'
+          : (s.kind === 'asserts' ? ' <span style="color:#d9a441;">verify</span>' : '');
+        return '<div class="ro_row" data-edge="' + escHtml(s.edgeId) + '" title="click to select this step\'s edge" style="padding:3px 4px; border-bottom:1px solid var(--line); cursor:pointer;">' +
+          '<span style="color:var(--muted);">' + (s.index + 1) + '</span> · <b>' + escHtml(s.actor) + '</b> — ' +
+          escHtml(s.label || s.name) +
+          ' <span class="mono" style="color:var(--muted);">' + escHtml(s.name) + '</span>' + badge + '</div>';
+      }).join('');
+    }
+  }
+  panel.classList.remove('hide');
+}
+document.getElementById('ro_close').addEventListener('click', function () { document.getElementById('runorder').classList.add('hide'); });
+document.getElementById('ro_list').addEventListener('click', function (ev) {
+  var row = ev.target && ev.target.closest ? ev.target.closest('.ro_row') : null;
+  if (!row) return;
+  cy.$(':selected').unselect();
+  cy.$id(row.getAttribute('data-edge')).select();
+});
+
 document.getElementById('f_test').addEventListener('change', function (ev) {
   var v = ev.target.value; ev.target.value = '';
   if (!v) return;
+  if (v === 'order') { showRunOrder(); return; }
   var c = testCmds();
   if (!c) { setStatus('give the graph an id first — the spec file is named after it'); return; }
   if (v === 'spec') copyCmd(c.spec, 'make spec (writes tests/e2e/' + G.id + '.journey.spec.ts from this graph)');
@@ -6960,12 +7677,47 @@ window.planner = {
   library: function () {
     return { builtIn: Object.keys(window.GRAPH_LIBRARY || {}).sort(), saved: Object.keys(browserSaves()).sort() };
   },
+  projects: function () {
+    return { list: PROJECTS.map(function (p) { return p.project; }), current: currentProject };
+  },
+  setProject: setProject,
+  insertGraph: insertGraph,
+  runOrder: function () {
+    var C = window.ProcessGraphCompose;
+    return C && C.runOrder ? C.runOrder(G) : { steps: [] };
+  },
+  selectMany: function (ids) {
+    cy.$(':selected').unselect();
+    ids.forEach(function (id) { cy.$id(id).select(); });
+    refreshGroupBox();
+  },
+  selection: function () {
+    return {
+      nodes: cy.$('node:selected').map(function (n) { return n.id(); }),
+      edges: cy.$('edge:selected').map(function (e) { return e.id(); }),
+    };
+  },
+  groupBox: function () {
+    placeGroupBox(); // synchronous read for tests — the rAF throttle can lag a frame
+    var box = document.getElementById('groupbox');
+    return { visible: !box.classList.contains('hide'), count: document.getElementById('gb_count').textContent };
+  },
 };
 
 var params = new URLSearchParams(location.search);
 setMode(params.get('mode') === 'view' ? 'view' : 'edit');
+refreshProjects();
 refreshLibrary();
 render();
+// Served mode: the dev server knows the live project list (a teammate may
+// have scaffolded one since the last build) — refresh quietly.
+(function () {
+  var served = /^https?:$/.test(location.protocol) || !!window.PLANNER_FORCE_SERVED;
+  if (!served || !window.fetch) return;
+  fetch('/__projects').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+    if (j && j.projects) { PROJECTS = j.projects; refreshProjects(); }
+  }).catch(function () {});
+})();
 </script>
 </body>
 </html>

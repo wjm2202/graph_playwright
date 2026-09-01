@@ -25,6 +25,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { PersonaRegistry } from '../personas/registry';
 import { buildFrontdoorUrl, fetchSingleAccessUrl } from '../auth/frontdoor';
+import { fillLoginForm } from '../auth/loginForm';
 import { GUEST_STATE, sessionFreshness, sessionMaxAgeMs } from '../auth/storage';
 import { totpNow } from '../auth/totp';
 import { handleTotpChallenge } from '../auth/totp-challenge';
@@ -256,12 +257,14 @@ export const defaultAuthenticator: Authenticator = async (personaId, browser, ca
       await page.goto(url);
       await page.waitForURL((u) => !/frontdoor\.jsp|\/login/.test(u.pathname), { timeout: 30_000 });
     } else if (creds.username && creds.password) {
-      // Tier 2: one UI login, persisted. Org login page (or site login for portals).
+      // Tier 2: one UI login, persisted. Org login page (or site login for
+      // portals). fillLoginForm knows both Salesforce- and Siebel-shaped
+      // markup, and settles on "the password field left the page" — the only
+      // signal that works when a system (Siebel) swaps views without
+      // changing its URL.
       const loginBase = def.kind === 'portal' ? `${domain}/login` : domain;
       await page.goto(loginBase);
-      await page.getByLabel(/username/i).or(page.locator('#username')).first().fill(creds.username);
-      await page.getByLabel(/password/i).or(page.locator('#password')).first().fill(creds.password);
-      await page.getByRole('button', { name: /log in/i }).or(page.locator('#Login')).first().click();
+      await fillLoginForm(page, { username: creds.username, password: creds.password });
 
       // MFA: when the org interposes a TOTP challenge, answer it from the
       // persona's totpEnv secret (base32 or otpauth:// URL). A challenge

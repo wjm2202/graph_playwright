@@ -10,3 +10,7 @@ recordings/
 # runtime data + OS noise (S15)
 .DS_Store
 journeys/telemetry.jsonl
+
+# per-project scratch (DESIGN-PROJECTS.md)
+projects/*/recordings/
+projects/*/evidence/

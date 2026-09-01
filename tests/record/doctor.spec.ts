@@ -7,32 +7,37 @@
  */
 import { test } from '@playwright/test';
 import * as fs from 'fs';
-import * as path from 'path';
 import { envDoctor, formatDoctorReport } from '../../src/personas/doctor';
+import { listGraphRefs, resolveGraphRef } from '../../src/graph/resolve';
 import { PersonaRegistry } from '../../src/personas/registry';
 import type { ProcessGraph } from '../../src/graph/schema';
 
 test('diagnose graph runnability from .env', async () => {
-  test.skip(!process.env.GRAPH_DOCTOR, 'set GRAPH_DOCTOR=<graph_id|all>');
+  test.skip(!process.env.GRAPH_DOCTOR, 'set GRAPH_DOCTOR=<graph_id | project/graph_id | project:<name> | all>');
   const want = String(process.env.GRAPH_DOCTOR);
-  const dir = path.resolve('journeys', 'graphs');
-  const files = fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.graph.json'))
-    .filter((f) => want === 'all' || f === `${want}.graph.json`);
-  if (!files.length) {
-    const have = fs.readdirSync(dir).filter((f) => f.endsWith('.graph.json'));
-    throw new Error(`no such graph '${want}' — available: ${have.join(', ')} (or 'all')`);
+  let targets;
+  if (want === 'all') {
+    targets = listGraphRefs();
+    if (!targets.length) throw new Error('no graphs found — create one in the planner or scaffold a project (npm run project:new)');
+  } else if (want.startsWith('project:')) {
+    const project = want.slice('project:'.length);
+    targets = listGraphRefs().filter((r) => r.project === project);
+    if (!targets.length) {
+      const projects = [...new Set(listGraphRefs().map((r) => r.project).filter(Boolean))];
+      throw new Error(`project '${project}' has no graphs — projects with graphs: ${projects.join(', ') || '(none)'}`);
+    }
+  } else {
+    targets = [resolveGraphRef(want)];
   }
   const registry = PersonaRegistry.load();
   let allReady = true;
-  for (const f of files) {
-    const graph = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as ProcessGraph;
+  for (const target of targets) {
+    const graph = JSON.parse(fs.readFileSync(target.file, 'utf8')) as ProcessGraph;
     const report = envDoctor(graph, registry);
     allReady = allReady && report.ready;
-     
-    console.log('\n' + formatDoctorReport(report));
+
+    console.log(`\n[${target.ref}]\n` + formatDoctorReport(report));
   }
-   
+
   if (allReady) console.log('\n✔ everything diagnosed READY — captures and runs will not skip');
 });

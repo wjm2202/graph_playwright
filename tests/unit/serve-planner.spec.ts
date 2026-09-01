@@ -29,8 +29,15 @@ test.beforeAll(async () => {
   fs.writeFileSync(path.join(tmp, 'personas.json'), JSON.stringify(FIXTURE, null, 2));
   fs.writeFileSync(path.join(tmp, '.env'), 'SF_INSTANCE_URL=https://uat.example.com\nSFDC_UAT_USERNAME=me@x\n');
 
+  // Presence must come from the SANDBOX .env alone. The server also honors
+  // real process.env (a feature in production), and playwright.config.ts
+  // dotenv-loads the repo .env into THIS process — so a developer's .env
+  // would leak through an inherited environment and flip the booleans below.
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => !/^(SF_|SFDC_|SIEBEL_)/.test(k)),
+  );
   child = spawn('node', [path.resolve('tools/serve-planner.mjs')], {
-    env: { ...process.env, PLANNER_ROOT: tmp, PLANNER_PORT: '0' },
+    env: { ...cleanEnv, PLANNER_ROOT: tmp, PLANNER_PORT: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   base = await new Promise<string>((resolve, reject) => {
@@ -98,6 +105,40 @@ test('a system that does not use a credential: clearing removes the mapping; los
 
   // re-wire for the tests that follow:
   await post({ personaId: 'sales_user', passwordEnv: 'SF_SALES_PASSWORD' });
+});
+
+test('projects: GET lists the sandbox registry; POST scaffolds a team-named project; bad names 400', async () => {
+  let j = await (await fetch(`${base}/__projects`)).json();
+  expect(j.projects).toEqual([]); // fresh sandbox root — nothing hardcoded anywhere
+
+  const make = await fetch(`${base}/__projects`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: 'web_shop', team: 'Web' }),
+  });
+  expect(make.status).toBe(200);
+  j = await make.json();
+  expect(j.ok).toBe(true);
+  expect(j.project).toMatchObject({ project: 'web_shop', team: 'Web', namePrefix: 'E2E_WEB_SHOP' });
+  expect(j.projects.map((p: { project: string }) => p.project)).toEqual(['web_shop']);
+  expect(fs.existsSync(path.join(tmp, 'projects', 'web_shop', 'graphs'))).toBe(true);
+  expect(fs.existsSync(path.join(tmp, 'projects', 'web_shop', 'project.json'))).toBe(true);
+
+  const bad = await fetch(`${base}/__projects`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: 'Bad Name' }),
+  });
+  expect(bad.status).toBe(400);
+  expect((await bad.json()).error).toContain('lower-case');
+
+  const dup = await fetch(`${base}/__projects`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project: 'web_shop' }),
+  });
+  expect(dup.status).toBe(400);
+  expect((await dup.json()).error).toContain('already exists');
+
+  j = await (await fetch(`${base}/__projects`)).json();
+  expect(j.projects.length).toBe(1);
 });
 
 test('refusals: pasted secrets, empty username, unknown/guest personas — file never changes', async () => {

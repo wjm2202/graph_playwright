@@ -6,19 +6,16 @@
  */
 import { test } from '@playwright/test';
 import * as fs from 'fs';
-import * as path from 'path';
 import { computeGaps, applyAnswers, type GrillmeOp } from '../../src/graph/gaps';
+import { chainHealth } from '../../src/graph/compose';
+import { resolveGraphRef } from '../../src/graph/resolve';
 import { PersonaRegistry } from '../../src/personas/registry';
 import type { ProcessGraph } from '../../src/graph/schema';
 
 test('list gaps or apply grillme answers to a graph', async () => {
-  test.skip(!process.env.GRILLME, 'set GRILLME=<graph_id> (+ GRILLME_APPLY=<ops.json> to write back)');
+  test.skip(!process.env.GRILLME, 'set GRILLME=<graph_id | project/graph_id> (+ GRILLME_APPLY=<ops.json> to write back)');
   const id = process.env.GRILLME ?? '';
-  const file = path.resolve('journeys', 'graphs', `${id}.graph.json`);
-  if (!fs.existsSync(file)) {
-    const have = fs.readdirSync(path.resolve('journeys', 'graphs')).filter((f) => f.endsWith('.graph.json'));
-    throw new Error(`no such graph '${id}' — available: ${have.join(', ')}`);
-  }
+  const file = resolveGraphRef(id).file;
   const graph = JSON.parse(fs.readFileSync(file, 'utf8')) as ProcessGraph;
 
    
@@ -32,6 +29,9 @@ test('list gaps or apply grillme answers to a graph', async () => {
 
   const current = JSON.parse(fs.readFileSync(file, 'utf8')) as ProcessGraph;
   const gaps = computeGaps(current, { knownPersonas: PersonaRegistry.load().ids() });
+  const chain = chainHealth(current);
+  for (const err of chain.errors) console.log(`  [chain] MUST FIX: ${err}`);
+  for (const sess of chain.stranded) console.log(`  [chain] session '${sess}' is not on the login chain — a run will never reach it`);
   console.log(`\ngaps for '${id}': ${gaps.length}`);
   for (const gap of gaps) console.log(`  [${gap.kind}] ${gap.at}: ${gap.question}${gap.options ? `  (${gap.options.join(' / ')})` : ''}`);
   console.log('\nGAPS_JSON ' + JSON.stringify(gaps));

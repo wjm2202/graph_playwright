@@ -39,6 +39,19 @@ export interface OracleContext {
 /** The api.* seam: return true/false, or throw with a precise message. */
 export type ApiOracle = (spec: OracleSpec, ctx: OracleContext) => Promise<boolean>;
 
+/**
+ * Thrown by an ApiOracle binding for kinds it cannot claim (no adapter for a
+ * db/log system, an SObject that lives outside this org). Reported as
+ * 'skipped' with the reason — visible, never a silent pass, and never a
+ * run-failing fail for a check that CANNOT be evaluated here.
+ */
+export class OracleUnbound extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OracleUnbound';
+  }
+}
+
 const ORACLE_TIMEOUT = 10_000;
 
 function timeoutFor(spec: OracleSpec): number {
@@ -118,7 +131,11 @@ export async function evaluateOracles(
           results.push({ id: spec.id, kind: spec.kind, status: 'skipped', message: `unknown oracle kind '${spec.kind}'` });
       }
     } catch (e) {
-      results.push({ id: spec.id, kind: spec.kind, status: 'fail', message: trim((e as Error).message) });
+      if (e instanceof OracleUnbound) {
+        results.push({ id: spec.id, kind: spec.kind, status: 'skipped', message: trim(e.message) });
+      } else {
+        results.push({ id: spec.id, kind: spec.kind, status: 'fail', message: trim((e as Error).message) });
+      }
     }
   }
   return results;

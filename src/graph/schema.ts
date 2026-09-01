@@ -130,6 +130,9 @@ export interface ProcessGraph {
   actors: Record<string, string>;
   nodes: PNode[];
   edges: PEdge[];
+  /** Provenance of graphs composed INTO this one (compose.ts) — a copy-merge
+   *  record, newest last. Purely informational; enables staleness checks. */
+  composedFrom?: { ref: string; graphId: string; at: string }[];
 }
 
 export interface GraphValidation {
@@ -187,6 +190,12 @@ export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): Gr
   for (const [alias, persona] of Object.entries(actors)) {
     if (!ID_RE.test(alias)) errors.push(`actors.${alias}: alias must be lower_snake_case`);
     if (typeof persona !== 'string' || !persona) errors.push(`actors.${alias}: personaId must be a non-empty string`);
+  }
+
+  for (const [i, c] of (g.composedFrom ?? []).entries()) {
+    if (!c || typeof c.ref !== 'string' || !c.ref || typeof c.graphId !== 'string' || !c.graphId || typeof c.at !== 'string' || !c.at) {
+      errors.push(`composedFrom[${i}]: needs { ref, graphId, at } strings`);
+    }
   }
 
   const nodeIds = new Set<string>();

@@ -14,6 +14,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listProjects } from './scaffold-project.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const nm = (p) => join(root, 'node_modules', p);
@@ -33,23 +34,30 @@ function transpileShared() {
   const out = mkdtempSync(join(tmpdir(), 'planner-schema-'));
   try {
     execFileSync('npx', [
-      'tsc', join(root, 'src/graph/schema.ts'), join(root, 'src/graph/gaps.ts'),
+      'tsc', join(root, 'src/graph/schema.ts'), join(root, 'src/graph/gaps.ts'), join(root, 'src/graph/compose.ts'),
       '--outDir', out, '--module', 'commonjs', '--target', 'es2019',
       '--skipLibCheck',
     ], { cwd: root, stdio: 'pipe' });
     const schemaJs = readFileSync(join(out, 'schema.js'), 'utf8');
     const gapsJs = readFileSync(join(out, 'gaps.js'), 'utf8');
+    const composeJs = readFileSync(join(out, 'compose.js'), 'utf8');
+    // gaps.ts and compose.ts import './schema' — hand their require() the
+    // already-inlined module.
+    const shim = 'var require = function () { return window.ProcessGraphSchema; };';
     return {
       schema: [
         '(function () {', 'var exports = {};', schemaJs.replace(/^"use strict";\s*/, ''),
         'window.ProcessGraphSchema = exports;', '})();',
       ].join('\n'),
-      // gaps.ts imports './schema' — hand its require() the already-inlined module.
       gaps: [
-        '(function () {', 'var exports = {};',
-        'var require = function () { return window.ProcessGraphSchema; };',
+        '(function () {', 'var exports = {};', shim,
         gapsJs.replace(/^"use strict";\s*/, ''),
         'window.ProcessGraphGaps = exports;', '})();',
+      ].join('\n'),
+      compose: [
+        '(function () {', 'var exports = {};', shim,
+        composeJs.replace(/^"use strict";\s*/, ''),
+        'window.ProcessGraphCompose = exports;', '})();',
       ].join('\n'),
     };
   } finally {
@@ -90,17 +98,29 @@ function personaIds() {
   return `window.PERSONA_IDS = ${JSON.stringify(ids)};\nwindow.PERSONA_ENV = ${JSON.stringify(wiring)};`;
 }
 
-/** Repo graphs (journeys/graphs/*.graph.json) embed as the built-in library. */
+/** Repo graphs embed as the built-in library, keyed by REF: legacy
+ *  journeys/graphs/ entries as bare ids, project graphs as `project/id`
+ *  (DESIGN-PROJECTS.md §3.2). PROJECT_LIST carries the manifests so the
+ *  planner's project selector needs no server to render. */
 function graphLibrary() {
-  const dir = join(root, 'journeys/graphs');
   const lib = {};
-  if (existsSync(dir)) {
-    for (const f of readdirSync(dir).filter((x) => x.endsWith('.graph.json')).sort()) {
-      const doc = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+  const legacyDir = join(root, 'journeys/graphs');
+  if (existsSync(legacyDir)) {
+    for (const f of readdirSync(legacyDir).filter((x) => x.endsWith('.graph.json')).sort()) {
+      const doc = JSON.parse(readFileSync(join(legacyDir, f), 'utf8'));
       if (doc && doc.id) lib[doc.id] = doc;
     }
   }
-  return `window.GRAPH_LIBRARY = ${JSON.stringify(lib)};`;
+  const projects = listProjects(root);
+  for (const p of projects) {
+    const dir = join(root, 'projects', p.project, 'graphs');
+    if (!existsSync(dir)) continue;
+    for (const f of readdirSync(dir).filter((x) => x.endsWith('.graph.json')).sort()) {
+      const doc = JSON.parse(readFileSync(join(dir, f), 'utf8'));
+      if (doc && doc.id) lib[`${p.project}/${doc.id}`] = doc;
+    }
+  }
+  return `window.GRAPH_LIBRARY = ${JSON.stringify(lib)};\nwindow.PROJECT_LIST = ${JSON.stringify(projects)};`;
 }
 
 const src = readFileSync(join(root, 'tools/planner-src.html'), 'utf8');
@@ -117,6 +137,7 @@ for (const [name, file] of Object.entries(LIBS)) {
 }
 html = html.replace('<!--INLINE:schema-->', () => `<script>\n${shared.schema}\n</script>`);
 html = html.replace('<!--INLINE:gaps-->', () => `<script>\n${shared.gaps}\n</script>`);
+html = html.replace('<!--INLINE:compose-->', () => `<script>\n${shared.compose}\n</script>`);
 html = html.replace('<!--INLINE:graphs-->', () => `<script>\n${libraryJs}\n</script>`);
 html = html.replace('<!--INLINE:personas-->', () => `<script>\n${personasJs}\n</script>`);
 

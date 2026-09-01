@@ -17,6 +17,11 @@ import type { JourneyReport } from '../journeys/runner';
 import type { ProcessGraph } from './schema';
 import { validateGraph } from './schema';
 
+/** runIds with this prefix mark SIMULATED evidence (src/graph/simulate.ts).
+ *  Core owns the convention because merge-back treats it specially: a real
+ *  run's SKIPPED oracle retires simulated paint it cannot re-verify. */
+export const SIMULATED_RUN_PREFIX = 'sim_';
+
 export interface MergeOptions {
   /** Journey id this run executed (stamped onto captured placeholders). */
   journeyId: string;
@@ -54,14 +59,25 @@ export function mergeRunIntoGraph(graph: ProcessGraph, report: JourneyReport, op
 
     // 1. Oracle results → the target node's expectations.
     if (target?.expects?.length) {
-      const emitted = new Set(
-        ((report.steps[step.index] as { oracles?: { id: string }[] }).oracles ?? []).map((o) => o.id),
-      );
+      // The step in hand IS the record — never re-index report.steps by
+      // step.index (partial/sparse reports would misalign or crash).
+      const emitted = new Set((step.oracles ?? []).map((o) => o.id));
       for (const x of target.expects) {
         const oracle = step.oracles?.find((o) => o.id === x.id);
         if (oracle && oracle.status !== 'skipped') {
           x.lastResult = { status: oracle.status, at, ...(opts.runId ? { runId: opts.runId } : {}), ...(oracle.message ? { message: oracle.message } : {}) };
           changes.push(`${target.id}.${x.id}: ${oracle.status}`);
+        } else if (
+          oracle?.status === 'skipped' &&
+          x.lastResult?.runId?.startsWith(SIMULATED_RUN_PREFIX) &&
+          !(opts.runId ?? '').startsWith(SIMULATED_RUN_PREFIX)
+        ) {
+          // A REAL run could not evaluate this check — simulated green must
+          // not outlive it, or the planner shows "verified" forever for a
+          // check nothing can verify here. (A real prior result is kept:
+          // a later skip carries no evidence against it.)
+          delete x.lastResult;
+          changes.push(`${target.id}.${x.id}: simulated paint cleared (skipped — ${oracle.message ?? 'not evaluable here'})`);
         } else if (step.status === 'failed' && !emitted.has(x.id) && step.note && wasEmittedFor(x, edge.id, edge.data?.catalog)) {
           x.lastResult = { status: 'fail', at, ...(opts.runId ? { runId: opts.runId } : {}), message: step.note.slice(0, 200) };
           changes.push(`${target.id}.${x.id}: fail (step failed before oracle detail)`);

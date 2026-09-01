@@ -203,10 +203,13 @@ Honest about where the line is:
 |---|---|
 | `npm test` | unit + harness suites (no org needed) |
 | `npm run planner` | visual graph planner, live-reload, env-status dots, editable env wiring |
-| `npm run doctor` | `GRAPH_DOCTOR=<id\|all>` — exact `.env` lines between you and a runnable graph |
+| `npm run project:new` | `-- <name> [--team "…"]` — scaffold a team-named project under `projects/` (also in the planner: project ▾ → new) |
+| `npm run doctor` | `GRAPH_DOCTOR=<id\|project/id\|project:<name>\|all>` — exact `.env` lines between you and a runnable graph |
 | `npm run record` | `RECORD_PERSONA=x RECORD_JOURNEY=y` — capture a flow by driving it once |
 | `npm run pipeline` | `PIPELINE_JOURNEY=y` — trace → journey + steps (+`PIPELINE_GRAPH=1` for a capture-first graph) |
 | `npm run graph:spec` | `GRAPH_SPEC=<id>` — emit a standing spec that runs + repaints the graph |
+| `npm run graph:compose` | `COMPOSE=<host> COMPOSE_WITH=<sub>` — extend one graph with another (sessions merge, chain splices; also planner insert ▾) |
+| `npm run simulate` | `SIMULATE=<id>` — no-org dry run: fabricated green report through the real merge-back (`sim_` runId, throwing step placeholders) |
 | `npm run ado:import` | `ADO_FILE=<csv>` or `ADO_PASTE=<text>` — Azure DevOps test case → draft graph |
 | `npm run grillme` | `GRILLME=<id>` — every gap in a graph as answerable questions |
 | `npm run sweep` | find (and with `SWEEP_DELETE=1`, remove) `E2E-` tagged test data |
