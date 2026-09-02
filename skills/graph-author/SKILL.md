@@ -45,7 +45,28 @@ to clear them with the human.
    using the gap's own `question` and `options` (always allow a free-text
    answer). Up to 4 questions of the SAME kind may share one turn.
    1. `role_unbound` — bind to a persona id from `personas.json` (the options
-      carry the roster). **Never invent a persona id.**
+      carry the roster). **Never invent a persona id.** When the roster
+      lacks the role, propose adding it the way the planner does
+      (`docs/DESIGN-ROLES-ACCOUNTS.md`): a persona
+      `{ kind: internal, role: "<as the test case says>", account: <id> }`
+      plus, if the login is new, `accounts.<id>: { auth: frontdoor }`.
+      Ask which LOGIN the role plays as — a new one named after the role,
+      or an existing account (several roles may share one). Env names are
+      derived from the account id (`SF_<ACCOUNT>_USERNAME/_PASSWORD`,
+      optional `_TOKEN`/`_TOTP_SECRET`) — never spell them, never write
+      values; add the block to `.env.example` and tell the human to fill
+      `.env`.
+   1b. A pre-req like *"Personas who can perform this action: A, B, C, D"*
+      names the ROLES IN THE PROCESS. Default reading (owner, 2026-09-02):
+      the role names say what each one does — map them to a chain of
+      hand-overs, one session per persona, using the reference graph
+      `journeys/graphs/lead_to_customer.graph.json` (creator → approver →
+      credit check → customer approver) and business logic: who creates the
+      lead, who advances it to a prospect, who requests the credit check,
+      who decides it, who converts to customer. Only when the human says
+      the list means "any ONE of these" use the persona matrix instead
+      (one session + `alternatives`, spec §3.3). When unsure, propose the
+      chain and ask.
    2. `no_session_policy` — one session max (logout-to-comply) vs concurrent.
    3. `draft_oracle` — keep / edit / remove each guessed check.
    4. `data_io_draft` — keep the guessed port (produces/consumes/updates)?
@@ -86,6 +107,14 @@ async backend checks carry budgets, non-SF systems declare a session policy,
 multi-role graphs carry a `denied` edge. Report by section; propose ops, do
 not silently rewrite.
 
+## Presentation (the human reads the canvas)
+
+Short labels: nodes `Account record`, `Sales Support Case`; edges a verb
+phrase plus the ADO step range, `convert lead → new account (ADO 2–4)`. Long
+detail goes in `notes`. Give every node a `pos`: sessions as a staircase
+left→right, records in a column on the right, `end` top-right — dagre alone
+turns two sessions × four records into a hairball.
+
 ## Hard rules
 
 - Never invent a persona id, a system key, or an SObject name — ask.
@@ -95,8 +124,9 @@ not silently rewrite.
 - One question per beat. "skip" leaves the gap on the list; report skipped
   gaps at the end.
 - Draft checks or ports the human rejects are removed, not silently kept.
-- Secrets never enter a graph: env-var NAMES only (`SF_ADMIN_USERNAME`),
-  never values, never URLs with credentials.
+- Secrets never enter a graph: a graph names ROLES only; env-var NAMES
+  (`SF_ADMIN_USERNAME`) belong to accounts in `personas.json`; values live
+  only in `.env`; never URLs with credentials.
 - If a command fails, show the error verbatim and stop; do not work around
   the validator.
 

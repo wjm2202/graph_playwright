@@ -17,6 +17,7 @@ import { createServer } from 'node:http';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { accountList, personaWiring } from './persona-wiring.mjs';
 import { listProjects, scaffoldProject } from './scaffold-project.mjs';
 
 /**
@@ -29,6 +30,19 @@ function importStore() {
   const file = join(toolsDir, '.planner-build', 'graph', 'adoImports.js');
   if (!existsSync(file)) throw new Error('import store not built — run npm run build:planner (the dev server does this on start)');
   for (const key of Object.keys(requireCjs.cache)) if (key.startsWith(join(toolsDir, '.planner-build'))) delete requireCjs.cache[key];
+  try {
+    return requireCjs(file);
+  } catch (e) {
+    if (/Cannot find module 'xlsx'/.test(e.message)) throw new Error("the 'xlsx' package is not installed — run: npm install (then restart npm run planner)");
+    throw e;
+  }
+}
+/** What this server process can do — the page compares it with what it expects. */
+const SERVER_CAPABILITIES = { version: 4, imports: true, graphs: true, projects: true, personas: true, accounts: true };
+/** The transpiled personas schema — validation + the account → env-name convention. */
+function importPersonasLib() {
+  const file = join(toolsDir, '.planner-build', 'personas', 'schema.js');
+  if (!existsSync(file)) throw new Error('personas bridge not built — run npm run build:planner (the dev server does this on start)');
   return requireCjs(file);
 }
 /** The transpiled validator — the SAME code the planner and the suite run. */
@@ -73,8 +87,13 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 
+// Live reload — DEFERRED while the page says it is mid-dialog (the import
+// wizard: creating the project from inside it triggers a rebuild, and a
+// reload there closed the window on the owner, 2026-09-02). The page exposes
+// window.plannerHoldReload(); the pending reload fires when it lets go.
 export const RELOAD_SNIPPET =
-  "<script>(function(){try{new EventSource('/__reload').addEventListener('message',function(){location.reload()});}catch(e){}})();</script>";
+  "<script>(function(){window.__plannerReload=function(){if(typeof window.plannerHoldReload==='function'&&window.plannerHoldReload()){window.__plannerReloadPending=true;return false;}location.reload();return true;};" +
+  "try{new EventSource('/__reload').addEventListener('message',function(){window.__plannerReload();});}catch(e){}})();</script>";
 
 /** Inject the live-reload listener into served HTML (pure; unit-tested). */
 export function injectReload(html) {
@@ -136,11 +155,76 @@ if (isMain) {
     }
   }
 
+  function readPersonasDoc() {
+    return JSON.parse(readFileSync(join(dataRoot, 'personas.json'), 'utf8'));
+  }
+  /** Validate with the SAME rules the suite runs, then write atomically. */
+  function writePersonasDoc(doc) {
+    const r = importPersonasLib().validatePersonas(doc);
+    if (!r.ok) throw new Error(`personas.json would be invalid — ${r.errors.join('; ')}`);
+    const file = join(dataRoot, 'personas.json');
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(doc, null, 2) + '\n');
+    renameSync(tmp, file);
+  }
+  function personaRoster(doc = readPersonasDoc()) {
+    const lib = importPersonasLib();
+    return Object.entries(doc.personas ?? {}).map(([id, p]) => {
+      const eff = lib.effectivePersona(doc, id) ?? p;
+      return { id, role: p.role ?? '', kind: p.kind ?? 'internal', auth: eff.auth ?? '', ...(p.kind !== 'guest' ? { account: lib.accountIdOf(doc, id) } : {}) };
+    });
+  }
+  const personaIdOf = (role) => role.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48);
+  /**
+   * Roles from the test cases → personas.json. Each role becomes a persona
+   * bound to an ACCOUNT (docs/DESIGN-ROLES-ACCOUNTS.md): the one named in
+   * `accountByRole[role]` (existing, or created), else a new account named
+   * after the role. New accounts get their derived env NAMES appended to
+   * .env.example as one block each — the human fills .env.
+   */
+  function addPersonas(roles, accountByRole = {}) {
+    const lib = importPersonasLib();
+    const doc = readPersonasDoc();
+    doc.personas = doc.personas ?? {};
+    doc.accounts = doc.accounts ?? {};
+    const added = []; const existing = []; const accountsCreated = []; const bound = {};
+    for (const role of roles) {
+      const id = personaIdOf(role);
+      if (!/^[a-z][a-z0-9_]*$/.test(id)) throw new Error(`'${role}' does not yield a usable persona id`);
+      if (doc.personas[id]) { existing.push(id); continue; }
+      const account = String(accountByRole[role] ?? accountByRole[id] ?? id).trim();
+      if (!/^[a-z][a-z0-9_]*$/.test(account)) throw new Error(`account '${account}' for '${role}' must be lower_snake_case (it becomes the env prefix)`);
+      if (!doc.accounts[account]) {
+        if (doc.personas[account] && !doc.personas[account].account) throw new Error(`'${account}' is a legacy self-wired persona, not an account — give it an account first`);
+        doc.accounts[account] = { auth: 'frontdoor' };
+        accountsCreated.push(account);
+      }
+      doc.personas[id] = { kind: 'internal', role, account };
+      added.push(id); bound[id] = account;
+    }
+    const envBlocks = {};
+    if (added.length) {
+      writePersonasDoc(doc);
+      for (const account of accountsCreated) envBlocks[account] = lib.envBlockFor(doc, account);
+      const example = join(dataRoot, '.env.example');
+      if (existsSync(example) && accountsCreated.length) {
+        let text = readFileSync(example, 'utf8');
+        const chunks = [];
+        for (const account of accountsCreated) {
+          const lines = envBlocks[account].filter((l) => l.startsWith('#') || !new RegExp(`^${l.slice(0, -1)}=`, 'm').test(text));
+          if (lines.some((l) => !l.startsWith('#'))) chunks.push(lines.join('\n'));
+        }
+        if (chunks.length) { text = text.replace(/\n?$/, '\n') + '\n' + chunks.join('\n\n') + '\n'; writeFileSync(example, text); }
+      }
+    }
+    return { added, existing, bound, accountsCreated, envBlocks };
+  }
   /** name → isSet booleans for exactly the env names personas.json wires. */
   function envStatus() {
     const status = {};
     try {
-      const doc = JSON.parse(readFileSync(join(dataRoot, 'personas.json'), 'utf8'));
+      const doc = readPersonasDoc();
+      const wiring = personaWiring(doc, importPersonasLib());
       const dotenv = {};
       const envFile = join(dataRoot, '.env');
       if (existsSync(envFile)) {
@@ -152,8 +236,8 @@ if (isMain) {
       const isSet = (name) => !!(process.env[name]?.trim() || dotenv[name]);
       const names = new Set([doc.org?.instanceUrlEnv]);
       for (const s of Object.values(doc.sites ?? {})) names.add(s.urlEnv);
-      for (const p of Object.values(doc.personas ?? {})) {
-        for (const k of ['usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv']) if (p[k]) names.add(p[k]);
+      for (const w of Object.values(wiring)) {
+        for (const k of ['username', 'password', 'token', 'totp']) if (w[k]) names.add(w[k]);
       }
       for (const n of names) if (n) status[n] = isSet(n);
     } catch { /* empty status — planner shows names without dots */ }
@@ -177,23 +261,30 @@ if (isMain) {
    * persona's site, else the org).
    */
   function updatePersonaWiring(body) {
-    const file = join(dataRoot, 'personas.json');
-    const doc = JSON.parse(readFileSync(file, 'utf8'));
+    const lib = importPersonasLib();
+    const doc = readPersonasDoc();
     const p = doc.personas?.[body.personaId];
     if (!p) return { code: 404, error: `unknown persona '${body.personaId}'` };
     if (p.kind === 'guest') return { code: 400, error: 'guest personas have no credentials' };
+    // The ACCOUNT owns the wiring: a rename is an override on the account,
+    // seen by every role that logs in as it. Legacy self-wired personas
+    // keep their own fields.
+    const accountId = lib.accountIdOf(doc, body.personaId);
+    const target = p.account ? doc.accounts?.[accountId] : p;
+    if (!target) return { code: 400, error: `account '${accountId}' is not declared in personas.json` };
 
     for (const key of ['usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv']) {
       if (!(key in body)) continue;
       const v = String(body[key] ?? '').trim();
       if (!v) {
         if (key === 'usernameEnv') return { code: 400, error: 'usernameEnv is required for authenticated personas' };
-        delete p[key];
+        if (p.account) target[key] = '';  // explicit empty override = this login does not use it
+        else delete target[key];
         continue;
       }
       const bad = badEnvName(v);
       if (bad) return { code: 400, error: `${key}: ${bad}` };
-      p[key] = v;
+      target[key] = v;
     }
     if ('urlEnv' in body) {
       const v = String(body.urlEnv ?? '').trim();
@@ -203,23 +294,17 @@ if (isMain) {
       else doc.org.instanceUrlEnv = v;
     }
 
-    writeFileSync(file + '.tmp', JSON.stringify(doc, null, 2) + '\n');
-    renameSync(file + '.tmp', file);
-    const url = p.site && doc.sites?.[p.site] ? doc.sites[p.site].urlEnv : doc.org.instanceUrlEnv;
-    const warning = !p.passwordEnv && !p.tokenEnv
+    try { writePersonasDoc(doc); } catch (e) { return { code: 400, error: e.message }; }
+    const wiring = personaWiring(doc, lib)[body.personaId];
+    const warning = !wiring.password && !wiring.token
       ? 'no password or token mapping left — this persona cannot authenticate until one is wired'
       : undefined;
     return {
       code: 200,
       ...(warning ? { warning } : {}),
-      wiring: {
-        ...(p.usernameEnv ? { username: p.usernameEnv } : {}),
-        ...(p.passwordEnv ? { password: p.passwordEnv } : {}),
-        ...(p.tokenEnv ? { token: p.tokenEnv } : {}),
-        ...(p.totpEnv ? { totp: p.totpEnv } : {}),
-        url,
-        ...(p.kind ? { kind: p.kind } : {}),
-      },
+      wiring,
+      // Every role on the same login changed with it — the page refreshes them all.
+      wiringAll: personaWiring(doc, lib),
     };
   }
 
@@ -234,6 +319,10 @@ if (isMain) {
       res.write(': connected\n\n');
       clients.add(res);
       req.on('close', () => clients.delete(res));
+      return;
+    }
+    if (url.pathname === '/__capabilities') {
+      sendJson(res, 200, SERVER_CAPABILITIES);
       return;
     }
     if (url.pathname === '/__projects' && req.method === 'GET') {
@@ -336,6 +425,34 @@ if (isMain) {
       }).catch((e) => sendJson(res, 400, { ok: false, error: e.message }));
       return;
     }
+    // ---- personas: roles → accounts → env (docs/DESIGN-ROLES-ACCOUNTS.md) ----
+    // GET  /__personas → { ok, roster: [{id, role, kind, auth, account}], accounts: [{id, system, auth, roles[]}], wiring: {id → env NAMES} }
+    // POST /__personas/add {roles[], accounts?: {role → accountId}}
+    //      → { ok, added[], existing[], bound{}, accountsCreated[], envBlocks{}, roster[], accounts[] }
+    //   role name → persona id (lower_snake_case) bound to an account: the
+    //   one chosen per role (existing or new), else a new account named after
+    //   the role. New accounts' derived env NAMES go to .env.example as one
+    //   block each; values are never touched.
+    if (url.pathname === '/__personas' && req.method === 'GET') {
+      try { const doc = readPersonasDoc(); const lib = importPersonasLib(); sendJson(res, 200, { ok: true, roster: personaRoster(doc), accounts: accountList(doc, lib), wiring: personaWiring(doc, lib) }); }
+      catch (e) { sendJson(res, 400, { ok: false, error: e.message }); }
+      return;
+    }
+    if (url.pathname === '/__personas/add' && req.method === 'POST') {
+      readJson(req, 100_000).then((body) => {
+        try {
+          const roles = Array.isArray(body.roles) ? body.roles.map((r) => String(r).trim()).filter(Boolean) : [];
+          if (!roles.length) throw new Error('roles: give at least one role name');
+          const accountByRole = body.accounts && typeof body.accounts === 'object' ? body.accounts : {};
+          const out = addPersonas(roles, accountByRole);
+          rebuild(`personas added: ${out.added.join(', ') || '(none)'}`);
+          const doc = readPersonasDoc();
+          const lib = importPersonasLib();
+          sendJson(res, 200, { ok: true, ...out, roster: personaRoster(doc), accounts: accountList(doc, lib), wiring: personaWiring(doc, lib) });
+        } catch (e) { sendJson(res, 400, { ok: false, error: e.message }); }
+      }).catch((e) => sendJson(res, 400, { ok: false, error: e.message }));
+      return;
+    }
     if (url.pathname === '/__envstatus') {
       // SET/UNSET booleans ONLY for env names personas.json declares.
       // Values never leave the server — this is a presence check, not a leak.
@@ -355,7 +472,7 @@ if (isMain) {
         }
         res.writeHead(out.code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify(out.code === 200
-          ? { ok: true, wiring: out.wiring, envstatus: envStatus(), ...(out.warning ? { warning: out.warning } : {}) }
+          ? { ok: true, wiring: out.wiring, wiringAll: out.wiringAll, envstatus: envStatus(), ...(out.warning ? { warning: out.warning } : {}) }
           : { ok: false, error: out.error }));
       });
       return;

@@ -27,9 +27,25 @@ export async function runGraph(
     /** persona → auth method (PersonaRegistry.authMethods()) — enables the
      *  login_as agreement check while walking. */
     personaAuth?: Record<string, AuthMethod | undefined> | undefined;
+    /** Persona-matrix variant: alias → persona id, replacing graph.actors for THIS run (expandVariants). */
+    actorOverrides?: Record<string, string> | undefined;
+    /** Names the variant in the report / telemetry ("client_lead"). */
+    variant?: string | undefined;
   },
 ): Promise<RunGraphResult> {
-  const walked = toJourney(graph, {
+  // A persona-matrix variant is ONE binding for THIS walk. The graph that is
+  // painted and saved stays the original — default actors and the matrix
+  // intact — or the first variant run would overwrite the roster on disk.
+  let walkGraph = graph;
+  if (deps.actorOverrides) {
+    for (const alias of Object.keys(deps.actorOverrides)) {
+      if (!(alias in graph.actors)) throw new Error(`actorOverrides: alias '${alias}' is not in the graph's actors (${Object.keys(graph.actors).join(', ')})`);
+    }
+    const { alternatives: _matrix, ...rest } = graph; // the validator would refuse an alternative equal to the new default
+    void _matrix;
+    walkGraph = { ...rest, actors: { ...graph.actors, ...deps.actorOverrides } };
+  }
+  const walked = toJourney(walkGraph, {
     personaIds: deps.personaIds,
     ...(deps.personaAuth ? { personaAuth: deps.personaAuth } : {}),
   });
@@ -80,6 +96,6 @@ export async function runGraphFile(
     !result.error &&
     result.report.steps.every((s) => s.status !== 'failed') &&
     result.report.steps.every((s) => (s.oracles ?? []).every((o) => o.status !== 'fail'));
-  recordEvent({ kind: 'run', id: graph.id, ok: green, ms: Date.now() - started });
+  recordEvent({ kind: 'run', id: deps.variant ? `${graph.id}@${deps.variant}` : graph.id, ok: green, ms: Date.now() - started });
   return result;
 }

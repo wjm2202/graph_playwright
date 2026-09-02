@@ -69,6 +69,40 @@ test('boots self-contained: schema + cytoscape inlined, empty graph valid', asyn
   await expect(page.locator('#status')).toContainText('valid · 0 nodes · 0 edges');
 });
 
+test('file:// — personas dialog adds pasted roles as unbound aliases and says the dev server creates personas', async ({ page }) => {
+  await page.evaluate(() => window.planner.newGraph(true));
+  await page.selectOption('#b_add', '__personas');
+  await page.locator('#pp_paste').fill('Regional Manager\nFraud Analyst');
+  await page.locator('#pp_apply').click();
+  await expect(page.locator('#pp_result')).toContainText('added to this graph: regional_manager, fraud_analyst');
+  await expect(page.locator('#pp_result')).toContainText('not in personas.json (regional_manager, fraud_analyst)');
+  await expect(page.locator('#pp_result')).toContainText('the dev server creates personas');
+  const issues = await page.evaluate(() => window.planner.issues());
+  expect(issues.gaps.filter((g) => g.kind === 'role_unbound').map((g) => g.at).sort()).toEqual(['fraud_analyst', 'regional_manager']);
+});
+
+// Owner report 2026-09-02 ("half the graph disappeared" / "your graph has no
+// nodes"): nodes are label-sized, and cytoscape caches its "takes up space"
+// verdict (width !== 0) the first time visible() is asked — which can be
+// before the label is measured. A layout run happened to reset it; a FULLY
+// positioned graph (every node has pos — also what syncPositions leaves
+// behind before any delete/insert) did not, and start, sessions and a data
+// node were silently never drawn. render() now measures, then drops the
+// stale verdicts. This pins it on a positioned graph.
+test('every node of a fully-positioned graph is visible — none silently undrawn', async ({ page }) => {
+  const g = goodGraphV2() as unknown as { nodes: { id: string; pos?: { x: number; y: number } }[] };
+  g.nodes.forEach((n, i) => { n.pos = { x: 100 + (i % 4) * 300, y: 100 + Math.floor(i / 4) * 220 }; });
+  const r = await page.evaluate((doc) => window.planner.load(doc), g as unknown as Record<string, unknown>);
+  expect(r.ok).toBe(true);
+  await page.waitForTimeout(100); // one paint
+  const vis = await page.evaluate(() => (window as unknown as { cy: { nodes(): { map<T>(f: (n: { id(): string; visible(): boolean; width(): number }) => T): T[] } } }).cy.nodes().map((n) => [n.id(), n.visible(), n.width() > 0]));
+  for (const [id, visible, hasWidth] of vis) {
+    expect(visible, `${id} must be visible`).toBe(true);
+    expect(hasWidth, `${id} must have a measured width`).toBe(true);
+  }
+  expect(vis).toHaveLength(6);
+});
+
 test('loads the v2 relation seed: rendered counts and validity reported', async ({ page }) => {
   const r = await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
   expect(r.ok).toBe(true);
@@ -362,7 +396,10 @@ test('connect mode: click source then target draws the edge, with guidance shown
 test('library dropdown: built-in repo graphs are listed and load on selection', async ({ page }) => {
   const lib = await page.evaluate(() => window.planner.library());
   expect(lib.builtIn).toContain('expense_to_siebel');
-  await expect(page.locator('#f_library optgroup[label="built-in (repo)"] option')).toHaveCount(lib.builtIn.length);
+  // Legacy graphs sit under "built-in (repo)"; project graphs under "project · <p>" — together they ARE the built-in library.
+  const legacy = lib.builtIn.filter((k) => !k.includes('/')).length;
+  await expect(page.locator('#f_library optgroup[label="built-in (repo)"] option')).toHaveCount(legacy);
+  await expect(page.locator('#f_library optgroup[label^="project · "] option')).toHaveCount(lib.builtIn.length - legacy);
 
   await page.locator('#f_library').selectOption('lib:expense_to_siebel');
   await expect(page.locator('#status')).toContainText('valid · 6 nodes · 8 edges');

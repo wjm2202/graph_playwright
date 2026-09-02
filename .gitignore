@@ -17,3 +17,16 @@ projects/*/evidence/
 
 # dev-server bridge (transpiled by build-planner)
 tools/.planner-build/
+
+# ── customer material never enters this repo (open source) ──────────────
+# Projects hold test cases imported from ADO, the graphs made from them,
+# captures and specs — all customer work. Only the placeholder is tracked.
+projects/*
+!projects/.gitkeep
+# ADO exports / spreadsheets of test cases, wherever they land
+*.xlsx
+*.xls
+*.csv
+**/imports/
+# uploads dropped into the repo by mistake
+uploads/

@@ -10,15 +10,41 @@
 export type PersonaKind = 'internal' | 'portal' | 'guest';
 export type AuthMethod = 'frontdoor' | 'singleaccess' | 'ui';
 
+/**
+ * An ACCOUNT is a real login in one application (docs/DESIGN-ROLES-ACCOUNTS.md).
+ * It owns the credentials; its env-var names are DERIVED from its id and
+ * system — `<PREFIX>_<ACCOUNT>_USERNAME/_PASSWORD/_TOKEN/_TOTP_SECRET`
+ * (`SF_` for salesforce) — so nobody spells them. The *Env fields exist only
+ * to override the convention for a legacy .env vocabulary.
+ */
+export interface AccountDef {
+  /** Application the login belongs to — `salesforce` (default), `siebel`, … */
+  system?: string;
+  auth?: AuthMethod;
+  /** Clone logins available for parallel workers (…_USERNAME_W0…). */
+  poolSize?: number;
+  /** Convention overrides — env-var NAMES, never values. */
+  usernameEnv?: string;
+  passwordEnv?: string;
+  tokenEnv?: string;
+  totpEnv?: string;
+}
+
 export interface PersonaDef {
   kind: PersonaKind;
   /** Site key (required for portal, optional for guest). */
   site?: string;
+  /** The ROLE as the test cases name it ("Client Lead"). */
   role?: string;
   profile?: string;
   license?: string;
   permissionSets?: string[];
-  /** Env-var NAMES, never values. */
+  /** Which declared account plays this role. Roles may share an account. */
+  account?: string;
+  /**
+   * Legacy self-account wiring (env-var NAMES, never values). A persona
+   * with `account` must NOT carry these — the account owns the wiring.
+   */
   usernameEnv?: string;
   passwordEnv?: string;
   tokenEnv?: string;
@@ -32,6 +58,9 @@ export interface PersonaDef {
 export interface PersonasDoc {
   org: { instanceUrlEnv: string };
   sites?: Record<string, { urlEnv: string }>;
+  /** Logins, one block per application account; env names derived from the id. */
+  accounts?: Record<string, AccountDef>;
+  /** Roles (test-case vocabulary) → the account that plays each. */
   personas: Record<string, PersonaDef>;
 }
 
@@ -47,9 +76,11 @@ const AUTHS: AuthMethod[] = ['frontdoor', 'singleaccess', 'ui'];
 
 /** Keys allowed on a persona — anything else is rejected (typo/secret guard). */
 const ALLOWED_KEYS = new Set([
-  'kind', 'site', 'role', 'profile', 'license', 'permissionSets',
+  'kind', 'site', 'role', 'profile', 'license', 'permissionSets', 'account',
   'usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv', 'auth', 'poolSize',
 ]);
+const ACCOUNT_KEYS = new Set(['system', 'auth', 'poolSize', 'usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv']);
+const CRED_ENV_KEYS = ['usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv'] as const;
 
 /** Value shapes that indicate someone pasted a secret instead of an env name. */
 function smellsLikeSecret(key: string, value: unknown): boolean {
@@ -82,6 +113,28 @@ export function validatePersonas(doc: unknown): ValidationResult {
     }
   }
 
+  const accounts: Record<string, AccountDef> = d.accounts ?? {};
+  if (d.accounts !== undefined && (typeof d.accounts !== 'object' || d.accounts === null || Array.isArray(d.accounts))) {
+    errors.push('accounts must be an object keyed by account id');
+  } else {
+    for (const [id, a] of Object.entries(accounts)) {
+      const at = `accounts.${id}`;
+      if (!PERSONA_ID_RE.test(id)) errors.push(`${at}: id must be lower_snake_case (it becomes the env prefix ${id.toUpperCase()})`);
+      if (!a || typeof a !== 'object') { errors.push(`${at}: must be an object`); continue; }
+      for (const [k, v] of Object.entries(a as unknown as Record<string, unknown>)) {
+        if (!ACCOUNT_KEYS.has(k)) errors.push(`${at}.${k}: unknown key (no inline credentials — the env names are derived from the account id)`);
+        // An EMPTY override means "this login does not use it" (no token, no MFA) — allowed except for the username.
+        if (v === '' && k.endsWith('Env')) { if (k === 'usernameEnv') errors.push(`${at}.usernameEnv: cannot be empty — every login has a username`); continue; }
+        if (smellsLikeSecret(k, v)) errors.push(`${at}.${k}: looks like an inline secret/value — *Env overrides carry env-var NAMES only`);
+      }
+      if (a.system !== undefined && (typeof a.system !== 'string' || !PERSONA_ID_RE.test(a.system))) {
+        errors.push(`${at}.system: must be a lower_snake_case application id (salesforce, siebel, …)`);
+      }
+      if (a.auth && !AUTHS.includes(a.auth)) errors.push(`${at}.auth: must be one of ${AUTHS.join('|')}`);
+      if (a.poolSize !== undefined && (!Number.isInteger(a.poolSize) || a.poolSize < 1)) errors.push(`${at}.poolSize: must be an integer >= 1`);
+    }
+  }
+
   if (!d.personas || typeof d.personas !== 'object' || Object.keys(d.personas).length === 0) {
     errors.push('personas must be a non-empty object');
     return { ok: false, errors };
@@ -101,12 +154,24 @@ export function validatePersonas(doc: unknown): ValidationResult {
     if (p.kind === 'portal' && !p.site) errors.push(`${at}: portal personas require a site`);
     if (p.site && !sites[p.site]) errors.push(`${at}.site: '${p.site}' not declared in sites`);
 
+    const ownWiring = CRED_ENV_KEYS.some((k) => p[k]);
+    const account = p.account !== undefined ? accounts[p.account] : undefined;
+    if (p.account !== undefined) {
+      if (typeof p.account !== 'string' || !account) {
+        errors.push(`${at}.account: '${p.account}' is not declared in accounts (declare it — a typo must never become a new login)`);
+      }
+      if (ownWiring) errors.push(`${at}: carries *Env names AND an account — the account owns the wiring, drop the *Env fields`);
+    }
+    // What Cast will actually use — the account's method wins over the persona's.
+    const auth = account?.auth ?? p.auth;
+
     if (p.kind === 'guest') {
-      if (p.usernameEnv || p.passwordEnv || p.tokenEnv || p.totpEnv) errors.push(`${at}: guest personas are unauthenticated — no credential envs`);
+      if (ownWiring) errors.push(`${at}: guest personas are unauthenticated — no credential envs`);
+      if (p.account !== undefined) errors.push(`${at}: guest personas are unauthenticated — no account`);
     } else {
-      if (!p.usernameEnv) errors.push(`${at}.usernameEnv: required for ${p.kind} personas`);
+      if (p.account === undefined && !p.usernameEnv) errors.push(`${at}.account: required for ${p.kind} personas (name a declared account; or legacy usernameEnv)`);
       if (p.auth && !AUTHS.includes(p.auth)) errors.push(`${at}.auth: must be one of ${AUTHS.join('|')}`);
-      if (p.kind === 'portal' && p.auth === 'frontdoor') {
+      if (p.kind === 'portal' && auth === 'frontdoor') {
         errors.push(`${at}.auth: portal personas use 'singleaccess' on the SITE domain (classic frontdoor is unreliable for community sessions — founding doc §4.2/§8.2)`);
       }
     }
@@ -120,4 +185,97 @@ export function validatePersonas(doc: unknown): ValidationResult {
   }
 
   return { ok: errors.length === 0, errors };
+}
+
+// ── accounts → env names (the convention, in one place) ──────────────────
+
+/** Env-var prefix per application: salesforce → SF, anything else its own id upper-cased. */
+export function envPrefixFor(system?: string): string {
+  if (!system || system === 'salesforce') return 'SF';
+  return system.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
+export interface CredEnvNames {
+  username: string;
+  password: string;
+  token: string;
+  totp: string;
+}
+
+/**
+ * The four env names an account reads — derived
+ * `<PREFIX>_<ACCOUNT>_USERNAME/_PASSWORD/_TOKEN/_TOTP_SECRET` (the prefix is
+ * not repeated when the id already starts with it), unless the
+ * account overrides one (legacy .env vocabulary). Token and TOTP are
+ * optional in .env; their NAMES are still fixed so `.env.example` and the
+ * doctor can print them.
+ */
+export function accountEnvNames(accountId: string, account: AccountDef = {}): CredEnvNames {
+  const prefix = envPrefixFor(account.system);
+  const id = accountId.toUpperCase();
+  // `siebel_admin` on siebel reads SIEBEL_ADMIN_*, not SIEBEL_SIEBEL_ADMIN_*.
+  const base = id.startsWith(`${prefix}_`) ? id : `${prefix}_${id}`;
+  // An override of '' switches the credential OFF for this login.
+  return {
+    username: account.usernameEnv ?? `${base}_USERNAME`,
+    password: account.passwordEnv ?? `${base}_PASSWORD`,
+    token: account.tokenEnv ?? `${base}_TOKEN`,
+    totp: account.totpEnv ?? `${base}_TOTP_SECRET`,
+  };
+}
+
+/** The account id a persona logs in as — its `account`, else itself (legacy self-account). */
+export function accountIdOf(doc: PersonasDoc, personaId: string): string {
+  return doc.personas[personaId]?.account ?? personaId;
+}
+
+/**
+ * The persona as Cast sees it: kind/site/role from the persona, credentials
+ * + auth + pool from its account (derived names filled in). Legacy personas
+ * without an account come back unchanged. Unknown ids → undefined.
+ */
+export function effectivePersona(doc: PersonasDoc, personaId: string): PersonaDef | undefined {
+  const p = doc.personas[personaId];
+  if (!p) return undefined;
+  if (p.account === undefined || p.kind === 'guest') return p;
+  const account = doc.accounts?.[p.account] ?? {};
+  const names = accountEnvNames(p.account, account);
+  const auth = account.auth ?? p.auth;
+  const poolSize = account.poolSize ?? p.poolSize;
+  return {
+    ...p,
+    usernameEnv: names.username,
+    ...(names.password ? { passwordEnv: names.password } : {}),
+    ...(names.token ? { tokenEnv: names.token } : {}),
+    ...(names.totp ? { totpEnv: names.totp } : {}),
+    ...(auth !== undefined ? { auth } : {}),
+    ...(poolSize !== undefined ? { poolSize } : {}),
+  };
+}
+
+/** Which roles (persona ids) an account plays — for the doctor and the planner. */
+export function rolesOfAccount(doc: PersonasDoc, accountId: string): string[] {
+  return Object.keys(doc.personas).filter((id) => accountIdOf(doc, id) === accountId && doc.personas[id]?.kind !== 'guest');
+}
+
+/**
+ * The `.env` block for one account, ready to paste — the ONE thing a human
+ * does by hand. Names only; the values are theirs to fill.
+ */
+export function envBlockFor(doc: PersonasDoc, accountId: string): string[] {
+  const account = doc.accounts?.[accountId];
+  const names = account ? accountEnvNames(accountId, account) : (() => {
+    const p = doc.personas[accountId];
+    return p ? { username: p.usernameEnv ?? '', password: p.passwordEnv ?? '', token: p.tokenEnv ?? '', totp: p.totpEnv ?? '' } : undefined;
+  })();
+  if (!names) return [];
+  const roles = rolesOfAccount(doc, accountId).map((id) => doc.personas[id]?.role ?? id);
+  const system = account?.system ?? 'salesforce';
+  const lines = [`# ${accountId} — ${system} login${roles.length ? ` for: ${roles.join(', ')}` : ''}`];
+  if (names.username) lines.push(`${names.username}=`);
+  if (names.password) lines.push(`${names.password}=`);
+  if (names.token || names.totp) lines.push('# optional: token (preferred over password when set), TOTP secret (only under MFA)');
+  if (names.token) lines.push(`${names.token}=`);
+  if (names.totp) lines.push(`${names.totp}=`);
+  return lines;
 }

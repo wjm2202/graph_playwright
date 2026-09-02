@@ -53,6 +53,18 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
   const gaps: Gap[] = [];
   const known = opts.knownPersonas;
 
+  for (const [alias, list] of Object.entries(graph.alternatives ?? {})) {
+    for (const personaId of list) {
+      if (known && !known.includes(personaId)) {
+        gaps.push({
+          kind: 'role_unbound', at: `${alias}:${personaId}`,
+          question: `Role '${alias}' may also be played by '${personaId}' (persona matrix), which is not in personas.json. Which persona should that be?`,
+          short: `alternative persona '${personaId}' is not in personas.json — bind a real one`,
+          ...(known.length ? { options: known } : {}),
+        });
+      }
+    }
+  }
   for (const [alias, personaId] of Object.entries(graph.actors)) {
     if (known && !known.includes(personaId)) {
       gaps.push({

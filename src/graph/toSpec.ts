@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { ProcessGraph } from './schema';
 import { validateGraph } from './schema';
+import { expandVariants } from './toJourney';
 
 export interface ToSpecOptions {
   /** Canonical ref (`<project>/<id>`); defaults to the bare id (legacy). */
@@ -26,6 +27,10 @@ export function toSpec(graph: ProcessGraph, opts: ToSpecOptions = {}): string {
   const ref = opts.graphRef ?? id;
   const rel = opts.graphRelPath ?? `../../journeys/graphs/${id}.graph.json`;
   const title = (graph.title ?? id).replace(/'/g, "\\'");
+  // Persona matrix (graph.alternatives): one test() per variant, same walk,
+  // different binding — the spec is the matrix, the graph stays one file.
+  const variants = expandVariants(graph);
+  const variantsJson = JSON.stringify(variants.map((v) => ({ id: v.id, label: v.label, actors: v.actors })));
 
   return `/**
  * GENERATED from ${rel.replace(/^(\.\.\/)+/, '')} — regenerate:
@@ -44,7 +49,12 @@ import { hasOrgConfig, loadEnv } from '../../src/utils/env';
 
 const GRAPH = path.resolve(__dirname, '${rel}');
 
-test('${title}', async ({ cast, request }, testInfo) => {
+// The persona matrix: the graph's \`alternatives\` expand to these bindings
+// (default first). Regenerate the spec when the graph's roster changes.
+const VARIANTS: { id: string; label: string; actors: Record<string, string> }[] = ${variantsJson};
+
+for (const variant of VARIANTS) {
+test(variant.id === 'default' ? '${title}' : '${title} · as ' + variant.label, async ({ cast, request }, testInfo) => {
   test.skip(!hasOrgConfig(), 'SF org env not configured — see SETUP-REAL-ORG.md');
   test.setTimeout(300_000);
 
@@ -85,6 +95,7 @@ test('${title}', async ({ cast, request }, testInfo) => {
     personaAuth: registry.authMethods(),
     runDir: testInfo.outputPath('run'),
     ...(apiOracle ? { apiOracle } : {}),
+    ...(variant.id === 'default' ? {} : { actorOverrides: variant.actors, variant: variant.id }),
   });
   for (const change of result.changes) {
     console.log('·', change);
@@ -92,6 +103,7 @@ test('${title}', async ({ cast, request }, testInfo) => {
   if (result.error) throw result.error;
   expect(result.report.steps.every((s) => s.status !== 'failed')).toBe(true);
 });
+}
 `;
 }
 

@@ -77,10 +77,39 @@ a policy raise the `no_session_policy` question.
 ### 3.2 Actors
 
 `actors` maps a **role alias** used in the graph (`lead_creator`,
-`approver`) to a **persona id** from `personas.json`. The persona decides the
-credentials, the site (org vs portal vs Siebel) and the **auth method**
-(`frontdoor | singleaccess | ui`). Two aliases may point at one persona;
-an alias whose persona is not in the roster raises `role_unbound`.
+`approver`) to a **persona id** from `personas.json`. The persona is the
+role as the test cases name it; it names the **account** it logs in as, and
+the account decides the credentials (env names derived from its id:
+`SF_<ACCOUNT>_USERNAME/_PASSWORD`, optional `_TOKEN`/`_TOTP_SECRET`), the
+site (org vs portal vs Siebel) and the **auth method**
+(`frontdoor | singleaccess | ui`). Several roles may share one account
+(`docs/DESIGN-ROLES-ACCOUNTS.md`). Two aliases may point at one persona;
+an alias whose persona is not in the roster raises `role_unbound`. A graph
+never names an account or an env var — only the role.
+
+### 3.3 Persona matrix — `alternatives`
+
+Two readings of an ADO pre-req like *"Personas who can perform this
+action: Client Associate, Client Lead, BDM…"*. The DEFAULT reading is a
+**chain of hand-overs** — the role names say what each does, so model one
+session per persona in process order (`lead_to_customer` is the reference:
+creator → approver → credit check → customer approver). Only when the list
+means "any ONE of these may do it" is it a **permission claim** — then ONE
+session bound to the first persona plus the matrix:
+
+```jsonc
+"actors":       { "client_associate": "client_associate", "billing_collections": "billing_collections" },
+"alternatives": { "client_associate": ["client_lead", "business_development_manager", "business_admin"] }
+```
+
+Rules: the alias must exist in `actors`; every id must be in
+`personas.json` (else `role_unbound` at `alias:persona`); no duplicates; the
+default is not repeated. `expandVariants()` yields the bindings — default
+first, then each alternative; several aliases with alternatives combine as
+a product, capped at 24 — and the emitted spec runs **one test per
+binding** (`… · as client_associate → client_lead`). The run walks the
+variant binding but paints and saves the original graph, so the matrix
+never leaks into `actors`.
 
 ## 4. Nodes
 
@@ -246,7 +275,7 @@ question (`GAPS_JSON [...]`). A graph is **complete** when only
 
 | kind | at | question in one line | answer op |
 |---|---|---|---|
-| `role_unbound` | alias | which persona plays this role? (options = personas.json ids) | `bindRole` `{alias, personaId}` |
+| `role_unbound` | alias, or `alias:persona` for a matrix alternative | which persona plays this role? (options = personas.json ids) | `bindRole` `{alias, personaId}` · edit `alternatives` for a matrix entry |
 | `no_session_policy` | system key | does this system allow concurrent sessions? | `setSessionPolicy` `{system, maxConcurrent}` |
 | `draft_oracle` | `node.expect` | keep / edit / remove this machine-guessed check? | `confirmExpect` `{node, id}` · `removeExpect` `{node, id}` |
 | `api_no_timeout` | `node.expect` | synchronous (default 10 s) or async budget? | `setOracleBudget` `{node, id, timeoutMs, pollMs?}` (2 min → 120000/5000; 5 min → 300000/5000) |
@@ -268,14 +297,20 @@ graph in a way the validator would refuse; never invent persona ids.**
 
 - **ADO import** (`import cases` in the planner, or `ADO_FILE=… npm run
   ado:import`): each test case → one graph. `"As <role>, …"` prefixes →
-  sessions (alias = slug of the role, flagged `role_unbound`); each step → a
+  sessions (alias = slug of the role, flagged `role_unbound`); a pre-req
+  step *"Personas who can perform this action: A, B, C"* opens the session as
+  the FIRST persona (the rest are listed as alternatives); *"Login with
+  '<persona>' persona"* mid-case opens a new session; *"Login … with above
+  personas > <action>"* contributes only the action after `>`. Each step → a
   `does` edge, `catalog = <object>.<verb>`; the object noun → a `data` node
   when the expected result says created/saved/exists (or the verb creates);
   the verb → a draft port (`create|convert|submit|add a new` → produces;
   `update|edit|approve|add|delete…` → updates; `open|check|verify` →
   consumes); expected text → a draft oracle (`toast` → `ui.toast`, `url` →
   `ui.url`, created/exists → `api.record_exists`, else `ui.text`). Siebel in
-  a role name adds the Siebel system with `maxConcurrent: 1`.
+  a role name adds the Siebel system with `maxConcurrent: 1`. Consecutive
+  step targets are joined by `next` edges (`e_seq_*`) — a reading ladder so
+  the canvas follows the test case top-to-bottom; the walker ignores them.
 - **Capture-first** (`PIPELINE_GRAPH=1 npm run pipeline`): one recording →
   sessions per actor, one `does` edge per save-bounded group, data nodes per
   SObject with ports inferred by def-use (the save that created a record
@@ -333,4 +368,7 @@ default 10 s) is what closes `api_no_timeout`.
    expectation; backend checks on async integrations carry a budget.
 7. Non-Salesforce systems declare a session policy.
 8. Multi-role graphs have at least one `denied` edge (the security half).
-9. `GRILLME=<ref> npm run grillme` reports only `not_captured`.
+9. A "personas who can perform this" pre-req is either a chain of
+   hand-overs (one session each, the default) or a matrix (`alternatives`)
+   — decided with the human; every persona in the roster.
+10. `GRILLME=<ref> npm run grillme` reports only `not_captured`.

@@ -133,3 +133,46 @@ test('guest personas are always ready (no creds by design)', () => {
   const r = envDoctor(g, registry(), { SF_INSTANCE_URL: 'x' });
   expect(r.ready).toBe(true);
 });
+
+test('roles sharing one account are reported as ONE login to fix', () => {
+  const reg = PersonaRegistry.fromDoc({
+    org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
+    accounts: { sales_mgr: { auth: 'frontdoor' }, sales_rep: {} },
+    personas: {
+      client_lead: { kind: 'internal', role: 'Client Lead', account: 'sales_mgr' },
+      bdm: { kind: 'internal', role: 'BDM', account: 'sales_mgr' },
+      client_associate: { kind: 'internal', role: 'Client Associate', account: 'sales_rep' },
+    },
+  });
+  const g: ProcessGraph = {
+    schema: 'process-graph/2', id: 'l2c', systems: { sf: { label: 'SF', kind: 'salesforce' } },
+    actors: { creator: 'client_associate', lead: 'client_lead', manager: 'bdm' },
+    nodes: [
+      { id: 'start', type: 'start', label: '' },
+      { id: 's1', type: 'session', label: 'SF · creator', system: 'sf', actor: 'creator' },
+      { id: 's2', type: 'session', label: 'SF · lead', system: 'sf', actor: 'lead' },
+      { id: 's3', type: 'session', label: 'SF · manager', system: 'sf', actor: 'manager' },
+      { id: 'end', type: 'end', label: '' },
+    ],
+    edges: [
+      { id: 'e1', from: 'start', to: 's1', type: 'login_as' },
+      { id: 'e2', from: 's1', to: 's2', type: 'login_as' },
+      { id: 'e3', from: 's2', to: 's3', type: 'login_as' },
+      { id: 'e4', from: 's3', to: 'end', type: 'next' },
+    ],
+  };
+  const env = { SF_INSTANCE_URL: 'x', SF_SALES_REP_USERNAME: 'u', SF_SALES_REP_PASSWORD: 'p' };
+  const r = envDoctor(g, reg, env);
+  expect(r.ready).toBe(false);
+  expect(r.personas.map((p) => [p.alias, p.account])).toEqual([['creator', 'sales_rep'], ['lead', 'sales_mgr'], ['manager', 'sales_mgr']]);
+  expect(r.accounts).toEqual([
+    { account: 'sales_rep', roles: ['client_associate'], ready: true, missing: [] },
+    { account: 'sales_mgr', roles: ['client_lead', 'bdm'], ready: false, missing: ['SF_SALES_MGR_TOKEN', 'SF_SALES_MGR_USERNAME', 'SF_SALES_MGR_PASSWORD'] },
+  ]);
+  // The .env skeleton names the shared login ONCE, not once per role:
+  expect(r.envLines.filter((l) => l === 'SF_SALES_MGR_USERNAME=')).toHaveLength(1);
+  const text = formatDoctorReport(r);
+  expect(text).toContain('role     ✗ lead → client_lead (login: sales_mgr)');
+  expect(text).toContain('login    ✗ sales_mgr plays client_lead, bdm — set SF_SALES_MGR_TOKEN or SF_SALES_MGR_USERNAME or SF_SALES_MGR_PASSWORD');
+  expect(text).toContain('login    ✓ sales_rep plays client_associate');
+});

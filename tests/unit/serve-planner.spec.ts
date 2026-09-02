@@ -260,3 +260,90 @@ test('graphs: POST saves a valid graph into the project (atomic), 409s on an exi
   const bad = await post({ project: 'Bad', graph });
   expect((await bad.json()).error).toContain('lower-case');
 });
+
+test('capabilities: the page can tell a current server from a stale one', async () => {
+  const j = await (await fetch(`${base}/__capabilities`)).json();
+  expect(j).toEqual({ version: 4, imports: true, graphs: true, projects: true, personas: true, accounts: true });
+});
+
+test('the served page carries a live-reload snippet that defers to window.plannerHoldReload', async () => {
+  const html = await (await fetch(`${base}/`)).text();
+  expect(html).toContain('window.__plannerReload=function()');
+  expect(html).toContain('plannerHoldReload');
+  expect(html).toContain('__plannerReloadPending=true');
+});
+
+test('personas: GET lists roster + accounts; POST /__personas/add binds each role to an account (new or chosen), appends ONE .env block per new login', async () => {
+  fs.writeFileSync(path.join(tmp, '.env.example'), 'SF_INSTANCE_URL=\n');
+  let j = await (await fetch(`${base}/__personas`)).json();
+  expect(j.roster.map((p: { id: string }) => p.id)).toEqual(['sales_user', 'siebel_admin', 'guest']);
+  expect(j.roster[0].account).toBe('sales_user'); // legacy self-wired persona = its own login
+  expect(j.accounts).toEqual([]);
+
+  const add = await fetch(`${base}/__personas/add`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      roles: ['Client Associate', 'Client Lead', 'Business Development Manager', 'sales_user'],
+      // the lead and the BDM are the same sandbox login; the associate gets its own
+      accounts: { 'Client Lead': 'sales_mgr', 'Business Development Manager': 'sales_mgr' },
+    }),
+  });
+  expect(add.status).toBe(200);
+  j = await add.json();
+  expect(j.added).toEqual(['client_associate', 'client_lead', 'business_development_manager']);
+  expect(j.existing).toEqual(['sales_user']);
+  expect(j.bound).toEqual({ client_associate: 'client_associate', client_lead: 'sales_mgr', business_development_manager: 'sales_mgr' });
+  expect(j.accountsCreated).toEqual(['client_associate', 'sales_mgr']);
+  expect(j.envBlocks.sales_mgr).toEqual([
+    '# sales_mgr — salesforce login for: Client Lead, Business Development Manager',
+    'SF_SALES_MGR_USERNAME=', 'SF_SALES_MGR_PASSWORD=',
+    '# optional: token (preferred over password when set), TOTP secret (only under MFA)',
+    'SF_SALES_MGR_TOKEN=', 'SF_SALES_MGR_TOTP_SECRET=',
+  ]);
+  expect(j.accounts.map((a: { id: string; roles: string[] }) => [a.id, a.roles])).toEqual([
+    ['client_associate', ['client_associate']], ['sales_mgr', ['client_lead', 'business_development_manager']],
+  ]);
+  const doc = personas();
+  expect(doc.personas.client_lead).toEqual({ kind: 'internal', role: 'Client Lead', account: 'sales_mgr' });
+  expect(doc.accounts.sales_mgr).toEqual({ auth: 'frontdoor' });
+  expect(doc.personas.sales_user.usernameEnv).toBe('SF_SALES_USERNAME'); // untouched
+  const example = fs.readFileSync(path.join(tmp, '.env.example'), 'utf8');
+  expect(example).toContain('SF_CLIENT_ASSOCIATE_USERNAME=');
+  expect(example.match(/SF_SALES_MGR_USERNAME=/g)).toHaveLength(1); // one block per LOGIN, not per role
+  expect(example).not.toContain('SF_CLIENT_LEAD_USERNAME');
+  expect(fs.readdirSync(tmp).filter((f) => f.endsWith('.tmp'))).toEqual([]);
+
+  // Binding a later role to an EXISTING account creates no account and no env block:
+  const more = await (await fetch(`${base}/__personas/add`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roles: ['Business Admin'], accounts: { 'Business Admin': 'sales_mgr' } }),
+  })).json();
+  expect(more.accountsCreated).toEqual([]);
+  expect(more.envBlocks).toEqual({});
+  expect(personas().personas.business_admin.account).toBe('sales_mgr');
+  expect(fs.readFileSync(path.join(tmp, '.env.example'), 'utf8').match(/SF_SALES_MGR_USERNAME=/g)).toHaveLength(1);
+
+  const bad = await fetch(`${base}/__personas/add`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roles: ['!!!'] }) });
+  expect(bad.status).toBe(400);
+  expect((await bad.json()).error).toContain('does not yield a usable persona id');
+  const badAcct = await fetch(`${base}/__personas/add`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roles: ['Auditor'], accounts: { Auditor: 'Sales Mgr' } }) });
+  expect((await badAcct.json()).error).toContain('must be lower_snake_case');
+  const none = await fetch(`${base}/__personas/add`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roles: [] }) });
+  expect((await none.json()).error).toContain('at least one role');
+});
+
+test('wiring edits on a role bound to an account land on the ACCOUNT — every role on that login follows', async () => {
+  const r = await (await fetch(`${base}/__personas`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ personaId: 'client_lead', usernameEnv: 'SFDC_UAT_MGR_USER', totpEnv: '' }),
+  })).json();
+  expect(r.ok).toBe(true);
+  expect(r.wiring.username).toBe('SFDC_UAT_MGR_USER');
+  expect(r.wiring.totp).toBeUndefined();
+  expect(r.wiring.account).toBe('sales_mgr');
+  expect(r.wiringAll.business_development_manager.username).toBe('SFDC_UAT_MGR_USER'); // same login, same names
+  const doc = personas();
+  expect(doc.accounts.sales_mgr).toEqual({ auth: 'frontdoor', usernameEnv: 'SFDC_UAT_MGR_USER', totpEnv: '' });
+  expect(doc.personas.client_lead).toEqual({ kind: 'internal', role: 'Client Lead', account: 'sales_mgr' }); // no wiring on the role
+  expect(r.envstatus.SFDC_UAT_MGR_USER).toBe(false);
+});

@@ -11,40 +11,65 @@
       "urlEnv": "SIEBEL_URL"
     }
   },
+  "accounts": {
+    "admin": {
+      "auth": "frontdoor"
+    },
+    "sales": {
+      "auth": "frontdoor"
+    },
+    "portal": {
+      "auth": "singleaccess"
+    },
+    "lead_creator": {
+      "auth": "frontdoor"
+    },
+    "lead_approver": {
+      "auth": "frontdoor"
+    },
+    "credit_approver": {
+      "auth": "frontdoor"
+    },
+    "siebel_admin": {
+      "system": "siebel",
+      "auth": "ui",
+      "tokenEnv": ""
+    },
+    "client_associate": {
+      "auth": "frontdoor"
+    },
+    "billing_collections": {
+      "auth": "frontdoor"
+    },
+    "client_lead": {
+      "auth": "frontdoor"
+    },
+    "bdm": {
+      "auth": "frontdoor"
+    },
+    "business_admin": {
+      "auth": "frontdoor"
+    }
+  },
   "personas": {
     "admin": {
       "kind": "internal",
       "role": "System Administrator",
       "profile": "System Administrator",
-      "usernameEnv": "SF_ADMIN_USERNAME",
-      "passwordEnv": "SF_ADMIN_PASSWORD",
-      "tokenEnv": "SF_ADMIN_TOKEN",
-      "auth": "frontdoor",
-      "poolSize": 1,
-      "totpEnv": "SF_ADMIN_TOTP_SECRET"
+      "account": "admin"
     },
     "sales_user": {
       "kind": "internal",
       "role": "Sales User",
       "profile": "Standard User",
       "permissionSets": [],
-      "usernameEnv": "SF_SALES_USERNAME",
-      "passwordEnv": "SF_SALES_PASSWORD",
-      "tokenEnv": "SF_SALES_TOKEN",
-      "auth": "frontdoor",
-      "poolSize": 1,
-      "totpEnv": "SF_SALES_TOTP_SECRET"
+      "account": "sales"
     },
     "portal_user": {
       "kind": "portal",
       "site": "portal",
       "license": "Customer Community Plus",
-      "usernameEnv": "SF_PORTAL_USERNAME",
-      "passwordEnv": "SF_PORTAL_PASSWORD",
-      "tokenEnv": "SF_PORTAL_TOKEN",
-      "auth": "singleaccess",
-      "poolSize": 1,
-      "totpEnv": "SF_PORTAL_TOTP_SECRET"
+      "account": "portal"
     },
     "guest": {
       "kind": "guest",
@@ -53,42 +78,48 @@
     "lead_creator": {
       "kind": "internal",
       "role": "Lead Creator",
-      "usernameEnv": "SF_LEAD_CREATOR_USERNAME",
-      "passwordEnv": "SF_LEAD_CREATOR_PASSWORD",
-      "tokenEnv": "SF_LEAD_CREATOR_TOKEN",
-      "auth": "frontdoor",
-      "poolSize": 1,
-      "totpEnv": "SF_LEAD_CREATOR_TOTP_SECRET"
+      "account": "lead_creator"
     },
     "lead_approver": {
       "kind": "internal",
       "role": "Lead Approver",
-      "usernameEnv": "SF_LEAD_APPROVER_USERNAME",
-      "passwordEnv": "SF_LEAD_APPROVER_PASSWORD",
-      "tokenEnv": "SF_LEAD_APPROVER_TOKEN",
-      "auth": "frontdoor",
-      "poolSize": 1,
-      "totpEnv": "SF_LEAD_APPROVER_TOTP_SECRET"
+      "account": "lead_approver"
     },
     "credit_approver": {
       "kind": "internal",
       "role": "Credit Approver",
-      "usernameEnv": "SF_CREDIT_APPROVER_USERNAME",
-      "passwordEnv": "SF_CREDIT_APPROVER_PASSWORD",
-      "tokenEnv": "SF_CREDIT_APPROVER_TOKEN",
-      "auth": "frontdoor",
-      "poolSize": 1,
-      "totpEnv": "SF_CREDIT_APPROVER_TOTP_SECRET"
+      "account": "credit_approver"
     },
     "siebel_admin": {
       "kind": "internal",
-      "role": "Siebel Administrator",
       "site": "siebel",
-      "usernameEnv": "SIEBEL_ADMIN_USERNAME",
-      "passwordEnv": "SIEBEL_ADMIN_PASSWORD",
-      "auth": "ui",
-      "poolSize": 1,
-      "totpEnv": "SIEBEL_ADMIN_TOTP_SECRET"
+      "role": "Siebel Administrator",
+      "account": "siebel_admin"
+    },
+    "client_associate": {
+      "kind": "internal",
+      "role": "Client Associate",
+      "account": "client_associate"
+    },
+    "billing_collections": {
+      "kind": "internal",
+      "role": "Billing Collections and Debt management",
+      "account": "billing_collections"
+    },
+    "client_lead": {
+      "kind": "internal",
+      "role": "Client Lead",
+      "account": "client_lead"
+    },
+    "business_development_manager": {
+      "kind": "internal",
+      "role": "Business Development Manager",
+      "account": "bdm"
+    },
+    "business_admin": {
+      "kind": "internal",
+      "role": "Business Admin",
+      "account": "business_admin"
     }
   }
 }

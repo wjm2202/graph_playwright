@@ -141,7 +141,8 @@ test.describe('toSpec', () => {
     expect(src).toContain("require('../../src/journeys/generated/expense_to_siebel.steps')");
     expect(src).toContain('registerSteps_expense_to_siebel');
     expect(src).toContain('runGraphFile(GRAPH');
-    expect(src).toContain("test('Expense flows into Siebel'");
+    // One test() per persona-matrix binding; the default keeps the plain title.
+    expect(src).toContain("test(variant.id === 'default' ? 'Expense flows into Siebel' : 'Expense flows into Siebel · as ' + variant.label");
     expect(src).toContain('GRAPH_SPEC=expense_to_siebel npm run graph:spec');
     expect(src).not.toContain('networkidle');
   });

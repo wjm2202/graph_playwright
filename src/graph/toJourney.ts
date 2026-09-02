@@ -304,6 +304,47 @@ function expectationsFor(
     }));
 }
 
+/**
+ * The persona MATRIX: one variant per way of binding the aliases that carry
+ * `alternatives`. The first variant is the graph's own `actors` (the
+ * default); then each alternative in turn; several aliases with
+ * alternatives combine as a cartesian product (capped — a matrix bigger
+ * than 24 runs is a modelling smell, not a test plan).
+ */
+export interface GraphVariant {
+  /** Stable, lower_snake_case: the personas that differ from the default, joined by '__'; 'default' for the base binding. */
+  id: string;
+  /** Human label: "client_associate → client_lead". */
+  label: string;
+  actors: Record<string, string>;
+}
+
+export const MAX_VARIANTS = 24;
+
+export function expandVariants(graph: ProcessGraph): GraphVariant[] {
+  const alts = Object.entries(graph.alternatives ?? {}).filter(([, list]) => list.length);
+  if (!alts.length) return [{ id: 'default', label: 'default', actors: { ...graph.actors } }];
+  // Per alias: [default, ...alternatives].
+  const axes = alts.map(([alias, list]) => ({ alias, personas: [graph.actors[alias]!, ...list] }));
+  let combos: { alias: string; persona: string }[][] = [[]];
+  for (const axis of axes) {
+    combos = combos.flatMap((prefix) => axis.personas.map((persona) => [...prefix, { alias: axis.alias, persona }]));
+  }
+  if (combos.length > MAX_VARIANTS) {
+    throw new Error(`persona matrix has ${combos.length} variants (max ${MAX_VARIANTS}) — split the graph or trim alternatives`);
+  }
+  return combos.map((combo) => {
+    const actors = { ...graph.actors };
+    const changed: string[] = [];
+    for (const { alias, persona } of combo) {
+      actors[alias] = persona;
+      if (persona !== graph.actors[alias]) changed.push(`${alias} → ${persona}`);
+    }
+    const id = changed.length ? changed.map((c) => c.split(' → ')[1]!).join('__') : 'default';
+    return { id, label: changed.length ? changed.join(', ') : 'default', actors };
+  });
+}
+
 /** Cast session-policy groups from a graph's systems + actor lanes. */
 export function sessionPoliciesFromGraph(graph: ProcessGraph): SessionPolicies {
   const groups: SessionPolicyGroup[] = [];

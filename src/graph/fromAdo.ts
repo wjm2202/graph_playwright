@@ -165,10 +165,17 @@ function parsePlainSteps(text: string): AdoStep[] {
 // ---------- mapping: case → draft graph ----------
 
 const ROLE_RE = /^(?:as|logged\s+in\s+as|login\s+as|acting\s+as)\s+(?:a|an|the)?\s*([^,:]+?)\s*[,:]\s*/i;
-const CREATED_RE = /\b(created|saved|exists|persisted|record|row)\b/i;
+/** Real ADO phrasing (ADO Test Plans exports, 2026-09-02): a "pre-req" step that
+ *  LISTS who may perform the case, and mid-case "Login with <persona> persona"
+ *  steps that switch the actor. Both open a session; the pre-req step itself is
+ *  not an action. */
+const PREREQ_PERSONAS_RE = /personas?\s+who\s+can\s+perform[^:]*:\s*(.+)$/i;
+const LOGIN_WITH_RE = /^(?:log\s*in|login|sign\s*in)\s+(?:to\s+\S+(?:\s+\S+)?\s+)?(?:with|as|using)\s+(?:the\s+|a\s+|an\s+)?["“']?([^"”']+?)["”']?\s*(?:persona|user|role|profile)\b/i;
+const LOGIN_ABOVE_RE = /^(?:log\s*in|login|sign\s*in)\b.*\babove\s+personas?\b/i;
+const CREATED_RE = /\b(created|saved|exists|persisted|inserted|generated)\b/i;
 const TOAST_RE = /\btoast\b/i;
 const URL_RE = /\burl\b|\bnavigat/i;
-const OBJECT_RE = /\b(?:create|update|edit|open|approve|convert|check|verify|progress|submit|add|delete|remove)\b(?:\s+(?:a|an|the|new))?\s+([a-z][a-z ]{1,24}?)(?:\s+(?:record|to|into|for|in|with|from)\b|\s*$)/i;
+const OBJECT_RE = /\b(?:create|update|edit|open|approve|convert|check|verify|progress|submit|add|delete|remove)\b(?:\s+(?:a|an|the|new|that|if|whether))?\s+([a-z][a-z ]{1,24}?)(?:\s+(?:record|to|into|for|in|with|from|is|are|was|should|has|have|can|cannot|during|on|at)\b|\s*$)/i;
 
 export function adoCaseToGraph(tc: AdoCase, opts: { graphId?: string; knownPersonas?: string[] } = {}): AdoImportResult {
   const flags: string[] = [];
@@ -187,15 +194,34 @@ export function adoCaseToGraph(tc: AdoCase, opts: { graphId?: string; knownPerso
   // Segment by role phrases; a step with no role stays with the previous one.
   interface Seg { alias: string; roleText: string; steps: AdoStep[] }
   const segs: Seg[] = [];
+  const openSession = (roleText: string, first?: AdoStep) => {
+    const alias = slug(roleText).slice(0, 40).replace(/_+$/, '') || `role_${segs.length + 1}`;
+    const last = segs[segs.length - 1];
+    if (last?.alias === alias) { if (first) last.steps.push(first); return; }
+    segs.push({ alias, roleText, steps: first ? [first] : [] });
+  };
   for (const step of tc.steps) {
     const m = ROLE_RE.exec(step.action);
+    const prereq = PREREQ_PERSONAS_RE.exec(step.action);
+    const loginWith = LOGIN_WITH_RE.exec(step.action);
     if (m) {
-      const roleText = (m[1] ?? '').trim();
-      const alias = slug(roleText) || `role_${segs.length + 1}`;
-      const cleaned = { ...step, action: step.action.slice(m[0].length).trim() || step.action };
-      const last = segs[segs.length - 1];
-      if (last?.alias === alias) last.steps.push(cleaned);
-      else segs.push({ alias, roleText, steps: [cleaned] });
+      openSession((m[1] ?? '').trim(), { ...step, action: step.action.slice(m[0].length).trim() || step.action });
+    } else if (LOGIN_ABOVE_RE.test(step.action) && segs.length) {
+      // "Login to Salesforce SIT with above personas > User converts the lead…"
+      // — the pre-req already opened the session; anything after '>' is the
+      // first real action.
+      const rest = step.action.split(/\s*>\s*/).slice(1).join(' > ').trim();
+      if (rest) segs[segs.length - 1]?.steps.push({ ...step, action: rest });
+    } else if (prereq) {
+      // "Pre req: Personas who can perform this action: A, B, C" — the FIRST
+      // named persona plays the case; the others are recorded for the human.
+      const names = (prereq[1] ?? '').split(/\s*(?:,|;|\/|\bor\b|\band\b)\s*/i).map((x) => x.replace(/[.\s]+$/, '').trim()).filter(Boolean);
+      const chosen = names[0] ?? 'user';
+      openSession(chosen);
+      flags.push(`pre-req names ${names.length} persona(s) who can perform this case [${names.join(', ')}] — session bound to '${slug(chosen)}'; the rest are alternatives (ask which to test)`);
+    } else if (loginWith) {
+      // "Login with 'Credit and Collections' persona" mid-case → a NEW session.
+      openSession((loginWith[1] ?? '').trim());
     } else if (segs.length) {
       segs[segs.length - 1]?.steps.push(step);
     } else {
@@ -203,6 +229,8 @@ export function adoCaseToGraph(tc: AdoCase, opts: { graphId?: string; knownPerso
       flags.push(`step 1 names no role ('${trunc(step.action)}') — bound to alias 'user'; grillme should ask`);
     }
   }
+  // A session opened by a pre-req/login step with nothing after it is noise.
+  for (let k = segs.length - 1; k >= 0; k--) if (!segs[k]!.steps.length && segs.length > 1) segs.splice(k, 1);
 
   const usedCatalogs = new Set<string>();
   const dataNodes = new Map<string, PNode>();
@@ -229,6 +257,7 @@ export function adoCaseToGraph(tc: AdoCase, opts: { graphId?: string; knownPerso
     });
     graph.edges.push({ id: `e_login_${i + 1}`, from: prev, to: sessId, type: 'login_as' });
     prev = sessId;
+    let prevTarget: string | undefined;
 
     for (const step of seg.steps) {
       edgeSeq += 1;
@@ -263,6 +292,13 @@ export function adoCaseToGraph(tc: AdoCase, opts: { graphId?: string; knownPerso
         id: edgeId, from: sessId, to: targetId, type: 'does',
         label: trunc(step.action, 60), data: { catalog, ...(io ? { io, ioDraft: true } : {}) },
       });
+      // The step LADDER: a `next` edge from the previous step's target so the
+      // canvas reads top-to-bottom like the test case (the walker orders by
+      // the does edges; `next` between screens is a reading aid only).
+      if (prevTarget && prevTarget !== targetId) {
+        graph.edges.push({ id: `e_seq_${edgeSeq}`, from: prevTarget, to: targetId, type: 'next' });
+      }
+      prevTarget = targetId;
 
       if (step.expected) {
         const target = graph.nodes.find((n) => n.id === targetId)!;
@@ -378,7 +414,8 @@ function verbOf(action: string): string {
 
 /** The business object in an action phrase — connective words stripped. */
 function objectOf(action: string): string | undefined {
-  const raw = OBJECT_RE.exec(action)?.[1]?.trim();
+  const text = action.replace(/[.!?:;]+\s*$/, '').trim(); // "Verify Prospect Account is Created." — the period hid the object
+  const raw = OBJECT_RE.exec(text)?.[1]?.trim();
   if (!raw) return undefined;
   const cleaned = raw
     .replace(/^(?:to|the|a|an|new)\s+/i, '')   // 'approve TO customer' → 'customer'

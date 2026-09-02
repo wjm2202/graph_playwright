@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "personas.json — roles → accounts → env-var NAMES (never values)",
+  "description": "See docs/DESIGN-ROLES-ACCOUNTS.md. The authoritative validator is src/personas/schema.ts; this file gives editors completions and hover help.",
+  "type": "object",
+  "required": ["org", "personas"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "org": {
+      "type": "object",
+      "required": ["instanceUrlEnv"],
+      "additionalProperties": false,
+      "properties": { "instanceUrlEnv": { "$ref": "#/definitions/envName", "description": "Env NAME holding the org's My Domain URL (SF_INSTANCE_URL)." } }
+    },
+    "sites": {
+      "type": "object",
+      "description": "Experience Cloud sites / other systems a persona may live on, keyed by site id.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["urlEnv"],
+        "additionalProperties": false,
+        "properties": { "urlEnv": { "$ref": "#/definitions/envName" } }
+      }
+    },
+    "accounts": {
+      "type": "object",
+      "description": "Logins, one per real user in an application. Env names are DERIVED from the id: <PREFIX>_<ACCOUNT>_USERNAME/_PASSWORD/_TOKEN/_TOTP_SECRET (SF for salesforce).",
+      "propertyNames": { "$ref": "#/definitions/id" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "system": { "$ref": "#/definitions/id", "description": "Application the login belongs to — salesforce (default), siebel, …" },
+          "auth": { "$ref": "#/definitions/auth" },
+          "poolSize": { "type": "integer", "minimum": 1, "description": "Clone logins for parallel workers, read from …_W0…_W(N-1)." },
+          "usernameEnv": { "$ref": "#/definitions/envName", "description": "Override of the derived name (legacy .env vocabulary)." },
+          "passwordEnv": { "$ref": "#/definitions/envNameOrOff" },
+          "tokenEnv": { "$ref": "#/definitions/envNameOrOff" },
+          "totpEnv": { "$ref": "#/definitions/envNameOrOff" }
+        }
+      }
+    },
+    "personas": {
+      "type": "object",
+      "description": "Roles as the test cases name them, each bound to the account it logs in as.",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/definitions/id" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": { "enum": ["internal", "portal", "guest"] },
+          "site": { "type": "string", "description": "Site key (required for portal personas)." },
+          "role": { "type": "string", "description": "The role as the test cases name it, e.g. \"Client Lead\"." },
+          "profile": { "type": "string" },
+          "license": { "type": "string" },
+          "permissionSets": { "type": "array", "items": { "type": "string" } },
+          "account": { "$ref": "#/definitions/id", "description": "A declared account this role logs in as. Roles may share one." },
+          "usernameEnv": { "$ref": "#/definitions/envName", "description": "LEGACY self-wired persona (no account). Do not write new ones." },
+          "passwordEnv": { "$ref": "#/definitions/envName" },
+          "tokenEnv": { "$ref": "#/definitions/envName" },
+          "totpEnv": { "$ref": "#/definitions/envName" },
+          "auth": { "$ref": "#/definitions/auth" },
+          "poolSize": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+    "envName": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$", "maxLength": 64, "description": "An env-var NAME. Never a value." },
+    "envNameOrOff": { "type": "string", "pattern": "^([A-Z][A-Z0-9_]*)?$", "maxLength": 64, "description": "An env-var NAME, or \"\" meaning this login does not use it." },
+    "auth": { "enum": ["frontdoor", "singleaccess", "ui"], "description": "How Cast acquires the session." }
+  }
+}

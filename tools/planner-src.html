@@ -75,6 +75,7 @@
     <span class="tbl">edit</span>
     <select id="b_add" class="editonly" title="add a node — pick what it represents" style="background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:4px;">
       <option value="">add ▾</option>
+      <option value="__personas">personas…</option>
       <option value="session">session — who, in which system</option>
       <option value="data">data — a record</option>
       <option value="screen">screen</option>
@@ -134,6 +135,29 @@
   </div>
   <div id="ro_list"></div>
 </div>
+<!-- personas: paste role names → roles in this graph (+ personas.json entries when served). -->
+<div id="p_personas" class="hide" style="position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index:40; width:560px; max-height:80vh; overflow:auto; background:var(--panel); border:1px solid var(--accent); border-radius:10px; padding:12px 14px; font-size:12px; box-shadow:0 10px 30px rgba(0,0,0,.55);">
+  <div style="display:flex; align-items:center; margin-bottom:8px;">
+    <b>personas in this process</b><span style="color:var(--muted); margin-left:8px;">each role becomes a session's role / user</span>
+    <button id="pp_close" title="close" style="margin-left:auto; padding:1px 7px;">✕</button>
+  </div>
+  <div class="field wide"><label>paste the role names — one per line or comma-separated (the ADO pre-req list works as-is)</label>
+    <textarea id="pp_paste" rows="4" style="width:100%; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:6px; font-size:12px;" placeholder="Client Associate, Client Lead, Business Development Manager, Business Admin, Credit Controller"></textarea>
+  </div>
+  <!-- roles → accounts: each NEW role picks the login it plays as (a new one named after it, or an existing account). -->
+  <div id="pp_castwrap" class="field wide hide"><label>each new role logs in as… (roles may share one login; env names come from the login)</label>
+    <div id="pp_cast" style="display:grid; grid-template-columns:auto 1fr; gap:4px 10px; align-items:center; border:1px solid var(--line); border-radius:6px; padding:6px 8px;"></div>
+  </div>
+  <div class="field wide"><label>or pick from personas.json</label>
+    <div id="pp_roster" style="max-height:26vh; overflow:auto; border:1px solid var(--line); border-radius:6px; padding:4px 6px;"></div>
+  </div>
+  <div style="display:flex; gap:8px; align-items:center; margin-top:8px;">
+    <button id="pp_apply" class="editonly" style="border-color:var(--accent);">add to graph</button>
+    <span id="pp_msg" style="color:var(--muted);"></span>
+  </div>
+  <div id="pp_result" style="margin-top:8px; color:var(--muted);"></div>
+  <pre id="pp_env" class="hide" style="margin-top:6px; padding:8px; background:var(--bg); border:1px solid var(--line); border-radius:6px; font-size:11px; white-space:pre-wrap; user-select:all;"></pre>
+</div>
 <!-- import test cases (ADO .xlsx/.csv → draft graphs in a project). Served mode only: the dev server stores the file under projects/<p>/imports/. -->
 <div id="p_cases" class="hide" style="position:fixed; top:60px; left:50%; transform:translateX(-50%); z-index:40; width:560px; max-height:80vh; overflow:auto; background:var(--panel); border:1px solid var(--accent); border-radius:10px; padding:12px 14px; font-size:12px; box-shadow:0 10px 30px rgba(0,0,0,.55);">
   <div style="display:flex; align-items:center; margin-bottom:8px;">
@@ -167,8 +191,8 @@
     </div>
   </div>
   <div id="ic_step3" class="hide">
-    <div id="ic_results"></div>
-    <div style="color:var(--muted); margin-top:8px;">Each graph is a DRAFT: every guess is flagged and every check is marked <i>draft?</i>. Open one, run <b>check</b>, or hand the files under projects/&lt;p&gt;/graphs/ to your AI for review.</div>
+    <div id="ic_results" style="max-height:44vh; overflow:auto;"></div>
+    <div style="color:var(--muted); margin-top:8px;">Each graph is a DRAFT: the session(s), the steps in order (one <i>does</i> edge each, with the ADO text as label) and the expected results as <i>draft?</i> checks. Nothing is invented — open one, run <b>check</b> to answer what the import could not know (which persona, which record, which port), or hand the files under projects/&lt;p&gt;/graphs/ with skills/graph-author/SKILL.md to your AI.</div>
     <div style="display:flex; gap:8px; margin-top:8px;"><button id="ic_more" style="padding:3px 8px;">import more</button><button id="ic_done" style="padding:3px 8px;">done</button></div>
   </div>
 </div>
@@ -425,6 +449,16 @@ function render() {
   // positioned, some not, e.g. nodes appended by a tool) must never render
   // as a stack at the origin. Fully-positioned graphs keep their layout.
   if (G.nodes.length && G.nodes.some(function (n) { return !n.pos; })) runLayout();
+  // Nodes are label-sized. Cytoscape caches "takes up space" (width !== 0)
+  // the first time visible() is asked — which can be BEFORE the label is
+  // measured — and never revisits it unless styles change. A layout run
+  // happens to invalidate it; a fully-positioned graph does not, and whole
+  // nodes (start, sessions, a data node) silently stopped being drawn
+  // (owner report 2026-09-02 "half the graph disappeared"). Re-apply styles
+  // so every node is measured before anything asks.
+  cy.nodes().recalculateRenderedStyle();   // measure the labels NOW
+  cy.elements().dirtyStyleCache();         // forget any 'takes no space' verdict taken before that
+  window.requestAnimationFrame(function () { cy.elements().dirtyStyleCache(); cy.forceRender(); }); // and once more after the first paint
   cy.fit(undefined, 30);
   refreshMeta();
   setStatus();
@@ -440,6 +474,17 @@ function refreshMeta() {
   Object.keys(G.systems).forEach(function (k) { sys.add(new Option(k + ' — ' + G.systems[k].label, k)); });
   var act = document.getElementById('nf_actor'); act.innerHTML = '<option value=""></option>';
   Object.keys(G.actors).forEach(function (k) { act.add(new Option(k + ' → ' + G.actors[k], k)); });
+  // Personas from personas.json that this graph does not use yet: picking
+  // one ADDS the role to the graph (owner 2026-09-02: a new graph must offer
+  // the roster, not an empty list).
+  var used = {};
+  Object.keys(G.actors).forEach(function (k) { used[G.actors[k]] = true; });
+  var spare = PERSONA_IDS.filter(function (id) { return !used[id]; });
+  if (spare.length) {
+    var og = document.createElement('optgroup'); og.label = 'from personas.json (adds the role)';
+    spare.forEach(function (id) { og.appendChild(new Option(id, 'roster:' + id)); });
+    act.appendChild(og);
+  }
 }
 function readiness() {
   var sess = G.nodes.filter(function (n) { return n.type === 'session'; });
@@ -580,7 +625,14 @@ function renderCreds(n) {
       : '';
     return '<div class="credline"><span class="k">' + key + '</span>' + dot + field + clear + '</div>';
   }
-  box.innerHTML =
+  // The LOGIN this role plays as — its env names are the account's, shared by every role on it.
+  var others = [];
+  if (w.account) for (var pid in (window.PERSONA_ENV || {})) if (pid !== persona && window.PERSONA_ENV[pid] && window.PERSONA_ENV[pid].account === w.account) others.push(pid);
+  var loginLine = w.account
+    ? '<div class="credline"><span class="k">login</span><span class="mono" title="the account (personas.json accounts.' + escHtml(w.account) + ') this role logs in as">' + escHtml(w.account) + '</span>' +
+      (others.length ? '<span style="color:var(--muted); font-size:10px;">also plays ' + escHtml(others.join(', ')) + '</span>' : '') + '</div>'
+    : '';
+  box.innerHTML = loginLine +
     line('url', w.url) + line('username', w.username) + line('password', w.password) +
     line('token', w.token) + line('totp', w.totp) +
     (served
@@ -613,7 +665,7 @@ function saveCredName(persona, key, value, node) {
         renderCreds(node); // snap back to the truth on disk
         return;
       }
-      applyPersonaWiring(persona, res.j.wiring, res.j.envstatus);
+      applyPersonaWiring(persona, res.j.wiring, res.j.envstatus, res.j.wiringAll);
       var what = value
         ? "'" + persona + "' " + key + ' now reads ' + value
         : "'" + persona + "' " + key + " cleared — this system doesn't use it";
@@ -622,9 +674,11 @@ function saveCredName(persona, key, value, node) {
     })
     .catch(function () { setStatus('env name NOT saved — dev server unreachable'); renderCreds(node); });
 }
-function applyPersonaWiring(persona, wiring, envstatus) {
+function applyPersonaWiring(persona, wiring, envstatus, wiringAll) {
   window.PERSONA_ENV = window.PERSONA_ENV || {};
-  window.PERSONA_ENV[persona] = wiring;
+  if (persona) window.PERSONA_ENV[persona] = wiring;
+  // Roles sharing the login changed with it (the account owns the names).
+  if (wiringAll) for (var pid in wiringAll) window.PERSONA_ENV[pid] = wiringAll[pid];
   if (envstatus) window.ENV_STATUS = envstatus;
 }
 
@@ -715,7 +769,11 @@ function placeSelectedCard() {
     if (x + 290 > window.innerWidth) x = Math.max(rect.left + 8, rect.left + m.x - 300);
   }
   card.style.left = Math.round(Math.max(rect.left + 4, x)) + 'px';
-  card.style.top = Math.round(Math.min(Math.max(rect.top + 4, y), window.innerHeight - 120)) + 'px';
+  // Keep the WHOLE card on screen: a card that hangs below the window cannot
+  // be scrolled into view (it is position:fixed), so its lower fields become
+  // unreachable — shift it up as far as the header allows.
+  var maxTop = Math.max(rect.top + 4, window.innerHeight - card.offsetHeight - 8);
+  card.style.top = Math.round(Math.min(Math.max(rect.top + 4, y), maxTop)) + 'px';
 }
 
 var EXPECT_KINDS = ['ui.visible', 'ui.text', 'ui.toast', 'ui.url', 'api.record_exists', 'api.field_equals', 'db.query', 'log.traffic'];
@@ -855,7 +913,14 @@ function readNodeForm() {
   n.label = document.getElementById('nf_label').value;
   n.type = document.getElementById('nf_type').value;
   var sv = document.getElementById('nf_system').value; if (sv) n.system = sv; else delete n.system;
-  var av = document.getElementById('nf_actor').value; if (av) n.actor = av; else delete n.actor;
+  var av = document.getElementById('nf_actor').value;
+  if (av && av.indexOf('roster:') === 0) {
+    // A roster persona chosen straight from the card: the role is the persona id.
+    av = av.slice(7);
+    if (!G.actors[av]) { G.actors[av] = av; refreshMeta(); }
+    document.getElementById('nf_actor').value = av;
+  }
+  if (av) n.actor = av; else delete n.actor;
   var acc = document.getElementById('nf_account').value.trim(); if (acc) n.account = { usernameEnv: acc }; else delete n.account;
   var url = document.getElementById('nf_url').value.trim(); if (url) n.url = url; else delete n.url;
   var cat = document.getElementById('nf_catalog').value.trim(); if (cat) n.catalog = cat; else delete n.catalog;
@@ -1044,7 +1109,7 @@ function saveToProject(project, overwrite) {
   }
   var body = { project: project, graph: G, overwrite: !!overwrite };
   return fetch('/__graphs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-    .then(function (r) { return r.json().then(function (j) { return { status: r.status, j: j }; }); })
+    .then(function (r) { return r.text().then(function (text) { var j = null; try { j = JSON.parse(text); } catch (e) { j = { ok: false, error: STALE_SERVER }; } return { status: r.status, j: j }; }); })
     .then(function (res) {
       if (res.status === 409 && res.j && res.j.exists) {
         if (!confirm('"' + project + '/' + G.id + '" already exists in the project. Overwrite it?')) { setStatus('save cancelled — "' + project + '/' + G.id + '" kept as it was'); return { ok: false, errors: ['exists'] }; }
@@ -1539,6 +1604,7 @@ function addTyped(type) {
 document.getElementById('b_add').addEventListener('change', function (ev) {
   var t = ev.target.value;
   ev.target.value = '';
+  if (t === '__personas') { openPersonas(); return; }
   if (t) addTyped(t);
 });
 
@@ -1925,17 +1991,48 @@ document.getElementById('f_test').addEventListener('change', function (ev) {
 // cases → one draft graph each. The file is stored under the project so the
 // cases skipped today import tomorrow without re-uploading. Served mode only.
 var IC = { project: '', importId: '', cases: [] };
+// The dev server's live reload asks before reloading: hold it while the
+// import wizard is on step 1 or 2 (a reload there loses the human's place);
+// release on close / step 3, and fire the reload that was waiting.
+window.plannerHoldReload = function () {
+  var cases = !document.getElementById('p_cases').classList.contains('hide') && document.getElementById('ic_step3').classList.contains('hide');
+  var personas = !document.getElementById('p_personas').classList.contains('hide');
+  return cases || personas;
+};
+function icReleaseReload() {
+  if (window.__plannerReloadPending) { window.__plannerReloadPending = false; if (window.__plannerReload) window.__plannerReload(); }
+}
 function icServed() { return /^https?:$/.test(location.protocol) || !!window.PLANNER_FORCE_SERVED; }
 function icShow(step) {
   ['ic_step1', 'ic_step2', 'ic_step3'].forEach(function (id) { document.getElementById(id).classList.toggle('hide', id !== 'ic_step' + step); });
 }
 function icMsg(id, text, bad) { var el = document.getElementById(id); el.textContent = text || ''; el.style.color = bad ? '#e2604f' : 'var(--muted)'; }
+var STALE_SERVER = 'the running dev server predates this page — stop it (Ctrl+C) and run: npm run planner';
 function icFetch(url, body) {
   return fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined)
-    .then(function (r) { return r.json().then(function (j) { if (!r.ok || j.ok === false) throw new Error((j && j.error) || 'server refused'); return j; }); });
+    .then(function (r) {
+      return r.text().then(function (text) {
+        var j = null;
+        try { j = JSON.parse(text); } catch (e) { throw new Error(r.status === 404 || /^\s*</.test(text) ? STALE_SERVER : 'dev server returned no JSON (' + r.status + ')'); }
+        if (!r.ok || j.ok === false) throw new Error((j && j.error) || 'server refused');
+        return j;
+      });
+    });
+}
+/** The page needs a server that knows these routes; an older process answers 404/HTML. */
+function icServerReady() {
+  return fetch('/__capabilities').then(function (r) {
+    if (!r.ok) throw new Error(STALE_SERVER);
+    return r.json();
+  }).then(function (c) { if (!c.imports || !c.graphs) throw new Error(STALE_SERVER); return c; })
+    .catch(function (e) { throw new Error(e.message === STALE_SERVER ? STALE_SERVER : 'dev server unreachable — run: npm run planner'); });
 }
 function openImportCases() {
   if (!icServed()) { setStatus('importing test cases needs the dev server — run: npm run planner'); return; }
+  icServerReady().catch(function (e) {
+    var el = document.getElementById('status'); el.className = 'bad'; el.textContent = 'import cases: ' + e.message;
+    icMsg('ic_msg', e.message, true);
+  });
   var sel = document.getElementById('ic_project');
   sel.innerHTML = '';
   sel.appendChild(new Option('— choose a project —', ''));
@@ -2014,10 +2111,11 @@ function icRenderCases(manifest) {
     row.style.cssText = 'display:flex; gap:8px; align-items:center; padding:3px 0; border-bottom:1px solid var(--line);';
     var cb = document.createElement('input');
     cb.type = 'checkbox'; cb.dataset.index = String(c.index);
-    if (c.graphId) { cb.disabled = true; } else { cb.checked = true; pending += 1; }
+    if (c.graphId) { cb.disabled = true; } else if (c.steps > 0) { cb.checked = true; pending += 1; }
     var text = document.createElement('span');
     text.innerHTML = (c.id ? '<span class="mono" style="color:var(--muted)">' + escHtml(c.id) + '</span> ' : '') + escHtml(c.title) +
       ' <span style="color:var(--muted)">· ' + c.steps + ' step' + (c.steps === 1 ? '' : 's') + '</span>' +
+      (c.steps === 0 && !c.graphId ? ' <span style="color:#d9a441">⚠ no steps in ADO — would be an empty graph</span>' : '') +
       (c.graphId ? ' <span style="color:#7dcf85">→ ' + escHtml(c.graphId) + ' (imported)</span>' : '');
     row.appendChild(cb); row.appendChild(text);
     list.appendChild(row);
@@ -2037,10 +2135,11 @@ function icApply() {
     var res = j.results || [];
     // The dev server rebuilds the library and live-reloads this tab; leave a
     // note so the reload lands on the first new graph with the list intact.
-    try { sessionStorage.setItem('planner.lastImport', JSON.stringify({ project: IC.project, results: res.map(function (r) { return { graphId: r.graphId, title: r.title }; }) })); } catch (e) { /* storage may be blocked */ }
+    try { sessionStorage.setItem('planner.lastImport', JSON.stringify({ project: IC.project, results: res.map(function (r) { return { graphId: r.graphId, title: r.title, nodes: r.nodes, edges: r.edges, flags: r.flags }; }) })); } catch (e) { /* storage may be blocked */ }
     icRenderResults(res);
     icShow(3);
     setStatus('imported ' + res.length + ' test case' + (res.length === 1 ? '' : 's') + ' into projects/' + IC.project + '/graphs/ — the library refreshes when the rebuild lands');
+    icReleaseReload();
   }).catch(function (e) { icMsg('ic_msg2', e.message, true); });
 }
 function icRenderResults(res) {
@@ -2063,8 +2162,8 @@ function icOpen(ref) {
   setStatus('"' + ref + '" is not in the library yet — the dev server is rebuilding; this tab reloads when it lands');
 }
 document.getElementById('b_cases').addEventListener('click', openImportCases);
-document.getElementById('ic_close').addEventListener('click', function () { document.getElementById('p_cases').classList.add('hide'); });
-document.getElementById('ic_done').addEventListener('click', function () { document.getElementById('p_cases').classList.add('hide'); });
+document.getElementById('ic_close').addEventListener('click', function () { document.getElementById('p_cases').classList.add('hide'); icReleaseReload(); });
+document.getElementById('ic_done').addEventListener('click', function () { document.getElementById('p_cases').classList.add('hide'); icReleaseReload(); });
 document.getElementById('ic_more').addEventListener('click', openImportCases);
 document.getElementById('ic_back').addEventListener('click', function () { icShow(1); });
 document.getElementById('ic_read').addEventListener('click', icRead);
@@ -2093,15 +2192,155 @@ document.getElementById('ic_previous').addEventListener('change', function (ev) 
   try {
     var last = JSON.parse(raw);
     var lib = window.GRAPH_LIBRARY || {};
-    var refs = (last.results || []).map(function (r) { return last.project + '/' + r.graphId; }).filter(function (ref) { return !!lib[ref]; });
-    if (!refs.length) return;
+    var results = (last.results || []).filter(function (r) { return !!lib[last.project + '/' + r.graphId]; });
+    if (!results.length) return;
     window.setTimeout(function () {
-      openFromLibrary('lib:' + refs[0]);
+      // Land on the first graph, keep the whole list in front of the human
+      // (owner 2026-09-02: "I was expecting to see the names of each graph").
+      openFromLibrary('lib:' + last.project + '/' + results[0].graphId);
       setProject(last.project);
-      setStatus('imported ' + refs.length + ' graph' + (refs.length === 1 ? '' : 's') + ': ' + refs.join(', ') + ' — opened the first; the rest are in open graph… under ' + last.project);
+      IC.project = last.project;
+      icRenderResults(results.map(function (r) { return { graphId: r.graphId, title: r.title, nodes: r.nodes || 0, edges: r.edges || 0, flags: r.flags || [] }; }));
+      icShow(3);
+      document.getElementById('p_cases').classList.remove('hide');
+      setStatus('imported ' + results.length + ' graph' + (results.length === 1 ? '' : 's') + ' into ' + last.project + ' — opened the first; pick any from the list, or later from open graph… (project ' + last.project + ')');
     }, 0);
   } catch (e) { /* ignore */ }
 })();
+
+// ---- personas dialog: paste role names → roles in this graph (owner
+// 2026-09-02). Served: unknown roles become personas.json entries (env NAMES
+// only) through the dev server; file://: the roles are added unbound and the
+// check panel asks for the binding.
+function slugRole(name) { return name.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48); }
+function parseRoles(text) {
+  var seen = {};
+  return text.split(/[\n,;]+/).map(function (x) {
+    x = x.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '').trim();
+    // "Pre req : Personas who can perform this action: Client Associate" → the part after the last ':'
+    if (x.indexOf(':') >= 0 && /pre[- ]?req|personas?|roles?|who can|actors?/i.test(x.slice(0, x.lastIndexOf(':')))) x = x.slice(x.lastIndexOf(':') + 1).trim();
+    return x;
+  })
+    .filter(function (x) { return x && !/^personas?\s+who/i.test(x); })
+    .filter(function (x) { var id = slugRole(x); if (!id || seen[id]) return false; seen[id] = true; return true; });
+}
+var PERSONA_ACCOUNTS = window.PERSONA_ACCOUNTS || [];
+function accountOfPersona(id) { var w = (window.PERSONA_ENV || {})[id]; return w && w.account ? w.account : ''; }
+function openPersonas() {
+  document.getElementById('pp_paste').value = '';
+  document.getElementById('pp_msg').textContent = '';
+  document.getElementById('pp_result').textContent = '';
+  var env = document.getElementById('pp_env'); env.textContent = ''; env.classList.add('hide');
+  renderCast();
+  renderRoster();
+  if (icServed() && window.fetch) {
+    fetch('/__personas').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+      if (j && j.roster) {
+        PERSONA_IDS = j.roster.map(function (p) { return p.id; }).sort();
+        if (j.accounts) PERSONA_ACCOUNTS = j.accounts;
+        if (j.wiring) applyPersonaWiring(null, null, null, j.wiring);
+        renderRoster(j.roster); renderCast();
+      }
+    }).catch(function () {});
+  }
+  document.getElementById('p_personas').classList.remove('hide');
+}
+function renderRoster(roster) {
+  var box = document.getElementById('pp_roster');
+  box.innerHTML = '';
+  var used = {};
+  Object.keys(G.actors).forEach(function (k) { used[G.actors[k]] = true; });
+  var ids = roster ? roster.map(function (p) { return p.id; }) : PERSONA_IDS;
+  if (!ids.length) { box.innerHTML = '<span style="color:var(--muted)">personas.json is empty — paste the role names above</span>'; return; }
+  ids.forEach(function (id) {
+    var row = document.createElement('label');
+    row.style.cssText = 'display:flex; gap:8px; align-items:center; justify-content:flex-start; padding:2px 0; width:auto; text-align:left; color:var(--text);';
+    var cb = document.createElement('input'); cb.type = 'checkbox'; cb.dataset.id = id;
+    if (used[id]) { cb.checked = true; cb.disabled = true; }
+    var entry = roster ? (roster.filter(function (p) { return p.id === id; })[0] || {}) : {};
+    var role = entry.role || '';
+    var account = entry.account || accountOfPersona(id);
+    row.appendChild(cb);
+    var t = document.createElement('span');
+    t.innerHTML = '<span class="mono">' + escHtml(id) + '</span>' + (role ? ' <span style="color:var(--muted)">' + escHtml(role) + '</span>' : '') +
+      (account && account !== id ? ' <span style="color:var(--muted)">→ login <span class="mono">' + escHtml(account) + '</span></span>' : '') +
+      (used[id] ? ' <span style="color:#7dcf85">in this graph</span>' : '');
+    row.appendChild(t);
+    box.appendChild(row);
+  });
+}
+// The cast table: one row per pasted role that is NOT yet in personas.json —
+// "logs in as" a new login named after the role (default) or an existing account.
+function renderCast() {
+  var wrap = document.getElementById('pp_castwrap'), box = document.getElementById('pp_cast');
+  var pasted = parseRoles(document.getElementById('pp_paste').value);
+  var known = {}; PERSONA_IDS.forEach(function (id) { known[id] = true; });
+  var fresh = pasted.filter(function (name) { return !known[slugRole(name)]; });
+  var prev = {};
+  box.querySelectorAll('select[data-role]').forEach(function (sel) { prev[sel.dataset.role] = sel.value; });
+  box.innerHTML = '';
+  if (!fresh.length || !icServed()) { wrap.classList.add('hide'); return; }
+  wrap.classList.remove('hide');
+  fresh.forEach(function (name) {
+    var id = slugRole(name);
+    var lab = document.createElement('span'); lab.innerHTML = escHtml(name) + ' <span class="mono" style="color:var(--muted)">' + escHtml(id) + '</span>';
+    var sel = document.createElement('select'); sel.dataset.role = name;
+    sel.style.cssText = 'background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:5px; padding:2px 4px; font-size:12px;';
+    var o = document.createElement('option'); o.value = id; o.textContent = 'new login: ' + id + '  (SF_' + id.toUpperCase() + '_*)'; sel.appendChild(o);
+    // Other roles pasted in the same batch may share ONE new login:
+    fresh.forEach(function (other) { var oid = slugRole(other); if (oid !== id) { var oo = document.createElement('option'); oo.value = oid; oo.textContent = 'same login as ' + oid; sel.appendChild(oo); } });
+    PERSONA_ACCOUNTS.forEach(function (a) {
+      var oa = document.createElement('option'); oa.value = a.id;
+      oa.textContent = 'existing login: ' + a.id + (a.roles && a.roles.length ? '  (plays ' + a.roles.join(', ') + ')' : '');
+      sel.appendChild(oa);
+    });
+    if (prev[name]) sel.value = prev[name];
+    box.appendChild(lab); box.appendChild(sel);
+  });
+}
+document.getElementById('pp_paste').addEventListener('input', renderCast);
+function applyPersonas() {
+  var pasted = parseRoles(document.getElementById('pp_paste').value);
+  var ticked = Array.prototype.slice.call(document.querySelectorAll('#pp_roster input[type=checkbox]'))
+    .filter(function (cb) { return cb.checked && !cb.disabled; }).map(function (cb) { return cb.dataset.id; });
+  if (!pasted.length && !ticked.length) { document.getElementById('pp_msg').textContent = 'paste some role names or tick a persona'; return; }
+  var known = {}; PERSONA_IDS.forEach(function (id) { known[id] = true; });
+  var toCreate = pasted.filter(function (name) { return !known[slugRole(name)]; });
+  var accounts = {};
+  document.querySelectorAll('#pp_cast select[data-role]').forEach(function (sel) { accounts[sel.dataset.role] = sel.value; });
+  var finish = function (created, note, j) {
+    var addedRoles = [];
+    pasted.forEach(function (name) { var id = slugRole(name); if (!G.actors[id]) { G.actors[id] = id; addedRoles.push(id); } });
+    ticked.forEach(function (id) { if (!G.actors[id]) { G.actors[id] = id; addedRoles.push(id); } });
+    refreshMeta(); refreshCheckBadge(); setStatus();
+    var unbound = addedRoles.filter(function (id) { return PERSONA_IDS.indexOf(id) < 0; });
+    var bound = (j && j.bound) || {};
+    var logins = (j && j.accountsCreated) || [];
+    document.getElementById('pp_result').innerHTML =
+      (addedRoles.length ? 'added to this graph: <span class="mono">' + escHtml(addedRoles.join(', ')) + '</span>' : 'nothing new — every role was already in the graph') +
+      (created.length ? '<br>created in personas.json: ' + created.map(function (id) { return '<span class="mono">' + escHtml(id) + '</span>' + (bound[id] && bound[id] !== id ? ' → login <span class="mono">' + escHtml(bound[id]) + '</span>' : ''); }).join(', ') : '') +
+      (logins.length ? '<br>new login' + (logins.length > 1 ? 's' : '') + ': <span class="mono">' + escHtml(logins.join(', ')) + '</span> — paste the block below into .env and fill the values (names are already in .env.example)' : '') +
+      (unbound.length ? '<br><span style="color:#d9a441">not in personas.json (' + escHtml(unbound.join(', ')) + ') — ' + escHtml(note || 'run npm run planner to create them from here') + '; check ✓ will ask</span>' : '') +
+      '<br>now: add ▾ → session, and pick the role on its card.';
+    var env = document.getElementById('pp_env');
+    var blocks = (j && j.envBlocks) || {};
+    var text = logins.map(function (a) { return (blocks[a] || []).join('\n'); }).filter(Boolean).join('\n\n');
+    env.textContent = text; env.classList.toggle('hide', !text);
+    document.getElementById('pp_msg').textContent = '';
+    renderRoster(); renderCast();
+  };
+  if (!toCreate.length) { finish([], '', null); return; }
+  if (!icServed() || !window.fetch) { finish([], 'the dev server creates personas', null); return; }
+  document.getElementById('pp_msg').textContent = 'creating ' + toCreate.length + ' persona(s)…';
+  icFetch('/__personas/add', { roles: toCreate, accounts: accounts }).then(function (j) {
+    PERSONA_IDS = (j.roster || []).map(function (p) { return p.id; }).sort();
+    if (j.accounts) PERSONA_ACCOUNTS = j.accounts;
+    if (j.wiring) applyPersonaWiring(null, null, null, j.wiring);
+    finish(j.added || [], '', j);
+  }).catch(function (e) { finish([], e.message, null); });
+}
+document.getElementById('pp_close').addEventListener('click', function () { document.getElementById('p_personas').classList.add('hide'); icReleaseReload(); });
+document.getElementById('pp_apply').addEventListener('click', applyPersonas);
 
 window.planner = {
   load: loadGraph, export: exportGraph, get: function () { return G; },
@@ -2129,6 +2368,7 @@ window.planner = {
   insertGraph: insertGraph,
   importCases: { open: openImportCases, read: icRead, apply: icApply, checked: icChecked, state: function () { return IC; } },
   saveToProject: saveToProject,
+  personas: { open: openPersonas, apply: applyPersonas, parse: parseRoles, roster: function () { return PERSONA_IDS.slice(); }, accounts: function () { return PERSONA_ACCOUNTS.slice(); } },
   graphProject: graphProject,
   runOrder: function () {
     var C = window.ProcessGraphCompose;

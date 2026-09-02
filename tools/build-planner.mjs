@@ -12,8 +12,10 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { accountList, personaWiring } from './persona-wiring.mjs';
 import { listProjects } from './scaffold-project.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -66,37 +68,22 @@ function transpileShared() {
   }
 }
 
-/** The persona roster + credential env-var NAMES (names only, NEVER values) —
- *  the check panel knows who exists and the session card shows where each
- *  credential comes from in .env. */
+/** personas.json → page-side roster: ids, wiring (names only), accounts. */
 function personaIds() {
   const file = join(root, 'personas.json');
   let ids = [];
-  const wiring = {};
-  let orgUrlEnv = '';
-  const siteUrlEnvs = {};
+  let wiring = {};
+  let accounts = [];
   if (existsSync(file)) {
     try {
       const doc = JSON.parse(readFileSync(file, 'utf8'));
+      const lib = createRequire(import.meta.url)(join(root, 'tools/.planner-build/personas/schema.js'));
       ids = Object.keys(doc.personas ?? {}).sort();
-      orgUrlEnv = doc.org?.instanceUrlEnv ?? '';
-      for (const [k, s] of Object.entries(doc.sites ?? {})) siteUrlEnvs[k] = s.urlEnv;
-      for (const [id, p] of Object.entries(doc.personas ?? {})) {
-        wiring[id] = {
-          ...(p.usernameEnv ? { username: p.usernameEnv } : {}),
-          ...(p.passwordEnv ? { password: p.passwordEnv } : {}),
-          ...(p.tokenEnv ? { token: p.tokenEnv } : {}),
-          ...(p.totpEnv ? { totp: p.totpEnv } : {}),
-          ...(p.site && siteUrlEnvs[p.site] ? { url: siteUrlEnvs[p.site] } : { url: orgUrlEnv }),
-          ...(p.kind ? { kind: p.kind } : {}),
-          // How Cast acquires this persona's session — the check panel
-          // compares it against what a login_as edge declares.
-          ...(p.auth ? { auth: p.auth } : {}),
-        };
-      }
+      wiring = personaWiring(doc, lib);
+      accounts = accountList(doc, lib);
     } catch { /* roster stays empty — planner degrades gracefully */ }
   }
-  return `window.PERSONA_IDS = ${JSON.stringify(ids)};\nwindow.PERSONA_ENV = ${JSON.stringify(wiring)};`;
+  return `window.PERSONA_IDS = ${JSON.stringify(ids)};\nwindow.PERSONA_ENV = ${JSON.stringify(wiring)};\nwindow.PERSONA_ACCOUNTS = ${JSON.stringify(accounts)};`;
 }
 
 /** Repo graphs embed as the built-in library, keyed by REF: legacy
@@ -135,7 +122,7 @@ function buildServerBridge() {
   // tsc overwrites in place — no rm first (some sandboxes forbid unlink on
   // mounted folders, and a stale sibling file is harmless).
   execFileSync('npx', [
-    'tsc', join(root, 'src/graph/adoImports.ts'),
+    'tsc', join(root, 'src/graph/adoImports.ts'), join(root, 'src/personas/schema.ts'),
     '--outDir', out, '--rootDir', join(root, 'src'), '--module', 'commonjs', '--target', 'es2020',
     '--moduleResolution', 'node', '--esModuleInterop', '--skipLibCheck',
   ], { cwd: root, stdio: 'pipe' });

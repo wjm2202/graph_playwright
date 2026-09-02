@@ -9,6 +9,8 @@ import type { ProcessGraph } from '../graph/schema';
 export interface PersonaReadiness {
   alias: string;
   personaId: string;
+  /** The login this role uses (docs/DESIGN-ROLES-ACCOUNTS.md) — '' when unknown. */
+  account: string;
   known: boolean;
   ready: boolean;
   /** env names to set (token OR user+pass — any full set clears it). */
@@ -23,6 +25,8 @@ export interface DoctorReport {
   org: { env: string; set: boolean };
   sites: { site: string; env: string; set: boolean }[];
   personas: PersonaReadiness[];
+  /** Accounts the graph's roles log in as, each with the roles it plays — one fix per login. */
+  accounts: { account: string; roles: string[]; ready: boolean; missing: string[] }[];
   /** Copy-paste .env skeleton for everything missing. */
   envLines: string[];
 }
@@ -39,24 +43,33 @@ export function envDoctor(
     org: { env: orgEnv, set: isSet(env[orgEnv]) },
     sites: [],
     personas: [],
+    accounts: [],
     envLines: [],
   };
   if (!report.org.set) report.envLines.push(`${orgEnv}=`);
 
   const seenSites = new Set<string>();
+  const byAccount = new Map<string, { account: string; roles: string[]; ready: boolean; missing: string[] }>();
   for (const [alias, personaId] of actorBindings(graph)) {
     const known = registry.ids().includes(personaId);
     if (!known) {
-      report.personas.push({ alias, personaId, known: false, ready: false, missing: [] });
+      report.personas.push({ alias, personaId, account: '', known: false, ready: false, missing: [] });
       continue;
     }
+    const account = registry.accountOf(personaId);
     const ready = registry.hasCreds(personaId, env);
     const missing = ready ? [] : registry.missingEnvNames(personaId, env);
     const totpName = registry.envNamesFor(personaId).totp;
     const totpNote = totpName && !isSet(env[totpName])
       ? `totp ${totpName} unset — needed only if MFA is enforced`
       : undefined;
-    report.personas.push({ alias, personaId, known: true, ready, missing, ...(totpNote ? { totpNote } : {}) });
+    report.personas.push({ alias, personaId, account, known: true, ready, missing, ...(totpNote ? { totpNote } : {}) });
+    // Roles sharing a login are ONE fix — group the missing names per account.
+    if (registry.get(personaId).kind !== 'guest') {
+      const row = byAccount.get(account) ?? { account, roles: [], ready, missing };
+      if (!row.roles.includes(personaId)) row.roles.push(personaId);
+      byAccount.set(account, row);
+    }
     for (const name of missing) if (!report.envLines.includes(`${name}=`)) report.envLines.push(`${name}=`);
 
     const site = registry.siteUrlEnvName(personaId);
@@ -68,6 +81,7 @@ export function envDoctor(
     }
   }
 
+  report.accounts = [...byAccount.values()];
   report.ready =
     report.org.set &&
     report.sites.every((s) => s.set) &&
@@ -81,9 +95,13 @@ export function formatDoctorReport(r: DoctorReport): string {
   lines.push(`  org url  ${mark(r.org.set)} ${r.org.env}`);
   for (const s of r.sites) lines.push(`  site     ${mark(s.set)} ${s.site} (${s.env})`);
   for (const p of r.personas) {
-    if (!p.known) lines.push(`  persona  ✗ ${p.alias} → '${p.personaId}' NOT in personas.json`);
-    else if (p.ready) lines.push(`  persona  ✓ ${p.alias} → ${p.personaId}${p.totpNote ? ` (${p.totpNote})` : ''}`);
-    else lines.push(`  persona  ✗ ${p.alias} → ${p.personaId} — set ${p.missing.join(' or ') || 'credentials'}`);
+    const via = p.account && p.account !== p.personaId ? ` (login: ${p.account})` : '';
+    if (!p.known) lines.push(`  role     ✗ ${p.alias} → '${p.personaId}' NOT in personas.json`);
+    else if (p.ready) lines.push(`  role     ✓ ${p.alias} → ${p.personaId}${via}${p.totpNote ? ` (${p.totpNote})` : ''}`);
+    else lines.push(`  role     ✗ ${p.alias} → ${p.personaId}${via} — set ${p.missing.join(' or ') || 'credentials'}`);
+  }
+  for (const a of r.accounts) {
+    lines.push(`  login    ${mark(a.ready)} ${a.account} plays ${a.roles.join(', ')}${a.ready ? '' : ` — set ${a.missing.join(' or ') || 'credentials'}`}`);
   }
   if (r.envLines.length) {
     lines.push('  add to .env (see SETUP-REAL-ORG.md for the org-side users):');

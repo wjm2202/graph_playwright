@@ -165,6 +165,14 @@ export interface ProcessGraph {
   /** Provenance of graphs composed INTO this one (compose.ts) — a copy-merge
    *  record, newest last. Purely informational; enables staleness checks. */
   composedFrom?: { ref: string; graphId: string; at: string }[];
+  /**
+   * Persona MATRIX (owner 2026-09-02: ADO "Personas who can perform this
+   * action: A, B, C"): alias → the OTHER persona ids that may play it. The
+   * flow is run once per persona (the default in `actors` first, then each
+   * alternative) — see expandVariants(). Every id must exist in
+   * personas.json; the alias must exist in `actors`.
+   */
+  alternatives?: Record<string, string[]>;
 }
 
 export interface GraphValidation {
@@ -226,6 +234,17 @@ export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): Gr
     if (typeof persona !== 'string' || !persona) errors.push(`actors.${alias}: personaId must be a non-empty string`);
   }
 
+  for (const [alias, list] of Object.entries(g.alternatives ?? {})) {
+    if (!(alias in actors)) errors.push(`alternatives.${alias}: alias is not in actors`);
+    if (!Array.isArray(list) || !list.length) errors.push(`alternatives.${alias}: non-empty array of persona ids required`);
+    else {
+      for (const [i, id] of list.entries()) {
+        if (typeof id !== 'string' || !id) errors.push(`alternatives.${alias}[${i}]: persona id must be a non-empty string`);
+        else if (id === actors[alias]) errors.push(`alternatives.${alias}: '${id}' is already the default persona for this alias`);
+        else if (list.indexOf(id) !== i) errors.push(`alternatives.${alias}: '${id}' listed twice`);
+      }
+    }
+  }
   for (const [i, c] of (g.composedFrom ?? []).entries()) {
     if (!c || typeof c.ref !== 'string' || !c.ref || typeof c.graphId !== 'string' || !c.graphId || typeof c.at !== 'string' || !c.at) {
       errors.push(`composedFrom[${i}]: needs { ref, graphId, at } strings`);

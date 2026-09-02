@@ -54,8 +54,12 @@ Before either path, once:
 npm run planner                     # http://127.0.0.1:8765 — auto-rebuild, live reload
 ```
 
-and make sure the roles you will use exist in `personas.json` (a graph binds
-*role aliases* to persona ids — it never invents accounts).
+and know the three layers a session's credentials pass through
+(`docs/DESIGN-ROLES-ACCOUNTS.md`): a graph binds a **role** alias to a
+persona in `personas.json`; the persona names the **account** it logs in
+as; the account's env names are derived (`SF_<ACCOUNT>_USERNAME/_PASSWORD`,
+optional `_TOKEN`/`_TOTP_SECRET`) and their values live only in `.env`.
+Several roles may share one login. A graph never invents accounts.
 
 ### Path A — draw it by hand
 
@@ -66,44 +70,53 @@ and make sure the roles you will use exist in `personas.json` (a graph binds
    **graph** and give it an id (`create_customer`) and a title; add the
    systems it touches (`sf` is there; add `siebel` with *one session max* if
    the flow crosses into Siebel).
-3. **Sessions — who, where.** EDIT → **add ▾ → session** once per role ×
-   system: e.g. `Salesforce · admin`, `Salesforce · approver`. On each
-   session's card pick the **system**, the **role** (an alias) and bind the
-   alias to a **persona**; set the **landing URL** (the list or record page the
-   role starts on — this enables pre-navigation so captures skip login).
-4. **Wire the login chain.** Drag from the edge of `start` to the first
+3. **People first.** EDIT → **add ▾ → personas…** and paste the role names
+   (the ADO "Personas who can perform this action: …" line works as-is), or
+   tick personas from `personas.json`. Each becomes a role in this graph.
+   For roles the roster doesn't have, a *logs in as* row appears: a new
+   login named after the role (default), the same login as another pasted
+   role, or an existing account. Apply writes `personas.json` and shows
+   one `.env` block per **new login** — paste it into `.env` and fill the
+   values (the names are already in `.env.example`).
+4. **Sessions — who, where.** EDIT → **add ▾ → session** once per role ×
+   system: e.g. `Salesforce · client_lead`. On the session's card pick the
+   **system** and the **role / user** (the roles you just added, plus any
+   other persona from the roster — picking one adds the role); set the
+   **landing URL** (the list or record page the role starts on — this
+   enables pre-navigation so captures skip login).
+5. **Wire the login chain.** Drag from the edge of `start` to the first
    session, then from each session to the next: these are `login_as` edges
    (select one to set the auth method if it differs from the persona's). One
    linear chain — no branches, no cycles; every session must be on it.
-5. **Records — what exists.** **add ▾ → data** for each business record the
+6. **Records — what exists.** **add ▾ → data** for each business record the
    flow creates or touches (`Customer record`, SObject `Account`). One data
    node per record, even if several roles touch it — that node is the join.
-6. **Steps — what each role does.** Drag from a session to a data node (or a
+7. **Steps — what each role does.** Drag from a session to a data node (or a
    screen/checkpoint): a `does` edge. On its card: the **label** ("create
    customer"), the **step catalog** name (`cust.create`, `<noun>.<verb>`),
    and — for edges onto data — the **data port**: *produces* (this step
    creates the record), *consumes* (reads it), *updates*. The port is how the
    record's id reaches later steps, including steps in a graph you insert
    later.
-7. **What must be true.** On each data/checkpoint node's card, add checks:
+8. **What must be true.** On each data/checkpoint node's card, add checks:
    `api.record_exists` / `api.field_equals` (SObject, `Field=Value`),
    `ui.toast` / `ui.text` / `ui.url`, or `db.query` / `log.traffic` against a
    db/logger node. Use **after** to tie a check to the step that causes it;
    give backend checks on async integrations a polling budget.
-8. **What must be refused.** For any multi-role flow, drag from a session to
+9. **What must be refused.** For any multi-role flow, drag from a session to
    the record and set the relation to `denied` with the capability
    (`cust.delete`) — the security half of the test.
-9. **Check.** Click **check** — MUST FIX (validator) and TO FINISH (gap
+10. **Check.** Click **check** — MUST FIX (validator) and TO FINISH (gap
    questions) grouped by element; each row jumps to the culprit. Iterate
    until the badge is **check ✓** with only *not captured* left. `⌘Z` undoes
    any delete/insert/connect.
-10. **Save into the project.** FILE → **save ▾ → save to project "crm"**.
+11. **Save into the project.** FILE → **save ▾ → save to project "crm"**.
     The dev server validates and writes
     `projects/crm/graphs/create_customer.graph.json` (asks before
     overwriting), the library refreshes and the graph reopens from the
     project. *save … in this browser* is the offline fallback; **download**
     gives you the file to place by hand.
-11. **Capture and run.** Double-click each session to copy its record
+12. **Capture and run.** Double-click each session to copy its record
     command (`RECORD_PERSONA=… RECORD_JOURNEY=… npm run record`), record it
     once as that human; then `GRAPH_SPEC=crm/create_customer npm run
     graph:spec` writes the standing Playwright spec and every run repaints
@@ -146,7 +159,7 @@ line names which session the island must follow so its records exist first.
    `GRILLME=<p>/<id> npm run grillme` lists the same questions; answers go
    back as a JSON ops file with `GRILLME_APPLY=`. Point your own AI at
    `skills/graph-author/SKILL.md` and it will run this loop with you.
-9. **Capture and run** — as in Path A step 11.
+9. **Capture and run** — as in Path A step 12.
 
 CLI equivalent of steps 2–6: `ADO_FILE=export.xlsx npm run ado:import`
 (writes to `journeys/graphs/`).
@@ -197,10 +210,12 @@ auto-rebuild and live reload.
   `projects/<p>/graphs/<id>.graph.json` through the dev server — validated
   first, atomic, overwrite only on confirmation — and the library refreshes.
   Browser-local saves remain for offline work.
-- **Editable env wiring.** Rename a credential's env *variable name* right on
-  the card (`SF_SALES_USERNAME` → `SFDC_UAT_USERNAME`) — the dev server
-  validates it and atomically rewrites `personas.json`. Your `.env` is never
-  touched. Credential dots go green/red from a booleans-only endpoint.
+- **Editable env wiring.** The card names the **login** a role uses (and
+  who else shares it). Rename a credential's env *variable name* right there
+  (`SF_SALES_USERNAME` → `SFDC_UAT_USERNAME`) — the dev server validates it
+  and atomically rewrites the account in `personas.json`, so every role on
+  that login follows. Your `.env` is never touched. Credential dots go
+  green/red from a booleans-only endpoint.
 - **Self-explaining canvas** — every node and edge type describes itself on
   hover, plus a dismissible legend and a typed `add ▾` palette with readable
   ids (`db_1`, `api_1`, `sess_1`).
@@ -290,8 +305,9 @@ auto-rebuild and live reload.
 
 ### Secrets discipline
 
-`personas.json` holds env-var **names**, never values; the validator rejects
-anything that smells like a pasted secret, TOTP seeds included. `.env`,
+`personas.json` holds roles, the accounts they log in as, and env-var
+**names** (derived from the account id) — never values; the validator
+rejects anything that smells like a pasted secret, TOTP seeds included. `.env`,
 `.auth/` session state and `recordings/` (traces and HAR can embed tokens) are
 gitignored. The planner's dev server reports env presence as booleans only —
 values never leave your machine.

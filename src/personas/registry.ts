@@ -11,7 +11,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { validatePersonas, type AuthMethod, type PersonaDef, type PersonasDoc } from './schema';
+import {
+  accountEnvNames as deriveEnvNames, accountIdOf, effectivePersona, envBlockFor, rolesOfAccount, validatePersonas,
+  type AccountDef, type AuthMethod, type CredEnvNames, type PersonaDef, type PersonasDoc,
+} from './schema';
 import { compact } from '../utils/compact';
 import { statePathFor, workerStatePathFor } from '../auth/storage';
 
@@ -56,12 +59,47 @@ export class PersonaRegistry {
     return Object.keys(this.doc.personas);
   }
 
+  /**
+   * The persona as Cast sees it — role fields from the persona, credentials
+   * / auth / pool from its ACCOUNT (env names derived from the account id,
+   * docs/DESIGN-ROLES-ACCOUNTS.md). Legacy self-wired personas come back as-is.
+   */
   get(id: string): PersonaDef {
-    const def = this.doc.personas[id];
+    const def = effectivePersona(this.doc, id);
     if (!def) {
       throw new Error(`Unknown persona '${id}' — known: ${this.ids().join(', ')} (${this.sourcePath})`);
     }
     return def;
+  }
+
+  /** The login a persona uses — its account id, or itself when self-wired. */
+  accountOf(id: string): string {
+    this.get(id);
+    return accountIdOf(this.doc, id);
+  }
+
+  /** Declared account ids (legacy self-wired personas are not listed here). */
+  accountIds(): string[] {
+    return Object.keys(this.doc.accounts ?? {});
+  }
+
+  account(accountId: string): AccountDef | undefined {
+    return this.doc.accounts?.[accountId];
+  }
+
+  /** Base env names (no pool suffix) an account reads. */
+  accountEnvNames(accountId: string): CredEnvNames {
+    return deriveEnvNames(accountId, this.account(accountId));
+  }
+
+  /** Personas (roles) that log in as this account. */
+  rolesOf(accountId: string): string[] {
+    return rolesOfAccount(this.doc, accountId);
+  }
+
+  /** Paste-ready .env lines for one account (names only). */
+  envBlockFor(accountId: string): string[] {
+    return envBlockFor(this.doc, accountId);
   }
 
   /** Env-var names for a persona's credentials, applying pool suffixing. */
@@ -120,13 +158,17 @@ export class PersonaRegistry {
     return stripSlash(url);
   }
 
-  /** storageState file path for a persona (worker-suffixed when pooled). */
+  /**
+   * storageState file path for a persona (worker-suffixed when pooled).
+   * Keyed by ACCOUNT: two roles played by one login share one session file.
+   */
   statePathForPersona(id: string, workerIndex?: number): string {
     const def = this.get(id);
+    const account = this.accountOf(id);
     const pool = def.poolSize ?? 1;
     return pool > 1 && workerIndex !== undefined
-      ? workerStatePathFor(id, workerIndex % pool)
-      : statePathFor(id);
+      ? workerStatePathFor(account, workerIndex % pool)
+      : statePathFor(account);
   }
 
   /** The env names that would authenticate this persona but are unset. */
