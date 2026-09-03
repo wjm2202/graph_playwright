@@ -4,6 +4,13 @@
  * derivation itself lives in src/personas/schema.ts (transpiled into
  * tools/.planner-build/personas/schema.js by build-planner) — this file only
  * shapes it for the page. See docs/DESIGN-ROLES-ACCOUNTS.md.
+ *
+ * KEPT at the v1 retirement (sprint 4.1): this is the READ half and both
+ * `build-planner.mjs` (which inlines `window.PERSONA_ENV` /
+ * `PERSONA_ACCOUNTS`) and `serve-planner.mjs` (`/__personas`) still use it.
+ * The WRITE half — addPersonas, renameEnvName, env presence — is
+ * `src/personas/wiring.ts`, which the server loads through the transpiled
+ * bridge. Two files, two directions, no duplicated logic.
  */
 
 /**

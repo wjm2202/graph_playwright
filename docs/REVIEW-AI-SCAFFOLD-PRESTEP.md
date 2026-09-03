@@ -1,5 +1,7 @@
 # REVIEW — the whole process, walked; and the AI-scaffold pre-step
 
+> **Status (2026-09-03): the pre-step it argues for exists.** The gap engine (`sfpw grillme`, `--json` for the array), the ADO importer and the script form are the hand-off from an AI draft to a human finish; `skills/graph-author/SKILL.md` is the AI-facing contract. The env-var commands named below (`GRILLME=`, `ADO_FILE=`, …) are now `sfpw` subcommands.
+
 2026-08-31 · review only, no code changed. Question under review: *can we add a
 pre-step where AI creates the scaffold and the human finishes it off?*
 Verdict up front: **yes, and most of the machinery already exists.** The

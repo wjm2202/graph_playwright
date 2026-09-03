@@ -1,6 +1,6 @@
 /**
  * S3.2 — the journey script planner's CANVAS, driven over file:// exactly as
- * a user double-clicking tools/journey-planner.html would get it.
+ * a user double-clicking tools/planner.html would get it.
  *
  * Every row of docs/PLANNER-FEATURE-PARITY.md §6 is asserted here at least
  * once, because that table is the retirement gate for the old planner: a
@@ -8,9 +8,9 @@
  * is a RENDERING — so each test checks the picture AND the document it came
  * from, and the ones that mutate check the graph is still valid afterwards.
  *
- * The window type is LOCAL (never `declare global`): tests/harness/planner.spec.ts
- * already declares `window.planner` with the v1 shape, and two global
- * declarations of one property do not merge.
+ * The window type is LOCAL (never `declare global`): each planner spec types
+ * only the slice of `window.planner` it drives, and two global declarations
+ * of one property do not merge.
  */
 import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'fs';
@@ -19,7 +19,7 @@ import { pathToFileURL } from 'url';
 import { goodGraphV2 } from '../helpers/sampleGraph';
 
 const ROOT = path.resolve(__dirname, '../..');
-const PLANNER = pathToFileURL(path.join(ROOT, 'tools/journey-planner.html')).href;
+const PLANNER = pathToFileURL(path.join(ROOT, 'tools/planner.html')).href;
 
 interface Pos { x: number; y: number }
 interface BBox { x1: number; y1: number; x2: number; y2: number; w: number; h: number }

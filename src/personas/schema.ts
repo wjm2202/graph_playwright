@@ -39,20 +39,28 @@ export interface PersonaDef {
   profile?: string;
   license?: string;
   permissionSets?: string[];
-  /** Which declared account plays this role. Roles may share an account. */
-  account?: string;
   /**
-   * Legacy self-account wiring (env-var NAMES, never values). A persona
-   * with `account` must NOT carry these — the account owns the wiring.
+   * Which declared account plays this role — REQUIRED for every internal /
+   * portal persona (roles may share an account; guests have none). Sprint
+   * 4.4 removed the legacy self-wired path: a persona never carries
+   * credential env names of its own, the account owns the wiring.
    */
-  usernameEnv?: string;
-  passwordEnv?: string;
-  tokenEnv?: string;
-  /** TOTP/MFA shared secret env NAME — needed when the org enforces MFA on UI logins. */
-  totpEnv?: string;
+  account?: string;
   auth?: AuthMethod;
   /** Clone accounts available for parallel workers (SF_X_USERNAME_W0…). */
   poolSize?: number;
+}
+
+/**
+ * A persona as the runtime sees it: the authored role fields plus the
+ * credential env NAMES DERIVED from its account. Never authored — the four
+ * *Env keys are rejected on a persona by the validator.
+ */
+export interface EffectivePersona extends PersonaDef {
+  usernameEnv?: string;
+  passwordEnv?: string;
+  tokenEnv?: string;
+  totpEnv?: string;
 }
 
 export interface PersonasDoc {
@@ -76,10 +84,10 @@ const AUTHS: AuthMethod[] = ['frontdoor', 'singleaccess', 'ui'];
 
 /** Keys allowed on a persona — anything else is rejected (typo/secret guard). */
 const ALLOWED_KEYS = new Set([
-  'kind', 'site', 'role', 'profile', 'license', 'permissionSets', 'account',
-  'usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv', 'auth', 'poolSize',
+  'kind', 'site', 'role', 'profile', 'license', 'permissionSets', 'account', 'auth', 'poolSize',
 ]);
 const ACCOUNT_KEYS = new Set(['system', 'auth', 'poolSize', 'usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv']);
+/** Credential wiring lives on the ACCOUNT only (sprint 4.4). */
 const CRED_ENV_KEYS = ['usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv'] as const;
 
 /** Value shapes that indicate someone pasted a secret instead of an env name. */
@@ -146,7 +154,13 @@ export function validatePersonas(doc: unknown): ValidationResult {
     if (!p || typeof p !== 'object') { errors.push(`${at}: must be an object`); continue; }
 
     for (const [k, v] of Object.entries(p as unknown as Record<string, unknown>)) {
-      if (!ALLOWED_KEYS.has(k)) errors.push(`${at}.${k}: unknown key (no inline credentials — use *Env names)`);
+      if ((CRED_ENV_KEYS as readonly string[]).includes(k)) {
+        errors.push(
+          `${at}.${k}: credential env names live on the ACCOUNT, not the persona (sprint 4.4 removed self-wired personas). ` +
+          `Fix: declare accounts["${id}"] = { "system": "salesforce" } (add ${k} there only to override the derived name), ` +
+          `then set personas["${id}"].account = "${id}" and delete ${k} from the persona.`,
+        );
+      } else if (!ALLOWED_KEYS.has(k)) errors.push(`${at}.${k}: unknown key (no inline credentials — use *Env names)`);
       if (smellsLikeSecret(k, v)) errors.push(`${at}.${k}: looks like an inline secret/value — *Env fields carry env-var NAMES only`);
     }
 
@@ -154,22 +168,23 @@ export function validatePersonas(doc: unknown): ValidationResult {
     if (p.kind === 'portal' && !p.site) errors.push(`${at}: portal personas require a site`);
     if (p.site && !sites[p.site]) errors.push(`${at}.site: '${p.site}' not declared in sites`);
 
-    const ownWiring = CRED_ENV_KEYS.some((k) => p[k]);
     const account = p.account !== undefined ? accounts[p.account] : undefined;
-    if (p.account !== undefined) {
-      if (typeof p.account !== 'string' || !account) {
-        errors.push(`${at}.account: '${p.account}' is not declared in accounts (declare it — a typo must never become a new login)`);
-      }
-      if (ownWiring) errors.push(`${at}: carries *Env names AND an account — the account owns the wiring, drop the *Env fields`);
+    if (p.account !== undefined && (typeof p.account !== 'string' || !account)) {
+      errors.push(`${at}.account: '${p.account}' is not declared in accounts (declare it — a typo must never become a new login)`);
     }
     // What Cast will actually use — the account's method wins over the persona's.
     const auth = account?.auth ?? p.auth;
 
     if (p.kind === 'guest') {
-      if (ownWiring) errors.push(`${at}: guest personas are unauthenticated — no credential envs`);
       if (p.account !== undefined) errors.push(`${at}: guest personas are unauthenticated — no account`);
     } else {
-      if (p.account === undefined && !p.usernameEnv) errors.push(`${at}.account: required for ${p.kind} personas (name a declared account; or legacy usernameEnv)`);
+      if (p.account === undefined) {
+        errors.push(
+          `${at}.account: required — every ${p.kind} persona names the declared account that plays it. ` +
+          `Fix: add accounts["${id}"] = { "system": "salesforce" } to personas.json, then set personas["${id}"].account = "${id}" ` +
+          `(env names are derived from the account id; run 'npx sfpw doctor' for the .env block).`,
+        );
+      }
       if (p.auth && !AUTHS.includes(p.auth)) errors.push(`${at}.auth: must be one of ${AUTHS.join('|')}`);
       if (p.kind === 'portal' && auth === 'frontdoor') {
         errors.push(`${at}.auth: portal personas use 'singleaccess' on the SITE domain (classic frontdoor is unreliable for community sessions — founding doc §4.2/§8.2)`);
@@ -224,20 +239,28 @@ export function accountEnvNames(accountId: string, account: AccountDef = {}): Cr
   };
 }
 
-/** The account id a persona logs in as — its `account`, else itself (legacy self-account). */
+/** The account id a persona logs in as. Guests have none — their own id stands in. */
 export function accountIdOf(doc: PersonasDoc, personaId: string): string {
   return doc.personas[personaId]?.account ?? personaId;
 }
 
 /**
  * The persona as Cast sees it: kind/site/role from the persona, credentials
- * + auth + pool from its account (derived names filled in). Legacy personas
- * without an account come back unchanged. Unknown ids → undefined.
+ * + auth + pool from its ACCOUNT (derived names filled in). Guests are
+ * unauthenticated and come back unchanged; every other persona must name an
+ * account (the validator refuses otherwise — sprint 4.4 removed the
+ * self-wired path). Unknown ids → undefined.
  */
-export function effectivePersona(doc: PersonasDoc, personaId: string): PersonaDef | undefined {
+export function effectivePersona(doc: PersonasDoc, personaId: string): EffectivePersona | undefined {
   const p = doc.personas[personaId];
   if (!p) return undefined;
-  if (p.account === undefined || p.kind === 'guest') return p;
+  if (p.kind === 'guest') return p;
+  if (p.account === undefined) {
+    throw new Error(
+      `persona '${personaId}' names no account — every internal/portal persona must name one. ` +
+      `Fix: declare accounts['${personaId}'] in personas.json and set personas['${personaId}'].account.`,
+    );
+  }
   const account = doc.accounts?.[p.account] ?? {};
   const names = accountEnvNames(p.account, account);
   const auth = account.auth ?? p.auth;
@@ -264,11 +287,8 @@ export function rolesOfAccount(doc: PersonasDoc, accountId: string): string[] {
  */
 export function envBlockFor(doc: PersonasDoc, accountId: string): string[] {
   const account = doc.accounts?.[accountId];
-  const names = account ? accountEnvNames(accountId, account) : (() => {
-    const p = doc.personas[accountId];
-    return p ? { username: p.usernameEnv ?? '', password: p.passwordEnv ?? '', token: p.tokenEnv ?? '', totp: p.totpEnv ?? '' } : undefined;
-  })();
-  if (!names) return [];
+  if (!account) return [];
+  const names = accountEnvNames(accountId, account);
   const roles = rolesOfAccount(doc, accountId).map((id) => doc.personas[id]?.role ?? id);
   const system = account?.system ?? 'salesforce';
   const lines = [`# ${accountId} — ${system} login${roles.length ? ` for: ${roles.join(', ')}` : ''}`];

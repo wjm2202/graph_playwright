@@ -82,7 +82,7 @@ test('runGraph with actorOverrides runs the same walk as the other persona; an u
 
 test('the gap engine checks alternatives against the roster', () => {
   const g = withMatrix();
-  const gaps = computeGaps(g, { knownPersonas: ['sales_user', 'admin', 'siebel_admin', 'lead_creator'] });
+  const { gaps } = computeGaps(g, { knownPersonas: ['sales_user', 'admin', 'siebel_admin', 'lead_creator'] });
   const unbound = gaps.filter((x) => x.kind === 'role_unbound');
   expect(unbound.map((x) => x.at)).toEqual(['submitter:credit_approver']);
   expect(unbound[0]!.question).toMatch(/may also be played by 'credit_approver' \(persona matrix\)/);

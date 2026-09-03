@@ -17,17 +17,18 @@ ports, the login-chain rule, every gap kind and its write-back op, the
 authoring checklist. Quote it rather than guessing.
 
 Repo root: the `salesforce_playwright` folder. Run every command from it.
-Playwright-based CLIs print their result on stdout; parse the marked lines
-(`GAPS_JSON …`) rather than the prose.
+Everything is one CLI — `npx sfpw <command>`, `--help` on every subcommand,
+exit 0 ok / 1 "no" / 2 wrong usage. Where a command offers `--json`, parse
+THAT (it prints the array on stdout and nothing else) rather than the prose.
 
 ## The three doors in — pick by what the human has
 
 | They have | Door | Command / action |
 |---|---|---|
-| An ADO export (.xlsx / .csv) | **import cases** | Planner (`npm run planner` → **import cases** button): choose/create the project, upload, tick cases → graphs in `projects/<p>/graphs/`, file kept in `projects/<p>/imports/`. Or CLI: `ADO_FILE=<file> npm run ado:import` (writes to `journeys/graphs/`). |
-| A process in their head | **planner** | `npm run planner`, draw sessions → does → data; or write the JSON from the spec's §11 example. |
+| An ADO export (.xlsx / .csv) | **import cases** | Planner (`npm run planner` → **New ▾ → From an ADO export**): choose/create the project, upload, tick cases → graphs in `projects/<p>/graphs/`, file kept in `projects/<p>/imports/`. Or CLI: `sfpw import <file>` (writes to `journeys/graphs/`; `--project <p>` keeps the export as a project asset). |
+| A process in their head | **planner** | `npm run planner`, then type the script: a session line per role (`as <role> on <system> at <url>`), a step line per action (`<verb> <Record>`). Ports, catalog names and relations are inferred; **New ▾ → Paste a script** takes the whole thing at once. |
 | A test case as prose, or nothing but a description | **write the script** | Write the SCRIPT form (`docs/GRAPH-SPEC.md` §13) and compile it with `parseScript()` from `src/graph/script.ts` — no schema knowledge needed. |
-| A recording | **capture-first** | `PIPELINE_GRAPH=1 npm run pipeline` |
+| A recording | **capture-first** | `sfpw pipeline <journey> --graph` |
 
 ### The script form — prefer it over hand-written JSON
 
@@ -54,7 +55,7 @@ passes `validateGraph`. `printScript(graph)` is the inverse and returns
 `{ text, dropped }`: `dropped` names what the script form cannot carry
 (positions, capture state, timing, infra nodes, notes), so **never round-trip
 a captured graph through the script to edit it** — you would drop the
-evidence. Use the script to CREATE; use the planner or the gap ops to edit.
+evidence. Use the script to CREATE; use the planner (which edits the graph itself, not the text) or the gap ops to edit.
 
 Rules that still apply: leave a port off when you do not know it (`inferPorts`
 drafts it later — do not guess `-> produces` to look complete), mark every
@@ -69,10 +70,11 @@ to clear them with the human.
 1. **List graphs**: `projects/*/graphs/*.graph.json` (ref = `<project>/<id>`)
    and legacy `journeys/graphs/*.graph.json` (ref = `<id>`). If the human did
    not name one, ask which.
-2. **List gaps**: `GRILLME=<ref> npm run grillme`. Parse the `GAPS_JSON`
-   line — an array of `{kind, at, question, short, options?}`. Also read the
-   `[chain]` lines: a MUST FIX chain error (branch/cycle/disconnected start)
-   comes before any question — fix the wiring first.
+2. **List gaps**: `sfpw grillme <ref> --json` — stdout is an array of
+   `{kind, at, question, short, options?}` and nothing else. Without `--json`
+   the same command prints prose plus the `[chain]` lines: a MUST FIX chain
+   error (branch/cycle/disconnected start) comes before any question — fix
+   the wiring first.
 3. **Ask in this order** (cheapest judgment first), ONE question per beat,
    using the gap's own `question` and `options` (always allow a free-text
    answer). Up to 4 questions of the SAME kind may share one turn.
@@ -100,33 +102,41 @@ to clear them with the human.
       (one session + `alternatives`, spec §3.3). When unsure, propose the
       chain and ask.
    2. `no_session_policy` — one session max (logout-to-comply) vs concurrent.
+      (Asked once per system per project: a sibling graph that already
+      declares a policy settles it, so it may not appear at all.)
    3. `draft_oracle` — keep / edit / remove each guessed check.
-   4. `data_io_draft` — keep the guessed port (produces/consumes/updates)?
-   5. `data_no_port` — does this step create, read, or update the record?
-   6. `data_unproduced` — created earlier (wire a `produces` edge before it),
-      seeded (`origin: seed`), or pre-existing (`origin: external`)?
-   7. `api_no_timeout` — synchronous (default) or async budget
+   4. `data_port` — the port on a step that touches a record: keep the guess
+      when there is one, else create (`produces`) / read (`consumes`) /
+      change (`updates`)?
+   5. `data_unproduced` — created earlier (wire a `produces` edge before it),
+      or a record that already exists (`external: true` on the data node)?
+   6. `api_no_timeout` — synchronous (default) or async budget
       (2 min → `timeoutMs 120000, pollMs 5000`; 5 min → `300000/5000`).
-   8. `no_oracles` — what proves the state: toast → `ui.toast`, text →
-      `ui.text`, record exists → `api.record_exists`, field → `api.field_equals`.
-   9. `no_deny_coverage` — name a must-NOT action, or accept none.
-   10. `session_no_url` — landing URL per session (free text is fine).
-   11. `does_unbound` — accept the `<noun>.<verb>` suggestion or rename.
+      Only asked for `db.`/`log.` checks and for `api.*` in a multi-system
+      graph — a single-system `api.*` check on the 10 s default is fine.
+   7. `does_unbound` — accept the `<noun>.<verb>` suggestion or rename.
    Skip `not_captured` — that is the human's recording work, not a question.
+   The engine also returns HINTS, which have no op and never block: a
+   session with no landing URL (`session_no_url`), a state with nothing to
+   check (`no_oracles`), and a multi-role graph with no must-NOT case
+   (`no_deny_coverage`). Mention them once; fix them by editing the graph
+   (a `url`, an `expects` entry, a `denied` edge) if the human wants.
 4. **Write back**: translate the answers into a JSON array of ops (see the
-   spec §9 table: `bindRole`, `setCatalog`, `confirmExpect`, `removeExpect`,
-   `setOracleBudget`, `setUrl`, `addDeny`, `setSessionPolicy`, `setIo`,
-   `confirmIo`, `setOrigin`), save it as a file, then
-   `GRILLME=<ref> GRILLME_APPLY=<ops.json> npm run grillme`. It validates
-   before saving and prints the change list — relay it. For `no_oracles` and
+   spec §9 table — the eight are `bindRole`, `setCatalog`, `answerExpect`,
+   `setOracleBudget`, `addDeny`, `setSessionPolicy`, `setIo`,
+   `setExternal`), save it as a file, then
+   `sfpw grillme <ref> --apply <ops.json>`. It validates
+   before saving and prints the change list — relay it. `answerExpect` takes
+   `{node, id, keep}` (`keep: false` removes the check); `setIo` with no
+   `io` CONFIRMS the port already on the edge. For a hint, and for
    `data_unproduced`→"wire a produces edge", edit the graph JSON directly
    (an `expects` entry / an edge with `data.io: "produces"`), keeping it
    valid per the spec, then re-run step 2.
 5. **Repeat** from step 2 until only `not_captured` remains.
 6. **Close**: print the capture queue — for each uncaptured session
-   `RECORD_PERSONA=<persona> RECORD_JOURNEY=<graph_id> npm run record` — plus
-   `GRAPH_DOCTOR=<ref> npm run doctor` (env readiness) and
-   `SUITE=graph:<ref> npm run suite` (run it — one generic spec walks every
+   `sfpw record <persona> <graph_id>` — plus
+   `sfpw doctor <ref>` (env readiness, exit 1 while anything is missing) and
+   `sfpw suite graph:<ref>` (run it — one generic spec walks every
    graph a suite selects; add the graph to `suites.json` or give it a `tags`
    entry to make it part of a standing suite).
    Tell the human: captures are the only remaining human work.

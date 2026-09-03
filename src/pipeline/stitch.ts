@@ -120,7 +120,6 @@ export function stitchRecordings(inputs: RecordingInput[]): Stitched {
       );
     }
     const { inputIdx: _drop, ...rest } = canonical;
-    void _drop;
     harvestedIds.push({
       ...rest,
       ...(handle ? { handle } : {}),

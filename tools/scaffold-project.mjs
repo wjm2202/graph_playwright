@@ -60,9 +60,9 @@ export function scaffoldProject(rootDir, { project, team = '', description = '' 
     join(dir, 'docs', 'README.md'),
     `# ${project}\n\n${description || `Testing project for ${team || project}.`}\n\n` +
       `- Graphs: \`graphs/*.graph.json\` — open them in the planner (\`npm run planner\`).\n` +
-      `- Gaps: \`GRILLME=${project}/<graph_id> npm run grillme\`\n` +
-      `- Readiness: \`GRAPH_DOCTOR=project:${project} npm run doctor\`\n` +
-      `- Run: \`SUITE=graph:${project}/<graph_id> npm run suite\` (whole project: \`SUITE=project:${project}\`)\n`,
+      `- Gaps: \`npx sfpw grillme ${project}/<graph_id>\`\n` +
+      `- Readiness: \`npx sfpw doctor project:${project}\`\n` +
+      `- Run: \`npx sfpw suite graph:${project}/<graph_id>\` (whole project: \`npx sfpw suite project:${project}\`)\n`,
   );
   return { dir, manifest };
 }

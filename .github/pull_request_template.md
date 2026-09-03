@@ -25,8 +25,8 @@ CONTRIBUTING.md has the long version; this is the short one.
 - [ ] **No secrets.** `personas.json` carries env-var *names* only; `.env`,
       `.auth/` and `recordings/` stay gitignored.
 - [ ] **Any `!` in `src/` has a comment** naming the invariant that makes it safe.
-- [ ] **Planner rebuilt** if `tools/planner-src.html` changed
-      (`npm run build:planner`, commit the regenerated file).
+- [ ] **Planner rebuilt** if anything under `tools/planner-v2/` changed
+      (`npm run build:planner`, commit the regenerated `tools/planner.html`).
 - [ ] **Commits are signed off** (`git commit -s` — DCO).
 
 <!--

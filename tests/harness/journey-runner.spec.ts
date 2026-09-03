@@ -19,9 +19,10 @@ import type { SeedApi } from '../../src/data/seed';
 
 const personasDoc = {
   org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
+  accounts: { sales: {}, admin: {} },
   personas: {
-    sales_user: { kind: 'internal', usernameEnv: 'SF_SALES_USERNAME' },
-    admin: { kind: 'internal', usernameEnv: 'SF_ADMIN_USERNAME' },
+    sales_user: { kind: 'internal', account: 'sales' },
+    admin: { kind: 'internal', account: 'admin' },
   },
 };
 

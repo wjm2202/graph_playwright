@@ -42,7 +42,8 @@ test('G1: the generated journey replays through the real runner, zero JSON edits
   const cast = new Cast(browser, {
     registry: PersonaRegistry.fromDoc({
       org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
-      personas: { sales_user: { kind: 'internal', usernameEnv: 'SF_SALES_USERNAME' } },
+      accounts: { sales: {} },
+      personas: { sales_user: { kind: 'internal', account: 'sales' } },
     }),
     authenticator: async (_persona, b) => {
       const context = await b.newContext({ baseURL: 'https://fixture.test' });

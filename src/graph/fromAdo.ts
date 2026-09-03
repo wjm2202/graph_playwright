@@ -75,7 +75,8 @@ export function casesFromRows(rows: string[][]): AdoCase[] {
   const typeIdx = col('work item type', 'type');
   const actionIdx = col('step action', 'action', 'test step action', 'step');
   const expectedIdx = col('step expected', 'expected result', 'expected', 'step expected result');
-  const stepNoIdx = col('step number', 'test step', 'step #', 'step no');
+  // A 'step number' / 'test step' / 'step #' / 'step no' column is IGNORED
+  // where it exists: ordering is row order, and the number is informational.
   const perRow = actionIdx >= 0 && (stepsIdx < 0 || expectedIdx >= 0);
 
   const cases: AdoCase[] = [];
@@ -111,7 +112,6 @@ export function casesFromRows(rows: string[][]): AdoCase[] {
       const last = current.steps[current.steps.length - 1]!;
       last.expected = [last.expected, cleanAdoHtml(expected)].filter(Boolean).join(' ');
     }
-    void stepNoIdx; // ordering is row order; the step number column is informational
   }
   return cases;
 }

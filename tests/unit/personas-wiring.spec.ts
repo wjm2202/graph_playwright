@@ -11,11 +11,14 @@ import { addPersonas, envNameError, envPresence, renameEnvName, slugRole } from 
 
 const roster = (): PersonasDoc => ({
   org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
-  accounts: { sales_mgr: { auth: 'frontdoor' } },
+  accounts: {
+    sales_mgr: { auth: 'frontdoor' },
+    other_org: { usernameEnv: 'SF_LEGACY_USERNAME', passwordEnv: 'SF_LEGACY_PASSWORD' },
+  },
   personas: {
     client_lead: { kind: 'internal', role: 'Client Lead', account: 'sales_mgr' },
     bdm: { kind: 'internal', role: 'Business Development Manager', account: 'sales_mgr' },
-    legacy_user: { kind: 'internal', usernameEnv: 'SF_LEGACY_USERNAME', passwordEnv: 'SF_LEGACY_PASSWORD' },
+    other_user: { kind: 'internal', role: 'Other', account: 'other_org' },
     guest: { kind: 'guest' },
   },
 });
@@ -91,7 +94,6 @@ test.describe('addPersonas', () => {
   test('refuses what would become a bad login', () => {
     expect(() => addPersonas(roster(), [{ role: '!!!' }])).toThrow(/does not yield a usable persona id/);
     expect(() => addPersonas(roster(), [{ role: 'Auditor', account: 'Sales Mgr' }])).toThrow(/must be lower_snake_case/);
-    expect(() => addPersonas(roster(), [{ role: 'Auditor', account: 'legacy_user' }])).toThrow(/legacy self-wired persona/);
   });
 });
 
@@ -112,10 +114,10 @@ test.describe('renameEnvName', () => {
     expect(() => renameEnvName(roster(), 'sales_mgr', 'username', '  ')).toThrow(/usernameEnv is required/);
   });
 
-  test('a legacy self-wired persona keeps its own names; clearing drops the key', () => {
-    const doc = renameEnvName(roster(), 'legacy_user', 'password', '');
-    expect('passwordEnv' in doc.personas.legacy_user!).toBe(false);
-    expect(renameEnvName(doc, 'legacy_user', 'username', 'SFDC_UAT_USERNAME').personas.legacy_user!.usernameEnv)
+  test('an account overriding the convention keeps its own names; clearing switches one off', () => {
+    const doc = renameEnvName(roster(), 'other_org', 'password', '');
+    expect(doc.accounts?.other_org?.passwordEnv).toBe('');
+    expect(renameEnvName(doc, 'other_org', 'username', 'SFDC_UAT_USERNAME').accounts?.other_org?.usernameEnv)
       .toBe('SFDC_UAT_USERNAME');
   });
 
@@ -123,10 +125,10 @@ test.describe('renameEnvName', () => {
     expect(() => renameEnvName(roster(), 'sales_mgr', 'totp', 'JBSWY3DPEHPK3PXP')).toThrow(/totpEnv: looks like a pasted secret/);
     expect(() => renameEnvName(roster(), 'sales_mgr', 'username', 'lower_case')).toThrow(/usernameEnv: must be an ENV VAR NAME/);
     expect(() => renameEnvName(roster(), 'ghost', 'username', 'SF_X_USERNAME')).toThrow(/not declared in personas.json/);
-    // SF_LEGACY_USERNAME is legacy_user's — two logins must not share one.
-    expect(() => renameEnvName(roster(), 'sales_mgr', 'username', 'SF_LEGACY_USERNAME')).toThrow(/already the username name of login 'legacy_user'/);
+    // SF_LEGACY_USERNAME is other_org's — two logins must not share one.
+    expect(() => renameEnvName(roster(), 'sales_mgr', 'username', 'SF_LEGACY_USERNAME')).toThrow(/already the username name of login 'other_org'/);
     // Re-stating a login's own name is a no-op, not a clash:
-    expect(renameEnvName(roster(), 'legacy_user', 'username', 'SF_LEGACY_USERNAME').personas.legacy_user!.usernameEnv)
+    expect(renameEnvName(roster(), 'other_org', 'username', 'SF_LEGACY_USERNAME').accounts?.other_org?.usernameEnv)
       .toBe('SF_LEGACY_USERNAME');
   });
 });

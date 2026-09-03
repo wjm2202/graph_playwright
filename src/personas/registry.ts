@@ -13,7 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   accountEnvNames as deriveEnvNames, accountIdOf, effectivePersona, envBlockFor, rolesOfAccount, validatePersonas,
-  type AccountDef, type AuthMethod, type CredEnvNames, type PersonaDef, type PersonasDoc,
+  type AccountDef, type AuthMethod, type CredEnvNames, type EffectivePersona, type PersonasDoc,
 } from './schema';
 import { compact } from '../utils/compact';
 import { statePathFor, workerStatePathFor } from '../auth/storage';
@@ -26,7 +26,7 @@ export interface ResolvedCreds {
 
 export interface PersonaRuntime {
   id: string;
-  def: PersonaDef;
+  def: EffectivePersona;
   /** Which env-var names credentials come from (after pool suffixing). */
   envNames: { username?: string; password?: string; token?: string; totp?: string };
 }
@@ -62,9 +62,9 @@ export class PersonaRegistry {
   /**
    * The persona as Cast sees it — role fields from the persona, credentials
    * / auth / pool from its ACCOUNT (env names derived from the account id,
-   * docs/DESIGN-ROLES-ACCOUNTS.md). Legacy self-wired personas come back as-is.
+   * docs/DESIGN-ROLES-ACCOUNTS.md).
    */
-  get(id: string): PersonaDef {
+  get(id: string): EffectivePersona {
     const def = effectivePersona(this.doc, id);
     if (!def) {
       throw new Error(`Unknown persona '${id}' — known: ${this.ids().join(', ')} (${this.sourcePath})`);
@@ -72,13 +72,13 @@ export class PersonaRegistry {
     return def;
   }
 
-  /** The login a persona uses — its account id, or itself when self-wired. */
+  /** The login a persona uses — its account id (guests have none). */
   accountOf(id: string): string {
     this.get(id);
     return accountIdOf(this.doc, id);
   }
 
-  /** Declared account ids (legacy self-wired personas are not listed here). */
+  /** Declared account ids. */
   accountIds(): string[] {
     return Object.keys(this.doc.accounts ?? {});
   }
@@ -113,19 +113,19 @@ export class PersonaRegistry {
   }
 
   /**
-   * Resolve credentials from the environment. Legacy fallback: the `admin`
-   * persona also accepts SF_USERNAME/SF_PASSWORD/SF_ACCESS_TOKEN so a
-   * single-user .env from the starter keeps working.
+   * Resolve credentials from the environment. Every persona reads the env
+   * names DERIVED from its account — sprint 4.4 removed the `admin`
+   * SF_USERNAME/SF_PASSWORD/SF_ACCESS_TOKEN fallback with the rest of the
+   * self-wired path (see HANDOVER: rename them to SF_ADMIN_*).
    */
   resolveCreds(id: string, env: NodeJS.ProcessEnv = process.env, workerIndex?: number): ResolvedCreds {
     const def = this.get(id);
     if (def.kind === 'guest') return {};
     const names = this.envNamesFor(id, workerIndex);
-    const legacy = id === 'admin';
     return compact({
-      username: clean(names.username ? env[names.username] : undefined) ?? (legacy ? clean(env.SF_USERNAME) : undefined),
-      password: clean(names.password ? env[names.password] : undefined) ?? (legacy ? clean(env.SF_PASSWORD) : undefined),
-      token: clean(names.token ? env[names.token] : undefined) ?? (legacy ? clean(env.SF_ACCESS_TOKEN) : undefined),
+      username: clean(names.username ? env[names.username] : undefined),
+      password: clean(names.password ? env[names.password] : undefined),
+      token: clean(names.token ? env[names.token] : undefined),
     });
   }
 

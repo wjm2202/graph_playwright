@@ -34,12 +34,13 @@ graph names, evaluates every expectation, and **repaints the same graph**
 
 | Thing | Where | Rule |
 |---|---|---|
-| Graph | `projects/<project>/graphs/<id>.graph.json` (legacy: `journeys/graphs/<id>.graph.json`) | `id` = lower_snake_case, equals the file stem; the planner's *save ▾ → save to project* writes it (validated, atomic) |
-| Reference | `<project>/<id>`; bare `<id>` resolves in the legacy folder | used by every CLI (`SUITE=graph:<ref>`, `GRILLME`, `COMPOSE`…) |
-| Project | `projects/<project>/project.json` (+ `graphs/ imports/ journeys/ steps/ specs/ recordings/ evidence/ docs/`) | `npm run project:new`, or from the planner |
+| Graph | `projects/<project>/graphs/<id>.graph.json` (legacy: `journeys/graphs/<id>.graph.json`) | `id` = lower_snake_case, equals the file stem; the planner's **Save to project** writes it (validated, atomic) |
+| Reference | `<project>/<id>`; bare `<id>` resolves in the legacy folder | used by every `sfpw` command (`sfpw suite graph:<ref>`, `sfpw grillme <ref>`, `sfpw compose <host> <sub>`…) |
+| Project | `projects/<project>/project.json` (+ `graphs/ imports/ journeys/ steps/ specs/ recordings/ evidence/ docs/`) | `npm run project:new`, or the planner's **New ▾ → ＋ New project…** |
 | Personas | `personas.json` (root) | the roster graphs bind roles to — **never invent a persona id** |
-| Suites | `suites.json` (root) | named selections — `{ "<suite>": { "graphs"?, "tags"?, "project"? } }`, the union of the three; `SUITE=<suite\|graph:<ref>\|tag:<t>\|project:<p>> npm run suite` |
+| Suites | `suites.json` (root) | named selections — `{ "<suite>": { "graphs"?, "tags"?, "project"? } }`, the union of the three; `sfpw suite <suite\|graph:<ref>\|tag:<t>\|project:<p>>` |
 | Imports | `projects/<project>/imports/<stamp>-<name>.<xlsx|csv>` + `.json` manifest | the ADO file, verbatim, and which case became which graph |
+| Evidence | `<graph root>/evidence/<graph_id>/<runId>/<node_id>.jpg` — the root is `projects/<project>/` or, for a legacy graph, `journeys/` | run screenshots are FILES; a node's `snapshot.ref` is the path **relative to that root** (§4), so a project folder travels with its paint |
 
 All ids (graph, node, edge, expectation, actor alias, system key) match
 `^[a-z][a-z0-9_]*$`. Env-var **names** match `^[A-Z][A-Z0-9_]*$`; a value
@@ -63,7 +64,7 @@ that looks like a URL with credentials, or an inline secret, is rejected.
 
 `tags` are lower_snake_case labels with no duplicates and no fixed
 vocabulary: `suites.json` decides which of them mean anything
-(`{ "sod": { "tags": ["sod"] } }`), and `SUITE=tag:sod npm run suite` runs
+(`{ "sod": { "tags": ["sod"] } }`), and `sfpw suite tag:sod` runs
 every graph carrying one. Tagging is how a graph joins a standing suite —
 nothing is generated per graph.
 
@@ -137,7 +138,7 @@ PNode {
   queryable?: boolean,                 // db only
   searchable?: boolean,                // logger only
   endpoint?: { method?, path? },       // api only
-  ref?, sobject?, origin?,             // data only — §7
+  sobject?, external?,                 // data only — §7
   notes?, pos?: { x, y }
 }
 ```
@@ -148,17 +149,25 @@ PNode {
 | `end` | terminal | — (one per graph) | — |
 | `session` | a SYSTEM × ROLE state: "Salesforce as lead_creator" | `system`; `actor` (the walker refuses a session without one) | `account.usernameEnv`, `url` (landing page → pre-navigation), `steps`, `timing` |
 | `screen` | a finer state inside a session (a page/modal) | `label` | `url`, `snapshot`, `expects` |
-| `data` | a business record (Lead, Account, Customer in Siebel) — **a runtime variable** | `label` | `sobject`, `expects`, `ref`, `origin` |
+| `data` | a business record (Lead, Account, Customer in Siebel) — **a runtime variable** | `label` | `sobject`, `expects`, `external` |
 | `checkpoint` | a named assertion state | `label`, `expects` | — |
 | `db` | a database as evidence source | `label` | `queryable` (default false: most prod DBs are unreachable — verify via API/logs instead) |
 | `logger` | a log system as evidence source | `label` | `searchable` |
 | `api` | an integration endpoint / hop | `label` | `endpoint { method, path }` |
 
+`snapshot` is the image a node carries: `status` (`planned` when a human
+attached one, `captured` when a run did), `capturedAt`, and `ref` — a
+**path relative to the graph's root**,
+`evidence/<graph_id>/<runId>/<node_id>.jpg` (§2). Merge-back writes the file
+and the ref; nothing base64 goes into the document. A legacy `data:image/…`
+ref still opens everywhere and is migrated on the next merge-back, or by
+`node tools/migrate-evidence.mjs <graph.json>`.
+
 Validator rules on nodes: unique ids; `system`/`actor` must exist in
 `systems`/`actors`; `session` requires `system`; `endpoint` only on `api`;
-`ref`/`sobject`/`origin` only on `data`; two `data` nodes may not share a
-handle (`ref`, default = node id); `sobject` is an SObject API name
-(`Account`, `Custom__c`).
+`sobject`/`external` only on `data`; `sobject` is an SObject API name
+(`Account`, `Custom__c`). The node **id** is the runtime handle, so handle
+uniqueness is id uniqueness — there is no second namespace.
 
 ## 5. Edges
 
@@ -167,7 +176,7 @@ PEdge { id, from, to, type, label?, data?: {
   catalog?,                 // does: the step-catalog name  (<noun>.<verb>)
   auth?,                    // login_as: frontdoor | singleaccess | ui
   capability?,              // denied: REQUIRED — what must be refused
-  io?, bind?, ioDraft?,     // ports onto data nodes — §7
+  io?, ioDraft?,            // ports onto data nodes — §7
   recordRef?, deltaMs?, meanMs?, frequency?   // captured timing / record joint
 } }
 ```
@@ -186,8 +195,8 @@ PEdge { id, from, to, type, label?, data?: {
 Validator rules on edges: endpoints must exist; `login_as` must land on a
 `session`; `denied` needs `data.capability`; `does` needs
 `data.catalog` or at least a `label`; `data.io` only on edges landing on a
-`data` node; `bind` only with `consumes`/`updates`, values must contain
-`{ref:<handle>.<prop>}`; `auth` must not contradict the persona.
+`data` node; `ioDraft` needs an `io` to draft; `auth` must not contradict the
+persona.
 
 ### 5.1 The login chain (execution order)
 
@@ -195,7 +204,7 @@ Validator rules on edges: endpoints must exist; `login_as` must land on a
 branches, no cycles**. Every `session` must be on it (`chainHealth`:
 stranded sessions are amber — a run never reaches them; a branch or cycle is
 red). Sessions are ordered by the chain; steps inside a session by edge
-declaration order (= drawing order in the planner). A graph that branches
+declaration order (= the order of the step lines under a session line in the planner). A graph that branches
 must be split into several graphs (or composed).
 
 ## 6. Expectations (what must be true in a state)
@@ -231,30 +240,30 @@ A `data` or `checkpoint` node with no `expects` raises `no_oracles`.
 
 ## 7. Data flow — ports, handles, definitions
 
-A `data` node is a **runtime variable**. Its handle is `ref` (default: the
-node id); steps receive the record as `{ref:<handle>.id}` (or
-`.<Field>` for a seeded field).
+A `data` node is a **runtime variable**. Its **id is its handle**: steps
+receive the record as `{ref:<nodeId>.id}` (or `.<Field>` for a seeded field).
+There is no separate handle field — one id, one name.
 
 | on the edge | meaning | the step receives |
 |---|---|---|
-| `data.io: "produces"` | this step CREATES the record and publishes its id | `with.produce = <handle>`, `with.sobject`; the runner auto-publishes from the record page the step lands on (`/lightning/r/<SObject>/<id>/view`) or the step calls `ctx.produce()` |
-| `data.io: "consumes"` | this step READS the record | `data.bind` (arg → `{ref:…}`) or the default `{ record: "{ref:<handle>.id}" }` |
+| `data.io: "produces"` | this step CREATES the record and publishes its id | `with.produce = <nodeId>`, `with.sobject`; the runner auto-publishes from the record page the step lands on (`/lightning/r/<SObject>/<id>/view`) or the step calls `ctx.produce()` |
+| `data.io: "consumes"` | this step READS the record | `{ record: "{ref:<nodeId>.id}" }` |
 | `data.io: "updates"` | reads AND changes it | same as consumes |
 | no port | legacy: the step receives the node label only | `{ record: "<label>" }` |
 
-`origin` on the data node says who defines it when no step in this graph
-does: `step` (default — a `produces` edge must precede every consume),
-`seed` (the journey seed block creates it), `external` (a pre-existing record
-the run finds by business key). A `produces` edge from a non-session node
-(an `api` hop) is an **ambient** definition: consumers get the label +
-sobject and must locate the record by business key.
+`external: true` on the data node says the record **already exists** — the
+run finds it rather than creating it, so a `consumes` with no `produces`
+before it is legal. Absent (the default) means a `produces` edge in this
+graph must define it. A `produces` edge from a non-session node (an `api`
+hop) is an **ambient** definition: consumers get the label + sobject and
+must locate the record by business key.
 
 **Rule (reaching definitions, `dataflowHealth`)**: walking the chain, every
 `consumes`/`updates` must be preceded by a definition — else **error**
 (`data_unproduced`). A second `produces` on a defined node, or a `produces`
-on a `seed`/`external` node, is a **warning**. A `does` edge onto a data
-node with no port raises `data_no_port`; a machine-guessed port
-(`ioDraft: true`) raises `data_io_draft`.
+on an `external` node, is a **warning**. A `does` edge onto a data node
+raises `data_port` when it has no port at all, and again (with the guess as
+the default) when the port is machine-guessed (`ioDraft: true`).
 
 Why: composed graphs (create_customer + add_address) share the `customer`
 node; the port is what makes the second flow use the record the first one
@@ -262,49 +271,62 @@ created instead of a literal id from capture day.
 
 ## 8. Composition (extend a workflow with another graph)
 
-`COMPOSE=<host> COMPOSE_WITH=<sub> npm run graph:compose` or the planner's
-**insert ▾**. Copy-merge: the sub's nodes/edges are copied in, provenance in
+`sfpw compose <host> <sub>` or the planner's
+**Join another graph…**. Copy-merge: the sub's nodes/edges are copied in, provenance in
 `composedFrom`. Same-id `data` nodes **merge** (checks unioned) — that is the
 join point. Actors/systems must agree by alias/key or compose refuses.
 
-- **island** (default, planner): the sub arrives disconnected and selected;
+- **island** (the CLI default, and the fallback the planner offers when a
+  splice is refused): the
+  sub arrives disconnected and selected;
   draw one `login_as` from a host session into its first session, relink
   `end`. The summary names *which* host session to wire in after (the one
   that produces what the island consumes).
-- **splice** (CLI, `COMPOSE_AFTER=` or inferred): sessions merge on
+- **splice** (`--after <session>` on the CLI, or inferred; the default in
+  the planner's **Join another graph…**): sessions merge on
   system+actor+account and the sub-chain splices in after the last host
   session producing what the sub consumes.
 
 ## 9. Completeness — the gap engine
 
-`GRILLME=<ref> npm run grillme` prints every gap as a multiple-choice
-question (`GAPS_JSON [...]`). A graph is **complete** when only
-`not_captured` remains (captures are human work).
+`sfpw grillme <ref>` prints every gap as a multiple-choice question;
+`sfpw grillme <ref> --json` prints the `Gap[]` array on stdout and NOTHING
+else, which is what a tool or the `/grillme` skill parses. A graph is
+**complete** when only `not_captured` remains (captures are human work).
+
+`computeGaps()` returns **two** arrays. A **gap** is a question with a
+write-back op behind it (eight kinds); a **hint** is advice with no op
+(three kinds) — a graph full of hints still runs, and `--json` prints the
+gaps only.
 
 | kind | at | question in one line | answer op |
 |---|---|---|---|
 | `role_unbound` | alias, or `alias:persona` for a matrix alternative | which persona plays this role? (options = personas.json ids) | `bindRole` `{alias, personaId}` · edit `alternatives` for a matrix entry |
-| `no_session_policy` | system key | does this system allow concurrent sessions? | `setSessionPolicy` `{system, maxConcurrent}` |
-| `draft_oracle` | `node.expect` | keep / edit / remove this machine-guessed check? | `confirmExpect` `{node, id}` · `removeExpect` `{node, id}` |
-| `api_no_timeout` | `node.expect` | synchronous (default 10 s) or async budget? | `setOracleBudget` `{node, id, timeoutMs, pollMs?}` (2 min → 120000/5000; 5 min → 300000/5000) |
-| `no_oracles` | node | what proves this state is right? | edit the graph JSON: add an `expects` entry (toast → `ui.toast`, text → `ui.text`, record → `api.record_exists`, field → `api.field_equals`) |
-| `no_deny_coverage` | graph | is there something a role must NOT be able to do? | `addDeny` `{from, to, capability}` |
-| `session_no_url` | session | where does this role start? | `setUrl` `{node, url}` |
+| `no_session_policy` | system key | does this system allow concurrent sessions? (asked once per system per project — a sibling graph that already declares one settles it) | `setSessionPolicy` `{system, maxConcurrent}` |
+| `draft_oracle` | `node.expect` | keep / edit / remove this machine-guessed check? | `answerExpect` `{node, id, keep}` (`keep: false` removes it) |
+| `api_no_timeout` | `node.expect` | synchronous (default 10 s) or async budget? — asked only for `db.`/`log.` checks, or for `api.*` in a graph spanning more than one system | `setOracleBudget` `{node, id, timeoutMs, pollMs?}` (2 min → 120000/5000; 5 min → 300000/5000) |
 | `does_unbound` | edge | name the step (`<noun>.<verb>`) or capture it | `setCatalog` `{edge, name}` |
-| `data_io_draft` | edge | keep the guessed port? | `confirmIo` `{edge}` · `setIo` `{edge, io, bind?}` |
-| `data_no_port` | edge | does this step create, read, or update the record? | `setIo` `{edge, io, bind?}` |
-| `data_unproduced` | edge | where does the record come from? | wire a `produces` edge earlier · `setOrigin` `{node, origin: seed\|external}` |
-| `not_captured` | session | (not a question) record it: `RECORD_PERSONA=<persona> RECORD_JOURNEY=<id> npm run record` | — |
+| `data_port` | edge | does this step create, read, or update the record? (with the guess as the default when one was inferred) | `setIo` `{edge, io}` · `setIo` `{edge}` alone CONFIRMS the guess |
+| `data_unproduced` | edge | where does the record come from? | wire a `produces` edge earlier · `setExternal` `{node, external: true}` |
+| `not_captured` | session | (not a question) record it: `sfpw record <persona> <journey>` | — |
+
+Hints — printed, never blocking, no op:
+
+| hint | at | what it says |
+|---|---|---|
+| `session_no_url` | session | no landing URL, so captures cannot pre-navigate |
+| `no_oracles` | node | nothing proves this state is right yet |
+| `no_deny_coverage` | graph | two or more roles and not one must-NOT case — the `addDeny` `{from, to, capability}` op writes one when you decide to add it |
 
 Ask cheapest judgment first, in the order above. Write-back is a JSON array
-of ops applied with `GRILLME=<ref> GRILLME_APPLY=<ops.json> npm run grillme`
+of ops applied with `sfpw grillme <ref> --apply <ops.json>`
 — it validates before saving and prints the change list. **Never edit a
 graph in a way the validator would refuse; never invent persona ids.**
 
 ## 10. Drafts from imports and captures
 
-- **ADO import** (`import cases` in the planner, or `ADO_FILE=… npm run
-  ado:import`): each test case → one graph. `"As <role>, …"` prefixes →
+- **ADO import** (**New ▾ → From an ADO export** in the planner, or
+  `sfpw import <file.xlsx|.csv>`): each test case → one graph. `"As <role>, …"` prefixes →
   sessions (alias = slug of the role, flagged `role_unbound`); a pre-req
   step *"Personas who can perform this action: A, B, C"* opens the session as
   the FIRST persona (the rest are listed as alternatives); *"Login with
@@ -319,7 +341,7 @@ graph in a way the validator would refuse; never invent persona ids.**
   a role name adds the Siebel system with `maxConcurrent: 1`. Consecutive
   step targets are joined by `next` edges (`e_seq_*`) — a reading ladder so
   the canvas follows the test case top-to-bottom; the walker ignores them.
-- **Capture-first** (`PIPELINE_GRAPH=1 npm run pipeline`): one recording →
+- **Capture-first** (`sfpw pipeline <journey> --graph`): one recording →
   sessions per actor, one `does` edge per save-bounded group, data nodes per
   SObject with ports inferred by def-use (the save that created a record
   produces it; later mentions consume), draft oracles.
@@ -364,7 +386,7 @@ default 10 s) is what closes `api_no_timeout`.
 
 ## 12. Authoring checklist ("done" means)
 
-1. `validateGraph` ok (the planner's **check** badge, or `npm run grillme`).
+1. `validateGraph` ok (the planner's check strip reading `0 must fix`, or `sfpw grillme <ref>`).
 2. One `start`, one `end`, one linear `login_as` chain reaching every
    session; every session has `system`, `actor`, and ideally `url`.
 3. Every role alias bound to a real persona id; `auth` on `login_as` agrees
@@ -379,7 +401,7 @@ default 10 s) is what closes `api_no_timeout`.
 9. A "personas who can perform this" pre-req is either a chain of
    hand-overs (one session each, the default) or a matrix (`alternatives`)
    — decided with the human; every persona in the roster.
-10. `GRILLME=<ref> npm run grillme` reports only `not_captured`.
+10. `sfpw grillme <ref>` reports only `not_captured`.
 
 ## 13. Script form (`src/graph/script.ts`)
 
@@ -397,7 +419,7 @@ systems: sf = Salesforce UAT (url:SF_INSTANCE_URL), siebel = Siebel (siebel url:
 tags: smoke, sod
 
 as client_associate (admin) on sf at /lightning/o/Account/list via frontdoor
-  create Customer record (Account) -> produces as customer
+  create Customer record (Account) -> produces
     ✓ api.record_exists Account within 10000ms
     ? ui.toast was created
   must not delete Customer record
@@ -419,7 +441,7 @@ cosmetic (the leading token decides the kind).
 | `systems: <key> = <Label> (<kind> url:<ENV> max:<n>)` | one or more comma-separated entries; the parenthesised attributes are optional. Default (no line): `sf = Salesforce`, kind `salesforce`. Kind defaults to `salesforce` for `sf`, to the key when the key IS a system kind (`siebel`, `web`, `api`, `other`), else `web` |
 | `tags: smoke, sod` | suite labels |
 | `as <role> [(<persona>)] [on <system>] [at <url>] [via <auth>]` | a session. Alias = `slug(role)`; `(persona)` binds `actors[alias]` (default: the alias itself); `<system>` is a declared key or label; `<auth>` is `frontdoor`, `singleaccess` or `ui` and lands on the `login_as` edge |
-| `<verb> <Record> [(<SObject>)] [-> <port>[?]] [as <handle>] [[<catalog>]]` | a `does` step onto a **data** node. Records merge BY NAME across sessions — one node, many steps |
+| `<verb> <Record> [(<SObject>)] [(external)] [-> <port>[?]] [[<catalog>]]` | a `does` step onto a **data** node. Records merge BY NAME across sessions — one node, many steps. `(external)` marks a record the run finds rather than creates (§7) |
 | `<verb> screen <Screen name> [[<catalog>]]` | a `does` step onto a `screen` node |
 | `verify <Checkpoint name>` | an `asserts` step onto a `checkpoint` node |
 | `must not <verb> <Record>` | a `denied` edge; `capability` = the same `<catalog>` rule |
@@ -436,7 +458,7 @@ Expectation ids are `<slug(catalog)>_<n>`; node ids are `slug(<record>)` and
 **`verify` is ambiguous on purpose, resolved deterministically.** A
 `verify <name>` line is a step onto a RECORD when `<name>` is a record any
 other line introduces, or when the line carries an annotation
-(`(SObject)`, `-> port`, `as handle`, `[catalog]`); otherwise it is a
+(`(SObject)`, `(external)`, `-> port`, `[catalog]`); otherwise it is a
 CHECKPOINT (`asserts`), and its checks carry no `after`. So a checkpoint may
 not be named after a record. `(-)` in the SObject slot means "no SObject" —
 it exists for labels that themselves end in `)`.
@@ -449,7 +471,7 @@ inference engine, not two.
 `account`, `notes`, `lastResult`, expectation `note`, `composedFrom`,
 `alternatives`, `db`/`logger`/`api` nodes and the `touches`/`requires`/
 `handoff` edges into them, `db.query` and `log.traffic` oracles (they name an
-infra node), `bind`, `ref` on non-data nodes, and free-text edge labels.
+infra node), and free-text edge labels.
 `printScript` returns `{ text, dropped }` where `dropped` names every one of
 these it found, so an editor warns instead of deleting silently.
 `parseScript` never throws: it returns `{ graph, problems }` with 1-based line

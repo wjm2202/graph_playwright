@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /**
  * PG-2 — planner build: inlines the graph libraries (UMD) and the TRANSPILED
- * shared modules (src/graph/schema.ts + compose/gaps/infer/upgrade — the SAME
- * validation, referees, inference and v1 load door as the test suite) into ONE
- * self-contained tools/process-planner.html. Run on demand:
+ * shared modules (src/graph/schema.ts + compose/gaps/infer/upgrade/script —
+ * the SAME validation, referees, inference and v1 load door as the test
+ * suite) into ONE self-contained tools/planner.html. Run on demand:
  *
  *   npm run build:planner
  *
  * "Zero build" for USERS holds: the committed output opens anywhere as a
  * single file; this script is a maintainer step like the fixture generators.
+ *
+ * Sprint 4.1 (2026-09-03) retired the old planner: `tools/planner-src.html`
+ * and its `tools/process-planner.html` output are gone, and the Journey
+ * Script Planner in tools/planner-v2/ IS the planner.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -163,7 +167,8 @@ function buildServerBridge() {
   // tsc overwrites in place — no rm first (some sandboxes forbid unlink on
   // mounted folders, and a stale sibling file is harmless).
   execFileSync('npx', [
-    'tsc', join(root, 'src/graph/adoImports.ts'), join(root, 'src/personas/schema.ts'), join(root, 'src/personas/wiring.ts'),
+    'tsc', join(root, 'src/graph/adoImports.ts'), join(root, 'src/graph/evidence.ts'),
+    join(root, 'src/personas/schema.ts'), join(root, 'src/personas/wiring.ts'),
     '--outDir', out, '--rootDir', join(root, 'src'), '--module', 'commonjs', '--target', 'es2020',
     '--moduleResolution', 'node', '--esModuleInterop', '--skipLibCheck',
   ], { cwd: root, stdio: 'pipe' });
@@ -187,28 +192,12 @@ function assertResolved(html, outFile) {
   if (leftover) throw new Error(`${outFile}: unresolved inline placeholder ${leftover[0]}`);
 }
 
-/** planner v1 — tools/planner-src.html → tools/process-planner.html. */
-function buildV1(shared, libraryJs, personasJs) {
-  let html = inlineLibs(readFileSync(join(root, 'tools/planner-src.html'), 'utf8'));
-  html = html.replace('<!--INLINE:schema-->', () => `<script>\n${shared.schema}\n</script>`);
-  html = html.replace('<!--INLINE:upgrade-->', () => `<script>\n${shared.upgrade}\n</script>`);
-  html = html.replace('<!--INLINE:gaps-->', () => `<script>\n${shared.gaps}\n</script>`);
-  html = html.replace('<!--INLINE:compose-->', () => `<script>\n${shared.compose}\n</script>\n<script>\n${shared.infer}\n</script>`);
-  html = html.replace('<!--INLINE:graphs-->', () => `<script>\n${libraryJs}\n</script>`);
-  html = html.replace('<!--INLINE:personas-->', () => `<script>\n${personasJs}\n</script>`);
-  const outFile = join(root, 'tools/process-planner.html');
-  assertResolved(html, outFile);
-  writeFileSync(outFile, html);
-  return { file: outFile, size: html.length };
-}
-
 /**
- * planner v2 (sprint 3.1) — tools/planner-v2/{index.html,style.css,js/*} →
- * tools/journey-planner.html. Same libraries, same transpiled shared modules,
- * PLUS the script codec (window.ProcessGraphScript). The JS modules are
- * concatenated in the ORDER declared by tools/planner-v2/modules.json: they
- * are IIFEs over one `window.P2` namespace, so the order is the dependency
- * graph and it lives in data, not in a bundler config.
+ * The planner — tools/planner-v2/{index.html,style.css,js/*} →
+ * tools/planner.html. The JS modules are concatenated in the ORDER declared
+ * by tools/planner-v2/modules.json: they are IIFEs over one `window.P2`
+ * namespace, so the order is the dependency graph and it lives in data, not
+ * in a bundler config.
  */
 function buildV2(shared, libraryJs, personasJs) {
   const dir = join(root, 'tools/planner-v2');
@@ -234,7 +223,7 @@ function buildV2(shared, libraryJs, personasJs) {
   html = html.replace('<!--INLINE:v2:css-->', () => css);
   html = html.replace('<!--INLINE:v2:js-->', () => js);
 
-  const outFile = join(root, 'tools/journey-planner.html');
+  const outFile = join(root, 'tools/planner.html');
   assertResolved(html, outFile);
   writeFileSync(outFile, html);
   return { file: outFile, size: html.length };
@@ -245,6 +234,5 @@ buildServerBridge();
 const libraryJs = graphLibrary();
 const personasJs = personaIds();
 
-for (const built of [buildV1(shared, libraryJs, personasJs), buildV2(shared, libraryJs, personasJs)]) {
-  console.log(`built ${built.file} (${(built.size / 1024).toFixed(0)} KB)`);
-}
+const built = buildV2(shared, libraryJs, personasJs);
+console.log(`built ${built.file} (${(built.size / 1024).toFixed(0)} KB)`);

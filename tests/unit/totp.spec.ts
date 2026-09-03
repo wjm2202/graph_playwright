@@ -70,9 +70,11 @@ test('totpNow returns a live 6-digit code (never one about to die)', async () =>
 test('totpForPersona: the persona-aware door, with exact .env guidance', async () => {
   const reg = PersonaRegistry.fromDoc({
     org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
+    // `plain` switches TOTP off explicitly ('' = this login does not use it).
+    accounts: { mfa: {}, plain: { totpEnv: '' } },
     personas: {
-      mfa_user: { kind: 'internal', usernameEnv: 'SF_MFA_USERNAME', passwordEnv: 'SF_MFA_PASSWORD', totpEnv: 'SF_MFA_TOTP_SECRET' },
-      plain_user: { kind: 'internal', usernameEnv: 'SF_PLAIN_USERNAME' },
+      mfa_user: { kind: 'internal', account: 'mfa' },
+      plain_user: { kind: 'internal', account: 'plain' },
     },
   });
   expect(await totpForPersona(reg, 'mfa_user', { SF_MFA_TOTP_SECRET: 'JBSWY3DPEHPK3PXP' })).toMatch(/^\d{6}$/);

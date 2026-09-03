@@ -210,7 +210,7 @@ test("the prototype's paste example drafts the graph it promises", () => {
 const REVIEW_5_1 = `create_customer  Create a customer
 
 as Client Associate at /lightning/o/Account/list
-  create Customer (Account) -> produces as customer
+  create Customer (Account) -> produces
     ✓ api.record_exists Account
     ✓ ui.toast was created
   must not delete Customer
@@ -223,7 +223,6 @@ test('the review §5.1 example round-trips through print and parse', () => {
   const { graph, problems } = parseScript(REVIEW_5_1);
   expect(problems).toEqual([]);
   expect(validateGraph(graph)).toEqual({ ok: true, errors: [] });
-  expect(graph.nodes.find((n) => n.id === 'customer')?.ref).toBe('customer');
   expect(graph.edges.filter((e) => e.type === 'does').map((e) => e.data?.io)).toEqual(['produces', 'consumes']);
   expect(graph.edges.find((e) => e.type === 'denied')?.data?.capability).toBe('customer.delete');
   const printed = printScript(graph);
@@ -231,7 +230,7 @@ test('the review §5.1 example round-trips through print and parse', () => {
   expect(printed.text).toBe(`create_customer  Create a customer
 
 as client_associate at /lightning/o/Account/list
-  create Customer (Account) -> produces as customer
+  create Customer (Account) -> produces
     ✓ api.record_exists Account
     ✓ ui.toast was created
   must not delete Customer

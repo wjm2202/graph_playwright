@@ -1,13 +1,15 @@
 /**
- * R4 — generator: Distillation → four reviewable artifacts.
+ * R4 — generator: Distillation → three reviewable artifacts.
  *   1. journeys/<id>.generated.json      — schema-valid journey (single actor v1)
  *   2. src/journeys/generated/<id>.steps.ts — WORKING implementations for the
  *      starter vocabulary (component objects already exist); raw steps get
  *      loud throw-stubs so nothing passes vacuously
  *   3. journeys/baselines/<id>.baselines.json — initial timing (n=1 windows)
  *      via the R0 lifecycle (same code path as live updates)
- *   4. L2/encoding/batch-rec-<id>.json   — settle-contract atoms, validator-clean,
- *      NEVER auto-published (orchestrator reviews, then checkpoints)
+ * The settle-contract batch (MMPM atoms) is NOT one of them: sprint 4.4 moved
+ * it behind `sfpw contracts <journey>` (src/cli/contracts.ts), off by default
+ * — a test framework should not write to a memory substrate as a side effect
+ * of generating a journey (review §4 #9).
  *
  * Hard rule (test-enforced): no emitted artifact ever contains 'networkidle' —
  * settle waits are URL-family waitForResponse + app-visible assertions
@@ -37,7 +39,7 @@ export interface GenerateOptions {
    * refused, never encoded as an expectation.
    */
   deny?: { capability: string; target?: unknown; evidence: DenialEvidence[] };
-  outDirs?: { journeys?: string; stubs?: string; baselines?: string; encoding?: string };
+  outDirs?: { journeys?: string; stubs?: string; baselines?: string };
   today?: string;
 }
 
@@ -47,8 +49,6 @@ export interface GenerateResult {
   stubsFile: string;
   /** Absent in deny mode (no performance surface to baseline). */
   baselinesFile?: string;
-  /** Present only when settle signals were captured. */
-  batchFile?: string;
   flags: string[];
 }
 
@@ -57,7 +57,6 @@ export function generateArtifacts(d: Distillation, opts: GenerateOptions): Gener
     journeys: opts.outDirs?.journeys ?? 'journeys',
     stubs: opts.outDirs?.stubs ?? path.join('src', 'journeys', 'generated'),
     baselines: opts.outDirs?.baselines ?? path.join('journeys', 'baselines'),
-    encoding: opts.outDirs?.encoding ?? path.join('L2', 'encoding'),
   };
   const flags = [...d.flags];
   const actors = opts.actors ?? (opts.persona ? { main: opts.persona } : undefined);
@@ -145,61 +144,11 @@ export function generateArtifacts(d: Distillation, opts: GenerateOptions): Gener
     saveBaselinesFile(baselinesFile, baselines);
   }
 
-  // ---- 4. settle-contract batch (review-then-publish) ----------------------
-  let batchFile: string | undefined;
-  const contracts = opts.deny
-    ? { atoms: [], edges: [] }
-    : settleContracts(d.steps, opts.today ?? new Date().toISOString().slice(0, 10));
-  if (contracts.atoms.length) {
-    fs.mkdirSync(dirs.encoding, { recursive: true });
-    batchFile = path.join(dirs.encoding, `batch-rec-${opts.journeyId.replace(/_/g, '-')}.json`);
-    fs.writeFileSync(
-      batchFile,
-      JSON.stringify(
-        {
-          batch: `rec-${opts.journeyId}`,
-          description:
-            `Settle contracts harvested from the '${opts.journeyId}' recording (pipeline v1). ` +
-            'REVIEW BEFORE PUBLISHING — the pipeline never checkpoints directly.',
-          atoms: contracts.atoms,
-          edges: contracts.edges,
-        },
-        null,
-        2,
-      ) + '\n',
-    );
-  }
-
   for (const s of d.steps.filter((x) => x.kind === 'raw')) {
     flags.push(`journey '${opts.journeyId}' carries an unnamed raw step (${JSON.stringify(s.args)}) — name it before relying on this journey`);
   }
 
-  return compact({ journey, journeyFile, stubsFile, baselinesFile, batchFile, flags });
-}
-
-/** One contract atom per capability that showed a settle signal (deduped). */
-function settleContracts(steps: DistilledStep[], today: string) {
-  const atoms: { atom: string; payload: string }[] = [];
-  const edges: { type: string; source: string; target: string }[] = [];
-  const seen = new Set<string>();
-  for (const s of steps) {
-    if (!s.settle || s.kind === 'raw') continue;
-    const id = `v1.procedure.step_${s.catalog.replace(/[^a-z0-9]+/g, '_')}__settle_contract`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    atoms.push({
-      atom: id,
-      payload:
-        `[REC v1 ${today}] Settle contract for step-catalog capability '${s.catalog}': trigger the action, ` +
-        `then settle on a ${s.settle.method} to the ${s.settle.family} URL family (observed burst of ${s.settle.observedCount}; ` +
-        `bursts are evidence, never assertion targets). Wait pattern: arm waitForResponse on the family BEFORE the trigger, ` +
-        `await it after, then assert app-visible state. networkidle is banned on LEX. ` +
-        `Re-verify each seasonal release; on churn mint successor + supersedes + tombstone.`,
-    });
-    edges.push({ type: 'member_of', source: id, target: 'v1.other.hub_sf_waits' });
-    edges.push({ type: 'references', source: id, target: 'v1.procedure.aura_response_wait__surgical_pattern' });
-  }
-  return { atoms, edges };
+  return compact({ journey, journeyFile, stubsFile, baselinesFile, flags });
 }
 
 /** Emit compilable TypeScript: real impls for the vocabulary, loud raw stubs. */

@@ -1,20 +1,21 @@
 /**
- * STUDY-DATA-FLOW.md — ports on edges, binding on data nodes. Pins:
+ * STUDY-DATA-FLOW.md — ports on edges, identity on data nodes. Pins
+ * (post-sprint-4.4: no `bind`, no `ref`, `origin` collapsed to `external`):
  *  - schema: the additive fields validate, legacy graphs stay valid;
  *  - dataflowHealth: reaching definitions over the walk (use-before-def,
- *    seed/external satisfy, ambient producers, re-produce warning);
+ *    `external` satisfies, ambient producers, re-produce warning);
  *  - compose: island reports the unproduced consume; splice INFERS `after`;
- *  - toJourneyV2: consumes → {ref:}, bind map honoured, produces → handle;
+ *  - toJourneyV2: consumes → {ref:<nodeId>.id}, produces → the node id;
  *  - runner: ctx.produce lands in refs; auto-publish from the landing URL;
  *    a produces step that publishes nothing fails loudly;
  *  - distill: def-use rewrites a created id to {ref:}, external stays literal;
  *  - stitch: cross-recording unification (creator owns the handle);
- *  - fromCapture: ports inferred per group; fromAdo: verb → port; gaps: the
- *    three data questions + write-back ops.
+ *  - fromCapture: ports inferred per group; fromAdo: verb → port; gaps:
+ *    `data_port` / `data_unproduced` + their write-back ops.
  */
 import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { validateGraph, type ProcessGraph } from '../../src/graph/schema';
+import { normalizeGraph, validateGraph, type ProcessGraph } from '../../src/graph/schema';
 import { composeGraphs, dataflowHealth } from '../../src/graph/compose';
 import { toJourney } from '../../src/graph/toJourney';
 import { runJourney, type CastLike } from '../../src/journeys/runner';
@@ -66,7 +67,7 @@ function addAddress(): ProcessGraph {
     ],
     edges: [
       { id: 's1', from: 'start', to: 'sess_sf_clerk', type: 'login_as', data: { auth: 'frontdoor' } },
-      { id: 'add', from: 'sess_sf_clerk', to: 'customer', type: 'does', label: 'add address', data: { catalog: 'addr.add', io: 'updates', bind: { account: '{ref:customer.id}' } } },
+      { id: 'add', from: 'sess_sf_clerk', to: 'customer', type: 'does', label: 'add address', data: { catalog: 'addr.add', io: 'updates' } },
       { id: 's3', from: 'customer', to: 'end', type: 'next' },
     ],
   };
@@ -78,27 +79,42 @@ test.describe('schema', () => {
     const g = createCustomer();
     expect(validateGraph(g).ok).toBe(true);
     const bad: ProcessGraph = JSON.parse(JSON.stringify(g));
-    bad.nodes[1]!.ref = 'x'; // a session cannot carry a binding
-    bad.nodes[2]!.origin = 'magic' as never;
+    bad.nodes[1]!.external = true; // a session cannot carry a binding
+    bad.nodes[2]!.external = 'yes' as never;
     bad.nodes[2]!.sobject = 'not an api name';
     bad.edges[0]!.data = { auth: 'frontdoor', io: 'consumes' }; // login_as lands on a session
-    bad.edges[1]!.data = { catalog: 'cust.create', io: 'produces', bind: { account: '{ref:customer.id}' } };
-    bad.edges.push({ id: 'z', from: 'sess_sf_admin', to: 'customer', type: 'does', data: { catalog: 'x.y', io: 'consumes', bind: { 'Bad Arg': 'literal' } } });
+    bad.edges.push({ id: 'z', from: 'sess_sf_admin', to: 'customer', type: 'does', data: { catalog: 'x.y', ioDraft: true } });
     const v = validateGraph(bad);
     expect(v.ok).toBe(false);
-    expect(v.errors.join('\n')).toMatch(/nodes.sess_sf_admin.ref: only data nodes/);
-    expect(v.errors.join('\n')).toMatch(/origin: one of step\|seed\|external/);
+    expect(v.errors.join('\n')).toMatch(/nodes.sess_sf_admin.external: only data nodes/);
+    expect(v.errors.join('\n')).toMatch(/nodes.customer.external: boolean/);
     expect(v.errors.join('\n')).toMatch(/sobject: SObject API name/);
     expect(v.errors.join('\n')).toMatch(/edges.e1.data.io: a port only makes sense on an edge landing on a data node/);
-    expect(v.errors.join('\n')).toMatch(/edges.create.data.bind: only consumes\/updates/);
-    expect(v.errors.join('\n')).toMatch(/bind.Bad Arg: arg name must be lower_snake_case/);
-    expect(v.errors.join('\n')).toMatch(/must contain a \{ref:<handle>.<prop>\} placeholder/);
+    expect(v.errors.join('\n')).toMatch(/edges.z.data.ioDraft: needs data.io/);
   });
 
-  test('two data nodes may not share a runtime handle', () => {
-    const g = createCustomer();
-    g.nodes.push({ id: 'customer2', type: 'data', label: 'Other', ref: 'customer' });
-    expect(validateGraph(g).errors.join()).toMatch(/handle 'customer' already used by data node 'customer'/);
+  test('the node id IS the handle — the retired fields are refused, and normalizeGraph maps them forward', () => {
+    const legacy = createCustomer();
+    const rec = (v: unknown) => v as Record<string, unknown>;
+    rec(legacy.nodes[2]).ref = 'acct';
+    rec(legacy.nodes[2]).origin = 'seed';
+    rec(legacy.edges[1]!.data).bind = { account: '{ref:acct.id}' };
+
+    const { graph, warnings } = normalizeGraph(legacy);
+    expect(validateGraph(graph)).toEqual({ ok: true, errors: [] });
+    expect(graph.nodes[2]).toMatchObject({ id: 'customer', external: true });
+    expect(graph.nodes[2]).not.toHaveProperty('ref');
+    expect(graph.edges[1]!.data).not.toHaveProperty('bind');
+    expect(warnings.join('\n')).toMatch(/origin 'seed' → external: true/);
+    expect(warnings.join('\n')).toMatch(/ref 'acct' dropped/);
+    expect(warnings.join('\n')).toMatch(/data.bind dropped/);
+
+    // 'step' was the default: it just goes, without becoming external.
+    const stepped = createCustomer();
+    rec(stepped.nodes[2]).origin = 'step';
+    const norm = normalizeGraph(stepped);
+    expect(norm.graph.nodes[2]).not.toHaveProperty('external');
+    expect(norm.warnings.join()).toMatch(/origin 'step' dropped/);
   });
 });
 
@@ -114,14 +130,12 @@ test.describe('dataflowHealth — reaching definitions', () => {
     expect(dataflowHealth(ok).definedBy.customer).toBe('create');
   });
 
-  test('seed / external origins satisfy a consume; a produces on them warns', () => {
+  test('an external record satisfies a consume; a produces on it warns', () => {
     const g = addAddress();
-    g.nodes[2]!.origin = 'seed';
-    expect(dataflowHealth(g)).toMatchObject({ errors: [], definedBy: { customer: 'origin:seed' } });
-    g.nodes[2]!.origin = 'external';
-    expect(dataflowHealth(g).errors).toEqual([]);
+    g.nodes[2]!.external = true;
+    expect(dataflowHealth(g)).toMatchObject({ errors: [], definedBy: { customer: 'external' } });
     g.edges[1]!.data = { catalog: 'addr.add', io: 'produces' };
-    expect(dataflowHealth(g).warnings.join()).toMatch(/node's origin is external — who defines it/);
+    expect(dataflowHealth(g).warnings.join()).toMatch(/the node is marked external — who defines it/);
   });
 
   test('an integration hop (api → data) is an ambient definition; a second produces warns; unused is listed', () => {
@@ -185,7 +199,7 @@ test.describe('compose', () => {
 });
 
 test.describe('toJourneyV2 emission', () => {
-  test('produces → handle to publish; consumes → default {ref:}; updates with bind → the bind map', () => {
+  test('produces → the node id to publish; consumes/updates → { record: {ref:<id>.id} }', () => {
     const g = composeGraphs(createCustomer(), addAddress(), { mode: 'splice' }).graph;
     g.nodes.push({ id: 'sess_sf_auditor', type: 'session', label: 'SF · auditor', system: 'sf', actor: 'admin' });
     g.edges.push(
@@ -195,7 +209,7 @@ test.describe('toJourneyV2 emission', () => {
     const r = toJourney(g);
     expect(r.journey.steps).toEqual([
       { actor: 'admin', do: 'cust.create', with: { produce: 'customer', sobject: 'Account' } },
-      { actor: 'clerk', do: 'addr.add', with: { account: '{ref:customer.id}' } },
+      { actor: 'clerk', do: 'addr.add', with: { record: '{ref:customer.id}' } },
       { actor: 'admin', do: 'cust.audit', with: { record: '{ref:customer.id}' } },
     ]);
   });
@@ -213,9 +227,6 @@ test.describe('toJourneyV2 emission', () => {
     const r = toJourney(g);
     expect(r.journey.steps[1]).toMatchObject({ with: { record: 'Customer (Siebel)', sobject: 'Customer' } });
     expect(r.warnings.join('\n')).toMatch(/which an integration creates \(h1\) — no id reaches the run/);
-    // …unless the edge binds explicitly.
-    g.edges[4]!.data = { catalog: 'siebel.check', io: 'consumes', bind: { name: '{ref:customer.Name}' } };
-    expect(toJourney(g).journey.steps[1]).toMatchObject({ with: { name: '{ref:customer.Name}' } });
   });
 
   test('use-before-def surfaces as a walker warning (the run would fail on the unknown ref)', () => {
@@ -223,13 +234,12 @@ test.describe('toJourneyV2 emission', () => {
     expect(r.warnings.join('\n')).toMatch(/dataflow: edge add \('add address'\) updates 'Customer' but nothing defines it/);
   });
 
-  test('a data node with an explicit ref uses it as the handle', () => {
+  test('the data node id is the handle both sides of the port', () => {
     const g = createCustomer();
-    g.nodes[2]!.ref = 'acct';
     g.edges.push({ id: 'open', from: 'sess_sf_admin', to: 'customer', type: 'does', label: 'open', data: { catalog: 'cust.open', io: 'consumes' } });
     const r = toJourney(g);
-    expect(r.journey.steps[0]).toMatchObject({ with: { produce: 'acct' } });
-    expect(r.journey.steps[1]).toMatchObject({ with: { record: '{ref:acct.id}' } });
+    expect(r.journey.steps[0]).toMatchObject({ with: { produce: 'customer' } });
+    expect(r.journey.steps[1]).toMatchObject({ with: { record: '{ref:customer.id}' } });
   });
 });
 
@@ -396,7 +406,7 @@ test.describe('capture — def-use over the recording', () => {
       click('internal:role=button[name="Save"i]', 40, 50),
     ]);
     const { graph, flags } = compactFromDistillation(d, { graphId: 'g', journeyId: 'g', actors: { main: 'admin' } });
-    expect(graph.nodes.find((n) => n.type === 'data')).toMatchObject({ id: 'account', origin: 'external' });
+    expect(graph.nodes.find((n) => n.type === 'data')).toMatchObject({ id: 'account', external: true });
     expect(graph.edges.find((e) => e.type === 'does')?.data?.io).toBe('updates');
     expect(flags.join('\n')).toMatch(/Account record pre-existed in the capture/);
     expect(dataflowHealth(graph).errors).toEqual([]);
@@ -437,23 +447,24 @@ test.describe('grillme — data gaps and write-back', () => {
     const g = addAddress();
     g.edges[1]!.data = { catalog: 'addr.add', io: 'updates', ioDraft: true };
     g.edges.push({ id: 'noport', from: 'sess_sf_clerk', to: 'customer', type: 'does', label: 'look', data: { catalog: 'cust.look' } });
-    const gaps = computeGaps(g);
+    const { gaps } = computeGaps(g);
     const kinds = gaps.map((x) => `${x.kind}@${x.at}`);
-    expect(kinds).toContain('data_io_draft@add');
-    expect(kinds).toContain('data_no_port@noport');
+    expect(kinds).toContain('data_port@add');     // a guess, with a default
+    expect(kinds).toContain('data_port@noport');  // no port at all
     expect(kinds).toContain('data_unproduced@add');
-    expect(gaps.find((x) => x.kind === 'data_io_draft')?.options).toEqual(['keep: updates', 'change to: produces', 'change to: consumes']);
+    expect(gaps.find((x) => x.at === 'add' && x.kind === 'data_port')?.options)
+      .toEqual(['keep: updates', 'change to: produces', 'change to: consumes']);
     expect(gaps.find((x) => x.kind === 'data_unproduced')?.question).toMatch(/Where does the Customer come from\?/);
 
     const { graph, changes } = applyAnswers(g, [
-      { op: 'confirmIo', edge: 'add' },
-      { op: 'setIo', edge: 'noport', io: 'consumes', bind: { acct: '{ref:customer.id}' } },
-      { op: 'setOrigin', node: 'customer', origin: 'external' },
+      { op: 'setIo', edge: 'add' },                      // no io = confirm the guess
+      { op: 'setIo', edge: 'noport', io: 'consumes' },
+      { op: 'setExternal', node: 'customer', external: true },
     ]);
-    expect(changes).toEqual(['add io updates confirmed', 'noport io = consumes bind {"acct":"{ref:customer.id}"}', 'customer origin = external']);
+    expect(changes).toEqual(['add io updates confirmed', 'noport io = consumes', 'customer external = true']);
     expect(graph.edges[1]!.data?.ioDraft).toBeUndefined();
-    expect(computeGaps(graph).filter((x) => x.kind.startsWith('data_'))).toEqual([]);
-    expect(() => applyAnswers(g, [{ op: 'setOrigin', node: 'sess_sf_clerk', origin: 'seed' }])).toThrow(/not a data node/);
-    expect(() => applyAnswers(g, [{ op: 'confirmIo', edge: 'noport' }])).toThrow(/has no port to confirm/);
+    expect(computeGaps(graph).gaps.filter((x) => x.kind.startsWith('data_'))).toEqual([]);
+    expect(() => applyAnswers(g, [{ op: 'setExternal', node: 'sess_sf_clerk', external: true }])).toThrow(/not a data node/);
+    expect(() => applyAnswers(g, [{ op: 'setIo', edge: 'noport' }])).toThrow(/has no port to confirm/);
   });
 });

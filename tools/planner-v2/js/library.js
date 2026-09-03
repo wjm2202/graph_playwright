@@ -189,10 +189,10 @@
     });
     var chosen = Object.keys(picked).sort().join(',');
     if (!chosen) { box.textContent = 'tick a suite to run a group of graphs'; return; }
-    box.innerHTML = 'run locally, or paste into CI (same line):<code class="mono">SUITE=' + esc(chosen) + ' npm run suite</code>' +
+    box.innerHTML = 'run locally, or paste into CI (same line):<code class="mono">npx sfpw suite ' + esc(chosen) + '</code>' +
       '<div style="margin-top:6px"><button class="small primary" id="b_runsuite">Copy the ' + esc(chosen) + ' line</button></div>';
     document.getElementById('b_runsuite').addEventListener('click', function () {
-      P2.ui.copy('SUITE=' + chosen + ' npm run suite', 'copied the suite command');
+      P2.ui.copy('npx sfpw suite ' + chosen, 'copied the suite command');
     });
   }
 

@@ -5,15 +5,15 @@
  * as" step.
  *
  * Two arms, because the planner has two lives:
- *  - file:// (double-clicked tools/journey-planner.html): everything that
+ *  - file:// (double-clicked tools/planner.html): everything that
  *    needs no network — paste, export, join over the INLINED library — plus
  *    the honest capability notice on the doors that do.
- *  - served (a REAL dev server on a throwaway PLANNER_ROOT, PLANNER_V2=1):
+ *  - served (a REAL dev server on a throwaway PLANNER_ROOT):
  *    the ADO wizard end to end, ＋ new project, and the save that creates
  *    personas.json entries. The files left on disk are the assertions.
  *
- * The window type is LOCAL (never `declare global`): planner.spec.ts already
- * declares `window.planner` with the v1 shape.
+ * The window type is LOCAL (never `declare global`): each planner spec types
+ * only the slice of `window.planner` it drives.
  */
 import { test, expect } from '@playwright/test';
 import { spawn, type ChildProcess } from 'child_process';
@@ -23,7 +23,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 
 const ROOT = path.resolve(__dirname, '../..');
-const PLANNER = pathToFileURL(path.join(ROOT, 'tools/journey-planner.html')).href;
+const PLANNER = pathToFileURL(path.join(ROOT, 'tools/planner.html')).href;
 
 interface Doc {
   id: string;
@@ -46,8 +46,10 @@ interface SheetWindow {
   };
   P2: {
     state: { doc: Doc; dirty: boolean; sel: { kind: string; id: string } };
+    ui: { select(sel: { kind: string; id: string }, open?: boolean): void };
     lib: { script(): { parseScript(t: string): { graph: Doc; problems: { line: number }[] } } };
   };
+  PERSONA_ENV: Record<string, Record<string, string> | undefined>;
   __plannerReload?: () => boolean;
   __save?: Promise<{ ok: boolean }>;
 }
@@ -226,16 +228,17 @@ test.describe('served', () => {
   let tmp = '';
 
   test.beforeAll(async () => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'planner-v2-sheets-'));
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'planner-sheets-'));
     fs.writeFileSync(path.join(tmp, 'personas.json'), JSON.stringify({
       org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
-      personas: { admin: { kind: 'internal', usernameEnv: 'SF_ADMIN_USERNAME', passwordEnv: 'SF_ADMIN_PASSWORD' } },
+      accounts: { admin: {} },
+      personas: { admin: { kind: 'internal', account: 'admin' } },
     }));
     fs.writeFileSync(path.join(tmp, '.env'), '');
     fs.writeFileSync(path.join(tmp, '.env.example'), '# sandbox\n');
     fs.mkdirSync(path.join(tmp, 'recordings', 'lead_to_customer', 'admin-20260901-101500'), { recursive: true });
     child = spawn('node', [path.resolve('tools/serve-planner.mjs')], {
-      env: { ...process.env, PLANNER_ROOT: tmp, PLANNER_PORT: '0', PLANNER_NO_REBUILD: '1', PLANNER_V2: '1' },
+      env: { ...process.env, PLANNER_ROOT: tmp, PLANNER_PORT: '0', PLANNER_NO_REBUILD: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     base = await new Promise<string>((resolve, reject) => {
@@ -398,7 +401,7 @@ test.describe('served', () => {
     await expect(page.locator('#rc_list')).toContainText('admin');
     await page.locator('[data-journey="lead_to_customer"]').click();
     // Honest: it PREPARES the command, it does not run the pipeline.
-    await expect(page.locator('#rc_cmd .cmd')).toHaveText('PIPELINE_JOURNEY=lead_to_customer PIPELINE_GRAPH=1 npm run pipeline');
+    await expect(page.locator('#rc_cmd .cmd')).toHaveText('npx sfpw pipeline lead_to_customer --graph');
     await expect(page.locator('#rc_cmd')).toContainText('does not run the pipeline for you');
     await page.locator('#rc_copy').click();
     await expect(page.locator('#toast')).toContainText('copied the pipeline command');
@@ -429,5 +432,52 @@ test.describe('served', () => {
     await page.locator('#sheet .pick [data-project="billing"]').click();
     await expect(page.locator('#toast')).toContainText('saved projects/billing/graphs/picked_flow.graph.json');
     expect(fs.existsSync(path.join(tmp, 'projects', 'billing', 'graphs', 'picked_flow.graph.json'))).toBe(true);
+  });
+
+  // S4.1 port of the deleted planner.spec.ts "env names are editable when
+  // served" (parity §4 `nf_creds`): the card names the env VARIABLE, the
+  // server rewrites personas.json, and a refusal snaps the input back. Only
+  // the server can prove this — a stubbed fetch proves nothing about disk.
+  test('a credential env NAME renames through the server; a refusal snaps back', async ({ page }) => {
+    await boot(page, `${base}/`);
+    await page.evaluate(() => {
+      (window as unknown as SheetWindow).planner.load({
+        schema: 'process-graph/2', id: 'env_flow', systems: { sf: { label: 'Salesforce', kind: 'salesforce' } },
+        actors: { a: 'admin' },
+        nodes: [
+          { id: 'start', type: 'start', label: '' },
+          { id: 's1', type: 'session', label: 'Salesforce · a', system: 'sf', actor: 'a' },
+          { id: 'end', type: 'end', label: '' },
+        ],
+        edges: [
+          { id: 'l1', from: 'start', to: 's1', type: 'login_as' },
+          { id: 'n', from: 's1', to: 'end', type: 'next' },
+        ],
+      });
+    });
+    // The roster arrives from /__personas, not from the build-time inline.
+    await expect.poll(() => page.evaluate(() =>
+      (window as unknown as SheetWindow).PERSONA_ENV.admin?.username)).toBe('SF_ADMIN_USERNAME');
+    await page.evaluate(() => { (window as unknown as SheetWindow).P2.ui.select({ kind: 'session', id: 's1' }, true); });
+
+    const username = page.locator('#insp .credrow [data-env="username"]');
+    await expect(username).toHaveValue('SF_ADMIN_USERNAME');
+
+    await username.fill('SFDC_UAT_USERNAME');
+    await username.blur();
+    await expect(page.locator('#toast')).toContainText('personas.json updated');
+    // Names only — the file on disk is the assertion, and .env is untouched.
+    await expect.poll(() =>
+      JSON.parse(fs.readFileSync(path.join(tmp, 'personas.json'), 'utf8')).accounts.admin.usernameEnv as string,
+    ).toBe('SFDC_UAT_USERNAME');
+    expect(fs.readFileSync(path.join(tmp, '.env'), 'utf8')).not.toContain('SFDC_UAT_USERNAME');
+
+    // A value pasted where a NAME belongs is refused before it leaves the page.
+    await username.fill('me@example.com');
+    await username.blur();
+    await expect(page.locator('#toast')).toContainText('an env NAME');
+    await expect(username).toHaveValue('SFDC_UAT_USERNAME');
+    expect(JSON.parse(fs.readFileSync(path.join(tmp, 'personas.json'), 'utf8')).accounts.admin.usernameEnv)
+      .toBe('SFDC_UAT_USERNAME');
   });
 });

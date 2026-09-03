@@ -105,7 +105,6 @@ test.describe('R5 — denial evidence', () => {
       expect(stub).toContain('throws until implemented');
 
       expect(result.baselinesFile).toBeUndefined();
-      expect(result.batchFile).toBeUndefined();
       expect(result.flags.join()).toContain("deny 'expense.approve' evidenced by");
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

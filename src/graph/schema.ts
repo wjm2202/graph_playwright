@@ -65,8 +65,6 @@ export interface Expectation {
   lastResult?: { status: 'pass' | 'fail'; at: string; runId?: string; message?: string };
 }
 
-export type DataOrigin = 'step' | 'seed' | 'external';
-
 /**
  * The PORT on an edge that touches a data node (STUDY-DATA-FLOW.md §3):
  * produces = this action DEFINES the record (creates it; the step publishes
@@ -108,15 +106,15 @@ export interface PNode {
   endpoint?: { method?: string; path?: string };
   /**
    * data nodes only (STUDY-DATA-FLOW.md §3.1) — the node is a runtime
-   * VARIABLE, not just a picture. `ref` is the handle steps resolve with
-   * `{ref:<ref>.id}` (defaults to the node id); `sobject` the SObject the
-   * record is; `origin` who is expected to DEFINE it: a `produces` edge in
-   * this graph ('step', default), the journey seed block ('seed'), or a
-   * pre-existing record the run finds rather than creates ('external').
+   * VARIABLE, not just a picture. The node **id** is the handle: steps
+   * resolve the record as `{ref:<nodeId>.id}`. `sobject` is the SObject the
+   * record is; `external: true` says the record already EXISTS (the run
+   * finds it rather than creating it), which is what lets a `consumes` with
+   * no `produces` before it be legal. Absent = a `produces` edge in this
+   * graph must define it.
    */
-  ref?: string;
   sobject?: string;
-  origin?: DataOrigin;
+  external?: boolean;
   notes?: string;
   /** Authored canvas position; captured graphs are auto-laid-out instead. */
   pos?: { x: number; y: number };
@@ -144,14 +142,9 @@ export interface PEdge {
     catalog?: string;
     /** `login_as` edges: how the session is acquired. */
     auth?: AuthMethod;
-    /** Edges landing on a data node: the port direction (see DataIo). */
+    /** Edges landing on a data node: the port direction (see DataIo).
+     *  consumes/updates always receive `{ record: '{ref:<nodeId>.id}' }`. */
     io?: DataIo;
-    /**
-     * Port map for consumes/updates: step arg name → placeholder, e.g.
-     * { id: '{ref:customer.id}' }. Omitted = the walker's default,
-     * { record: '{ref:<ref>.id}' }.
-     */
-    bind?: Record<string, string>;
     /** Machine-guessed port (ado:import / capture) — confirm once to clear. */
     ioDraft?: boolean;
   };
@@ -197,7 +190,6 @@ export const EDGE_TYPES: EdgeType[] = ['next', 'handoff', 'login_as', 'does', 'r
 export const SYSTEM_KINDS: SystemKind[] = ['salesforce', 'siebel', 'web', 'api', 'other'];
 export const STATUSES: PlanStatus[] = ['planned', 'captured'];
 export const DATA_IOS: DataIo[] = ['produces', 'consumes', 'updates'];
-export const DATA_ORIGINS: DataOrigin[] = ['step', 'seed', 'external'];
 export const EXPECTATION_KINDS: ExpectationKind[] = [
   'ui.visible', 'ui.text', 'ui.toast', 'ui.url', 'api.record_exists', 'api.field_equals',
   'db.query', 'log.traffic',
@@ -344,32 +336,21 @@ export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): Gr
     if (n?.endpoint !== undefined && n.type !== 'api') {
       errors.push(`${at}.endpoint: only api nodes name endpoints`);
     }
-    for (const field of ['ref', 'sobject', 'origin'] as const) {
+    for (const field of ['sobject', 'external'] as const) {
       if (n?.[field] !== undefined && n.type !== 'data') {
         errors.push(`${at}.${field}: only data nodes carry a runtime binding`);
       }
     }
-    if (n?.ref !== undefined && !ID_RE.test(n.ref)) {
-      errors.push(`${at}.ref: lower_snake_case handle required (steps resolve it as {ref:${n.ref}.id})`);
-    }
     if (n?.sobject !== undefined && (typeof n.sobject !== 'string' || !/^[A-Za-z][A-Za-z0-9_]*$/.test(n.sobject))) {
       errors.push(`${at}.sobject: SObject API name required (e.g. Account, Custom__c)`);
     }
-    if (n?.origin !== undefined && !DATA_ORIGINS.includes(n.origin)) {
-      errors.push(`${at}.origin: one of ${DATA_ORIGINS.join('|')}`);
+    if (n?.external !== undefined && typeof n.external !== 'boolean') {
+      errors.push(`${at}.external: boolean (true = the record already exists; the run finds it)`);
     }
   }
 
-  // Two data nodes must not share a runtime handle — {ref:x.id} would be
-  // ambiguous at run time.
-  const refOwner = new Map<string, string>();
-  for (const n of g.nodes ?? []) {
-    if (n?.type !== 'data' || !n.id) continue;
-    const ref = n.ref ?? n.id;
-    const other = refOwner.get(ref);
-    if (other) errors.push(`nodes.${n.id}.ref: handle '${ref}' already used by data node '${other}'`);
-    else refOwner.set(ref, n.id);
-  }
+  // The node id IS the runtime handle ({ref:<nodeId>.id}), so handle
+  // uniqueness is id uniqueness — already checked above.
 
   // Infra cross-references (need the full node list, hence a second pass):
   // a db.query must point at a QUERYABLE db node; log.traffic at a logger.
@@ -440,23 +421,54 @@ export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): Gr
     }
     if (e?.data?.ioDraft !== undefined && typeof e.data.ioDraft !== 'boolean') errors.push(`${at}.data.ioDraft: boolean`);
     if (e?.data?.ioDraft !== undefined && e.data.io === undefined) errors.push(`${at}.data.ioDraft: needs data.io (what is drafted?)`);
-    if (e?.data?.bind !== undefined) {
-      if (e.data.io === undefined || e.data.io === 'produces') {
-        errors.push(`${at}.data.bind: only consumes/updates edges bind args (produces publishes, it does not read)`);
-      } else if (!e.data.bind || typeof e.data.bind !== 'object' || Array.isArray(e.data.bind)) {
-        errors.push(`${at}.data.bind: object of argName → '{ref:<handle>.<prop>}'`);
-      } else {
-        for (const [arg, ph] of Object.entries(e.data.bind)) {
-          if (!ID_RE.test(arg)) errors.push(`${at}.data.bind.${arg}: arg name must be lower_snake_case`);
-          if (typeof ph !== 'string' || !/\{ref:[a-z][a-z0-9_]*(?:\.[A-Za-z0-9_.]+)?\}/.test(ph)) {
-            errors.push(`${at}.data.bind.${arg}: must contain a {ref:<handle>.<prop>} placeholder`);
-          }
-        }
-      }
-    }
     if (e?.data?.deltaMs !== undefined && e.data.deltaMs < 0) errors.push(`${at}.data.deltaMs: must be >= 0`);
     if (e?.data?.frequency !== undefined && !(e.data.frequency >= 1)) errors.push(`${at}.data.frequency: must be >= 1`);
   }
 
   return { ok: errors.length === 0, errors };
+}
+
+/**
+ * The COMPATIBILITY DOOR for sprint 4.4's data-flow trim (review §3.1
+ * "Over-general"). `upgrade.ts` remains the v1 → v2 door; this one is
+ * smaller: a v2 document written before the trim may still carry `origin`,
+ * `ref` or `data.bind`. The validator ignores unknown keys, so such a file
+ * would open and then behave WRONGLY — an `origin: 'seed'` record silently
+ * losing its declared definition, a `bind` map silently not reaching the
+ * step. Mutates a parsed document in place and returns what it changed, so
+ * every reader (resolve.loadGraphFile, cli/readGraph, the planner's load
+ * door) can say so out loud instead of drifting quietly.
+ *
+ *   origin: 'step'                → dropped (it was the default)
+ *   origin: 'seed' | 'external'   → external: true
+ *   ref                           → dropped (the node id IS the handle)
+ *   data.bind                     → dropped (the walker's default is the only map)
+ */
+export function normalizeGraph(g: ProcessGraph): { graph: ProcessGraph; warnings: string[] } {
+  const warnings: string[] = [];
+  interface Legacy { origin?: string; ref?: string }
+  for (const n of g.nodes ?? []) {
+    const l = n as PNode & Legacy;
+    if (l.origin !== undefined) {
+      if (l.origin === 'seed' || l.origin === 'external') {
+        n.external = true;
+        warnings.push(`node '${n.id}': origin '${l.origin}' → external: true (sprint 4.4 collapsed origin)`);
+      } else {
+        warnings.push(`node '${n.id}': origin '${l.origin}' dropped — a produces edge defines the record (sprint 4.4)`);
+      }
+      delete l.origin;
+    }
+    if (l.ref !== undefined) {
+      warnings.push(`node '${n.id}': ref '${l.ref}' dropped — the node id is the handle now, steps resolve {ref:${n.id}.id} (sprint 4.4)`);
+      delete l.ref;
+    }
+  }
+  for (const e of g.edges ?? []) {
+    const d = e.data as (PEdge['data'] & { bind?: unknown }) | undefined;
+    if (d?.bind !== undefined) {
+      warnings.push(`edge '${e.id}': data.bind dropped — consumes/updates always receive { record: '{ref:<record>.id}' } (sprint 4.4)`);
+      delete d.bind;
+    }
+  }
+  return { graph: g, warnings };
 }

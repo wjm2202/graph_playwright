@@ -207,9 +207,11 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
 .infrarow .fields{display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-width:0}
 .infrarow .fields input{font-size:12px;padding:3px 6px;min-width:0;flex:1}
 .infrarow .fields .pill{cursor:default}
-.infrarow .flag{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:11px;white-space:nowrap}
-.infrarow .flag input{flex:none}
+.infrarow .flag,.kv .flag{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:11px;white-space:nowrap}
+.infrarow .flag input,.kv .flag input{flex:none}
 .snap .shot{display:block;max-width:100%;border:1px solid var(--line);border-radius:6px;background:var(--panel2)}
+/* file://: no server to fetch the evidence file from — show WHERE it is. */
+.snap .reffile{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;color:var(--ink2)}
 .snap .snaprow{display:flex;gap:6px;align-items:center;margin-top:6px}
 .snap .snaprow input[type=file]{font-size:11px;border:0;padding:0;background:transparent;min-width:0;flex:1}
 .stub{padding:10px 14px;color:var(--muted);font-size:12px}

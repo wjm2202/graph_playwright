@@ -21,8 +21,8 @@
  *                   for an edge drawn on the canvas.
  *
  * Every inference is a DRAFT: `applyInferredPorts()` stamps `ioDraft: true`,
- * which turns gaps.ts's `data_no_port` (an open question) into
- * `data_io_draft` (a question with a default) — confirm-once, the same idiom
+ * which turns gaps.ts's `data_port` from an open question into a question
+ * with a DEFAULT the human confirms — confirm-once, the same idiom
  * as the data dictionary and the ADO oracles.
  *
  * NO imports beyond ./schema and ./compose — the planner build inlines this
@@ -138,7 +138,7 @@ export function labelPort(label: string | undefined): DataIo {
 
 export interface InferredPort {
   io: DataIo;
-  /** true = a guess awaiting confirmation (gaps.ts: `data_io_draft`). */
+  /** true = a guess awaiting confirmation (gaps.ts: `data_port`). */
   draft: boolean;
   /** Why this port, in the words the planner puts in the pill's tooltip. */
   reason: string;
@@ -158,7 +158,7 @@ export interface InferredPorts {
  *  - an explicit `data.io` is respected, always (draft = its `ioDraft`);
  *  - the first `does` onto a record NOTHING has defined yet → `produces`;
  *  - once the record has a definition — an earlier produces, or the node's
- *    `origin: seed | external`, which declares the definition instead of
+ *    `external: true`, which declares the definition instead of
  *    drawing it — later touches read it: `updates` when the verb changes a
  *    record (CREATE_VERBS ∪ UPDATE_VERBS — a second "create" on a live record
  *    is an overwrite, not a creation), `consumes` otherwise.
@@ -166,7 +166,7 @@ export interface InferredPorts {
  * Position decides `produces`, not the verb: "verify Customer" as the first
  * step of a graph still reads as the definition, exactly as the prototype
  * does — `dataflowHealth()` is the referee that argues with the result, and
- * `data_io_draft` is the question that lets a human overrule it.
+ * `data_port` is the question that lets a human overrule it.
  *
  * Only `does` edges on the walked chain are inferred: an edge hanging off a
  * stranded session has no position, so it has no first-touch answer either
@@ -181,7 +181,7 @@ export function inferPorts(graph: ProcessGraph): InferredPorts {
   // Records whose definition is DECLARED rather than drawn — the walk never
   // creates them, so no touch of theirs is a first touch.
   const declared = new Set(
-    graph.nodes.filter((n) => n.type === 'data' && (n.origin === 'seed' || n.origin === 'external')).map((n) => n.id),
+    graph.nodes.filter((n) => n.type === 'data' && n.external === true).map((n) => n.id),
   );
 
   for (const step of runOrder(graph).steps) {
@@ -210,7 +210,7 @@ export function inferPorts(graph: ProcessGraph): InferredPorts {
     }
     const byWords = labelPort(edge.label);
     const origin = declared.has(edge.to) && !definedBy.has(edge.to)
-      ? `the record already exists (origin: ${nodeById.get(edge.to)?.origin ?? 'declared'})`
+      ? 'the record already exists (external)'
       : 'the record is already defined earlier in the walk';
     ports.set(edge.id, byWords === 'consumes'
       ? { io: 'consumes', draft: true, reason: `${origin} and '${verbOf(edge.label) || 'this step'}' only reads it` }
@@ -221,8 +221,8 @@ export function inferPorts(graph: ProcessGraph): InferredPorts {
 
 /**
  * A COPY of the graph with every portless `does` edge onto a record carrying
- * its inferred port as a draft — the gap turns from `data_no_port` (an open
- * question) into `data_io_draft` (a question with a default the human can
+ * its inferred port as a draft — the `data_port` gap turns from an open
+ * question into a question with a default the human can
  * accept with one click). Explicit ports are never touched, and the input is
  * never mutated.
  */

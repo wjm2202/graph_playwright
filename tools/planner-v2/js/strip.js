@@ -60,7 +60,7 @@
 
   function runCommand() {
     var ref = state.ref || state.doc.id;
-    return 'SUITE=graph:' + ref + ' npm run suite';
+    return 'npx sfpw suite graph:' + ref;
   }
 
   P2.strip = { render: render, fixNext: fixNext, nextIssue: nextIssue, runCommand: runCommand };

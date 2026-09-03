@@ -66,14 +66,33 @@
     return '<span class="rdot ' + cls + '" title="' + esc(msg) + '"></span>';
   }
 
-  /** The image a run left on this node, plus the manual attach (nf_snapshot). */
+  /**
+   * The image a run left on this node, plus the manual attach (nf_snapshot).
+   *
+   * Since sprint 4.2 a run's `snapshot.ref` is a PATH inside the graph's
+   * evidence folder, not a base64 blob: served, it loads over /__evidence;
+   * over file:// there is nothing to load, so the card shows the ref itself
+   * and says where the image is. A `data:` ref (an old graph, or the manual
+   * attach below — a hand-picked reference, not run evidence) still renders
+   * as it always did.
+   */
   function snapshotBlock(node) {
     if (!node) return '';
     var snap = node.snapshot || null;
-    var shot = snap && snap.ref
-      ? '<img class="shot" src="' + esc(snap.ref) + '" alt="run evidence for ' + esc(node.label || node.id) + '">' +
-        '<div class="hint">' + esc(snap.status === 'captured' ? 'from the last run' + (snap.capturedAt ? ' · ' + snap.capturedAt : '') : 'attached by hand') + '</div>'
-      : '<div class="hint">no image yet — a run attaches one, or attach it yourself</div>';
+    var when = snap && snap.status === 'captured'
+      ? 'from the last run' + (snap.capturedAt ? ' · ' + snap.capturedAt : '')
+      : 'attached by hand';
+    var src = snap && snap.ref ? P2.net.evidenceUrl(snap.ref) : '';
+    var shot;
+    if (src) {
+      shot = '<img class="shot" src="' + esc(src) + '" alt="run evidence for ' + esc(node.label || node.id) + '">' +
+        '<div class="hint">' + esc(when) + '</div>';
+    } else if (snap && snap.ref) {
+      shot = '<div class="hint reffile">' + esc(snap.ref) + '</div>' +
+        '<div class="hint">' + esc(when) + ' — open the planner with <code>npm run planner</code> to see it</div>';
+    } else {
+      shot = '<div class="hint">no image yet — a run attaches one, or attach it yourself</div>';
+    }
     return '<h3>snapshot</h3><div class="snap" data-snapnode="' + esc(node.id) + '">' + shot +
       '<div class="snaprow"><input type="file" accept="image/*" data-snap="file" title="attach an image from disk">' +
       (snap && snap.ref ? '<button class="small ghost" data-snap="clear" title="remove the attached image">✕ clear</button>' : '') +
@@ -191,7 +210,7 @@
       '<span class="hint">' + (session.captured ? 'recorded' : 'opens a headed browser as this persona') + '</span></div>' +
       (live && live.tail && live.tail.length ? '<div class="env mono" style="margin-top:6px">' + esc(live.tail.slice(-6).join('\n')) + '</div>' : '') +
       '<details style="margin-top:6px"><summary class="hint" style="cursor:pointer">terminal equivalent</summary>' +
-      '<div class="env mono" style="margin-top:4px">RECORD_PERSONA=' + esc(session.persona || '?') + ' RECORD_JOURNEY=' + esc(state.doc.id) + ' npm run record</div></details>' +
+      '<div class="env mono" style="margin-top:4px">npx sfpw record ' + esc(session.persona || '?') + ' ' + esc(state.doc.id) + '</div></details>' +
       snapshotBlock(session.node) +
       '<h3>open on this line</h3>' + gapList(openHere(model, 'session', session.id));
   }
@@ -350,10 +369,11 @@
             return '<option value="' + io + '"' + (chosen ? ' selected' : '') + '>' + (io || 'inferred') + '</option>';
           }).join('') + '</select></span>'
         : '') +
-      (step.isData ? '<label>origin</label><select data-f="origin">' + ['', 'seed', 'external'].map(function (o) {
-        var cur = (step.recordNode && step.recordNode.origin) || '';
-        return '<option value="' + o + '"' + (cur === o ? ' selected' : '') + '>' + (o || 'created by a step') + '</option>';
-      }).join('') + '</select>' : '') +
+      (step.isData
+        ? '<label>exists already</label><span><label class="flag"><input type="checkbox" data-f="external"' +
+          ((step.recordNode && step.recordNode.external) ? ' checked' : '') +
+          '> the run finds this record rather than creating it</label></span>'
+        : '') +
       '<label>notes</label><input value="' + esc((step.recordNode && step.recordNode.notes) || '') + '" data-n="notes" placeholder="what this step is really for">' +
       '</div>' +
       (step.record
@@ -370,7 +390,8 @@
   function bindStep(host, step) {
     host.querySelectorAll('.kv [data-f]').forEach(function (input) {
       input.addEventListener('change', function (ev) {
-        P2.ui.run(P2.ops.setStepField(step.edgeId, ev.target.dataset.f, ev.target.value));
+        var v = ev.target.type === 'checkbox' ? ev.target.checked : ev.target.value;
+        P2.ui.run(P2.ops.setStepField(step.edgeId, ev.target.dataset.f, v));
       });
     });
     host.querySelectorAll('.checkrow').forEach(function (row) {

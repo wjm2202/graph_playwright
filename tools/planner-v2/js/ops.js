@@ -276,6 +276,15 @@
       try { doc = P2.lib.upgrade().upgradeGraph(doc).graph; }
       catch (err) { return { ok: false, errors: ['v1 upgrade refused: ' + ((err && err.message) || String(err))] }; }
     }
+    // Second door (sprint 4.4): a pre-trim v2 file may still carry
+    // origin / ref / data.bind. Map them forward and say so.
+    try {
+      var norm = S().normalizeGraph(doc);
+      for (var w = 0; w < norm.warnings.length; w++) {
+        if (typeof console !== 'undefined' && console.warn) console.warn('graph: ' + norm.warnings[w]);
+      }
+      if (norm.warnings.length && P2.ui && P2.ui.toast) P2.ui.toast(norm.warnings.length + ' legacy data-flow field(s) migrated — see the console');
+    } catch (err) { /* an older bundle without normalizeGraph — nothing to migrate */ }
     var v = S().validateGraph(doc);
     if (!v.ok) return { ok: false, errors: v.errors };
     state.doc = doc;
@@ -560,9 +569,9 @@
         edge.data = edge.data || {};
         if (String(value).trim()) { edge.data.io = value; delete edge.data.ioDraft; }
         else { delete edge.data.io; delete edge.data.ioDraft; }
-      } else if (field === 'origin') {
-        if (!target || target.type !== 'data') throw new Error('only a record has an origin');
-        if (String(value).trim()) target.origin = value; else delete target.origin;
+      } else if (field === 'external') {
+        if (!target || target.type !== 'data') throw new Error('only a record can already exist');
+        if (value === true || value === 'true' || value === 'on') target.external = true; else delete target.external;
       } else if (field === 'notes') {
         if (!target) throw new Error('nothing to note');
         if (String(value).trim()) target.notes = String(value).trim(); else delete target.notes;
@@ -712,7 +721,7 @@
         }
       }
       var edge = { id: freshEdgeId(g, 'e_handoff_' + P2.slug(api.id), []), from: recordId, to: api.id, type: 'handoff' };
-      if (rec.ref || rec.id) edge.data = { recordRef: rec.ref || rec.id };
+      if (rec.id) edge.data = { recordRef: rec.id };
       g.edges.push(edge);
       out.id = edge.id;
       out.value = api.id;
@@ -845,12 +854,12 @@
   }
 
   /** Confirm / remove go through the grillme engine so the planner and the
-   *  interrogation loop write the SAME answer (parity: `confirmExpect`). */
+   *  interrogation loop write the SAME answer (parity: `answerExpect`). */
   function confirmCheck(nodeId, expectId) {
-    return applyAnswerOps([{ op: 'confirmExpect', node: nodeId, id: expectId }]);
+    return applyAnswerOps([{ op: 'answerExpect', node: nodeId, id: expectId, keep: true }]);
   }
   function removeCheck(nodeId, expectId) {
-    return applyAnswerOps([{ op: 'removeExpect', node: nodeId, id: expectId }]);
+    return applyAnswerOps([{ op: 'answerExpect', node: nodeId, id: expectId, keep: false }]);
   }
 
   // ---------- ports ----------
@@ -859,7 +868,8 @@
   function confirmPort(edgeId) {
     var edge = findEdge(state.doc, edgeId);
     if (!edge) return { ok: false, errors: ["no step '" + edgeId + "'"] };
-    if (edge.data && edge.data.io) return applyAnswerOps([{ op: 'confirmIo', edge: edgeId }]);
+    // `setIo` with no io = confirm whatever port is already on the edge.
+    if (edge.data && edge.data.io) return applyAnswerOps([{ op: 'setIo', edge: edgeId }]);
     var guess = null;
     try { guess = P2.lib.infer().inferPorts(state.doc).ports.get(edgeId); } catch (e) { guess = null; }
     if (!guess) return { ok: false, errors: ['nothing to confirm — this step does not touch a record on the walk'] };

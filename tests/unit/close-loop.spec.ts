@@ -10,6 +10,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { Page } from '@playwright/test';
 import { mergeRunIntoGraph } from '../../src/graph/mergeRun';
+import { evidenceDirFor, isDataUrlRef, resolveEvidenceRef } from '../../src/graph/evidence';
 import { toJourney } from '../../src/graph/toJourney';
 import { runGraphFile } from '../../src/graph/run';
 import { JourneyRunError, runJourney, baselineKey, type JourneyReport, type CastLike } from '../../src/journeys/runner';
@@ -57,6 +58,8 @@ test.describe('mergeRunIntoGraph', () => {
     const sales = graph.nodes.find((n) => n.id === 'sess_sf_sales')!;
     expect(sales.steps).toMatchObject({ status: 'captured', journeyId: 'expense_to_siebel' });
     expect(sales.timing?.capturedMeanMs).toBe(840);
+    // No evidenceDir was given (an in-memory graph has no folder to write
+    // into), so the legacy inline form is what a caller gets:
     expect(sales.snapshot?.ref).toMatch(/^data:image\/jpeg;base64,/);
 
     expect(changes.join()).toContain('expense.expense_saved: pass');
@@ -106,6 +109,111 @@ test.describe('mergeRunIntoGraph', () => {
     const ok = mergeRunIntoGraph(g, report, { journeyId: 'x', stepEdgeIds: walked.stepEdgeIds, now: 'now', maxSnapshotBytes: 1000 });
     expect(ok.changes.join()).toContain('snapshot skipped');
     fs.rmSync(shotDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// S4.2 — evidence lives in FILES. Merge-back writes each screenshot under the
+// graph's own evidence folder and keeps a short relative ref, so a repainted
+// graph is a readable diff (review §3.2: lead_to_customer was 91 KB, 79 KB of
+// it base64 JPEGs).
+// ---------------------------------------------------------------------------
+test.describe('mergeRunIntoGraph → evidence files', () => {
+  const shotReport = (shot: string): JourneyReport => ({
+    journey: 'expense_to_siebel', flags: [],
+    steps: [{
+      index: 0, kind: 'do', actorAlias: 'submitter', personaId: 'sales_user',
+      name: 'expense.submit', ms: 12, status: 'ok', screenshot: shot,
+    }],
+  });
+
+  /** A scratch repo corner shaped like the real thing: <root>/graphs + the
+   *  evidence folder the ref is relative to. */
+  function scratch(): { root: string; graphFile: string; evidenceDir: string; shot: string } {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'evid-'));
+    fs.mkdirSync(path.join(root, 'graphs'), { recursive: true });
+    const graphFile = path.join(root, 'graphs', 'expense_to_siebel.graph.json');
+    fs.writeFileSync(graphFile, JSON.stringify(goodGraphV2(), null, 2));
+    const shot = path.join(root, 'shot.jpg');
+    fs.writeFileSync(shot, Buffer.from('fakejpegbytes'));
+    return { root, graphFile, evidenceDir: evidenceDirFor(graphFile), shot };
+  }
+
+  test('the graph root is the graphs folder\'s parent — evidence sits beside it', () => {
+    expect(evidenceDirFor('/repo/projects/crm/graphs/x.graph.json')).toBe(path.resolve('/repo/projects/crm/evidence'));
+    expect(evidenceDirFor('/repo/journeys/graphs/x.graph.json')).toBe(path.resolve('/repo/journeys/evidence'));
+    // A graph loose in a folder of its own keeps evidence beside it.
+    expect(evidenceDirFor('/tmp/scratch/x.graph.json')).toBe(path.resolve('/tmp/scratch/evidence'));
+  });
+
+  test('a screenshot becomes a file, and the node keeps the relative ref', () => {
+    const s = scratch();
+    const g = goodGraphV2();
+    const walked = toJourney(g, { personaIds: PERSONAS });
+    const { graph, changes } = mergeRunIntoGraph(g, shotReport(s.shot), {
+      journeyId: 'expense_to_siebel', stepEdgeIds: walked.stepEdgeIds,
+      runId: 'run_a', evidenceDir: s.evidenceDir, now: '2026-09-03T09:00:00Z',
+    });
+
+    const snap = graph.nodes.find((n) => n.id === 'sess_sf_sales')!.snapshot!;
+    expect(snap).toEqual({
+      status: 'captured',
+      ref: 'evidence/expense_to_siebel/run_a/sess_sf_sales.jpg',
+      capturedAt: '2026-09-03T09:00:00Z',
+    });
+    // The ref resolves, from the graph file, to the file that was written.
+    const onDisk = resolveEvidenceRef(s.graphFile, snap.ref)!;
+    expect(fs.readFileSync(onDisk, 'utf8')).toBe('fakejpegbytes');
+    expect(onDisk).toBe(path.join(s.evidenceDir, 'expense_to_siebel', 'run_a', 'sess_sf_sales.jpg'));
+    // No base64 anywhere in the document — that is the whole point.
+    expect(JSON.stringify(graph)).not.toContain('base64');
+    expect(changes.join()).toContain('evidence/expense_to_siebel/run_a/sess_sf_sales.jpg');
+    fs.rmSync(s.root, { recursive: true, force: true });
+  });
+
+  test('a second run writes a second runId folder — the first is still there', () => {
+    const s = scratch();
+    const g = goodGraphV2();
+    const walked = toJourney(g, { personaIds: PERSONAS });
+    const opts = { journeyId: 'expense_to_siebel', stepEdgeIds: walked.stepEdgeIds, evidenceDir: s.evidenceDir };
+    const first = mergeRunIntoGraph(g, shotReport(s.shot), { ...opts, runId: 'run_a' });
+    const second = mergeRunIntoGraph(first.graph, shotReport(s.shot), { ...opts, runId: 'run_b' });
+
+    expect(second.graph.nodes.find((n) => n.id === 'sess_sf_sales')!.snapshot!.ref)
+      .toBe('evidence/expense_to_siebel/run_b/sess_sf_sales.jpg');
+    expect(fs.readdirSync(path.join(s.evidenceDir, 'expense_to_siebel')).sort()).toEqual(['run_a', 'run_b']);
+    fs.rmSync(s.root, { recursive: true, force: true });
+  });
+
+  test('an old inline ref survives untouched until that node is re-merged', () => {
+    const s = scratch();
+    const g = goodGraphV2();
+    // An old graph: both a session and a checkpoint painted as data URLs.
+    const inline = 'data:image/jpeg;base64,AAAA';
+    for (const id of ['sess_sf_sales', 'sess_siebel_admin']) {
+      g.nodes.find((n) => n.id === id)!.snapshot = { status: 'captured', ref: inline, capturedAt: 'then' };
+    }
+    const walked = toJourney(g, { personaIds: PERSONAS });
+    const { graph } = mergeRunIntoGraph(g, shotReport(s.shot), {
+      journeyId: 'expense_to_siebel', stepEdgeIds: walked.stepEdgeIds, runId: 'run_a', evidenceDir: s.evidenceDir,
+    });
+
+    // The node this run touched migrated; the one it did not still opens.
+    expect(graph.nodes.find((n) => n.id === 'sess_sf_sales')!.snapshot!.ref).toBe('evidence/expense_to_siebel/run_a/sess_sf_sales.jpg');
+    const untouched = graph.nodes.find((n) => n.id === 'sess_siebel_admin')!.snapshot!;
+    expect(untouched).toEqual({ status: 'captured', ref: inline, capturedAt: 'then' });
+    expect(isDataUrlRef(untouched.ref)).toBe(true);
+    // A data URL is never mistaken for a path (it must not resolve to a file).
+    expect(resolveEvidenceRef(s.graphFile, untouched.ref)).toBeUndefined();
+    fs.rmSync(s.root, { recursive: true, force: true });
+  });
+
+  test('a ref pointing outside the evidence folder resolves to nothing', () => {
+    const s = scratch();
+    for (const ref of ['../../.env', 'evidence/../../secrets.txt', '/etc/passwd', '']) {
+      expect(resolveEvidenceRef(s.graphFile, ref), ref).toBeUndefined();
+    }
+    fs.rmSync(s.root, { recursive: true, force: true });
   });
 });
 

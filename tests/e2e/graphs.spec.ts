@@ -1,9 +1,12 @@
 /**
  * The suite runner — ONE spec for every graph (review §4 #3, goal 7).
  *
- *   SUITE=smoke npm run suite            # suites.json
- *   SUITE=graph:crm/create_customer npm run suite
- *   SUITE=tag:sod,project:salesforce npm run suite
+ *   sfpw suite smoke                      # suites.json
+ *   sfpw suite graph:crm/create_customer
+ *   sfpw suite tag:sod,project:salesforce
+ *
+ * (`sfpw suite` sets SUITE= and runs this project; the env var is the
+ * handover between the CLI and Playwright, not a user interface.)
  *
  * `selectGraphs` resolves the spec to canonical refs and `expandVariants`
  * turns each graph's persona matrix into bindings, so a graph joins the run

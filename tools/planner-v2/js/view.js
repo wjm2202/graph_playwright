@@ -197,8 +197,6 @@
 
   // ---------- the check strip ----------
 
-  /** Gap kinds that are HINTS, not work (review §3.1: "no op"). */
-  var HINT_KINDS = { session_no_url: 1, no_oracles: 1, no_deny_coverage: 1 };
   /** Recording is its own counter (`captured n/m`), never a to-finish row. */
   var CAPTURE_KINDS = { not_captured: 1 };
 
@@ -260,17 +258,23 @@
     var df = C.dataflowHealth(doc);
     for (var d = 0; d < df.errors.length; d++) mustFix.push({ text: df.errors[d], at: whereFor(doc, 'edges.' + (/^edge (\S+) /.exec(df.errors[d]) || [])[1]) });
 
-    var gaps = [];
-    try { gaps = G.computeGaps(doc, known ? { knownPersonas: known } : {}); } catch (e) { gaps = []; }
+    // Since sprint 4.4 the engine itself splits the two: `gaps` are the
+    // eight questions with a write-back op, `hints` the three that have none.
+    var report = { gaps: [], hints: [] };
+    try { report = G.computeGaps(doc, known ? { knownPersonas: known } : {}); } catch (e) { report = { gaps: [], hints: [] }; }
+    var gaps = report.gaps || [];
     var toFinish = [];
     var hints = [];
     var capture = [];
+    var row;
     for (var g = 0; g < gaps.length; g++) {
       var gap = gaps[g];
-      var row = { text: gap.short, question: gap.question, kind: gap.kind, at: atFor(doc, gap.at), gap: gap };
-      if (CAPTURE_KINDS[gap.kind]) capture.push(row);
-      else if (HINT_KINDS[gap.kind]) hints.push(row);
-      else toFinish.push(row);
+      row = { text: gap.short, question: gap.question, kind: gap.kind, at: atFor(doc, gap.at), gap: gap };
+      if (CAPTURE_KINDS[gap.kind]) capture.push(row); else toFinish.push(row);
+    }
+    for (var h = 0; h < (report.hints || []).length; h++) {
+      var hint = report.hints[h];
+      hints.push({ text: hint.short, question: hint.question, kind: hint.kind, at: atFor(doc, hint.at), gap: hint });
     }
 
     var sessions = doc.nodes.filter(function (n) { return n.type === 'session'; });
@@ -325,6 +329,5 @@
     firstWord: firstWord,
     verbOf: verbOf,
     verbOfCatalog: verbOfCatalog,
-    HINT_KINDS: HINT_KINDS,
   };
 })();

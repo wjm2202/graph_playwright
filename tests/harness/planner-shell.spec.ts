@@ -1,6 +1,6 @@
 /**
  * S3.1 — the journey script planner's SHELL, driven over file:// exactly as a
- * user double-clicking tools/journey-planner.html would get it.
+ * user double-clicking tools/planner.html would get it.
  *
  * What this pins is the contract sprints 3.2 (canvas) and 3.3 (sheets) build
  * on: the page boots with every shared module inlined, the projection
@@ -10,9 +10,9 @@
  * last assertion reads the parity table itself, so the table and the code
  * cannot drift apart quietly.
  *
- * The window type is LOCAL (never `declare global`): tests/harness/planner.spec.ts
- * already declares `window.planner` with the v1 shape, and two global
- * declarations of one property do not merge.
+ * The window type is LOCAL (never `declare global`): each planner spec types
+ * only the slice of `window.planner` it drives, and two global declarations
+ * of one property do not merge.
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -21,7 +21,7 @@ import { pathToFileURL } from 'url';
 import { legacyGraphV1, goodGraphV2 } from '../helpers/sampleGraph';
 
 const ROOT = path.resolve(__dirname, '../..');
-const PLANNER = pathToFileURL(path.join(ROOT, 'tools/journey-planner.html')).href;
+const PLANNER = pathToFileURL(path.join(ROOT, 'tools/planner.html')).href;
 
 interface Port { io: string; draft: boolean; reason: string }
 interface StepLine {
@@ -52,8 +52,10 @@ interface V2Window {
     undo(): OpResult;
     undoDepth(): number;
     readiness(): string;
+    testCommands(): { run: string } | null;
   } & Record<string, unknown>;
   P2: {
+    strip: { runCommand(): string };
     state: { doc: Doc; sel: { kind: string; id: string }; cardOpen: boolean };
     view: {
       lines(doc: Doc): Lines;
@@ -306,6 +308,54 @@ test('export() is exactly get(), and a v1 file opens as v2 through the same door
   expect(upgraded.valid).toBe(true);
   expect(upgraded.sessions).toBeGreaterThan(0);
   expect(upgraded.lines).toBe(upgraded.sessions);
+});
+
+// S4.1 ports of the three behaviours the deleted planner.spec.ts pinned and
+// no v2 spec had yet: the refusal at the load door, the run command, and the
+// legend under `?` (parity §1 `b_import`, §3 `f_test → run`, §3 `b_help`).
+
+test('load REFUSES an invalid graph, naming the problems, and keeps the open one', async ({ page }) => {
+  const before = await page.evaluate(() => (window as unknown as V2Window).planner.get().id);
+  const bad = goodGraphV2();
+  bad.edges.push({ id: 'x1', from: 'sess_sf_sales', to: 'ghost', type: 'next' });
+  const res = await page.evaluate((g: unknown) => (window as unknown as V2Window).planner.load(g), bad);
+  expect(res.ok).toBe(false);
+  expect(res.errors.join(' ')).toContain('ghost');
+  // The refusal changed nothing: the document that was open is still open.
+  expect(await page.evaluate(() => (window as unknown as V2Window).planner.get().id)).toBe(before);
+  expect(await page.evaluate(() => (window as unknown as V2Window).planner.validate().ok)).toBe(true);
+});
+
+test('the run command derives from the graph id, and the strip offers exactly one verb', async ({ page }) => {
+  await page.evaluate((g: unknown) => { (window as unknown as V2Window).planner.load(g); }, goodGraphV2());
+
+  // One generic spec runs whatever SUITE selects, so "run this graph" is a
+  // selector, not a generated spec file (parity §3, disposition merged).
+  expect(await page.evaluate(() => (window as unknown as V2Window).planner.testCommands()))
+    .toEqual({ run: 'npx sfpw suite graph:expense_to_siebel' });
+  expect(await page.evaluate(() => (window as unknown as V2Window).P2.strip.runCommand()))
+    .toBe('npx sfpw suite graph:expense_to_siebel');
+
+  // The strip's right-hand side is EITHER Fix next OR Run this graph — never
+  // both, never neither: one verb is the whole point of the strip.
+  await expect(page.locator('#b_fixnext, #b_run1')).toHaveCount(1);
+
+  // No id yet → no command at all, rather than a broken one.
+  await page.evaluate(() => { (window as unknown as V2Window).planner.get().id = ''; });
+  expect(await page.evaluate(() => (window as unknown as V2Window).planner.testCommands())).toBeNull();
+});
+
+test('? opens the legend, and ? or Esc closes it again', async ({ page }) => {
+  await expect(page.locator('#legend')).toBeHidden();
+  await page.locator('#b_help').click();
+  await expect(page.locator('#legend')).toBeVisible();
+  await expect(page.locator('#legend')).toContainText('the data port');
+  await expect(page.locator('#legend')).toContainText('● record');
+  await page.locator('#b_help').click();
+  await expect(page.locator('#legend')).toBeHidden();
+  await page.locator('#b_help').click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#legend')).toBeHidden();
 });
 
 test('view mode hides every editing control and leaves the script readable', async ({ page }) => {

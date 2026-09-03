@@ -1,6 +1,6 @@
 /**
- * S3.4 — the NODE CARD, and the v2 port of the card half of
- * `tests/harness/planner.spec.ts`.
+ * S3.4 — the NODE CARD, and the port of the card half of the retired
+ * planner's `tests/harness/planner.spec.ts` (deleted in sprint 4.1).
  *
  * v1 kept every setting in one panel with four unlabelled inputs per check
  * (`xf_list`) and a `nf_type` dropdown that could turn a session into a
@@ -16,26 +16,31 @@
  *   nf_notes               a notes field on every card (ops.setNotes)
  *   nf_steps_status …      steps status / journey id / planned ms, read-only
  *
- * Coverage map for the rest of the old suite (Sprint 4 deletes the originals):
- *   planner-group.spec.ts        → planner-v2-canvas.spec.ts (box select, grip,
+ * Coverage map for the rest of the OLD suite, which sprint 4.1 deleted after
+ * checking every behaviour it pinned lands somewhere here (the same map is in
+ * docs/PLANNER-FEATURE-PARITY.md §9):
+ *   planner-group.spec.ts        → planner-canvas.spec.ts (box select, grip,
  *                                  group delete, single-select cards)
- *   planner-import-cases.spec.ts → planner-v2-sheets.spec.ts (the ADO wizard,
+ *   planner-import-cases.spec.ts → planner-sheets.spec.ts (the ADO wizard,
  *                                  save-to-project, personas)
- *   planner-compose.spec.ts      → planner-v2-compose.spec.ts
- *   planner-order-health.spec.ts → planner-v2-order-health.spec.ts
- *   planner-projects.spec.ts     → planner-v2-projects.spec.ts
- *   the rest of planner.spec.ts  → planner-v2-shell.spec.ts
+ *   planner-compose.spec.ts      → planner-compose.spec.ts (splice, not island)
+ *   planner-order-health.spec.ts → planner-order-health.spec.ts
+ *   planner-projects.spec.ts     → planner-projects.spec.ts
+ *   the rest of planner.spec.ts  → planner-shell.spec.ts
  *
- * The window type is LOCAL (never `declare global`): planner.spec.ts declares
- * `window.planner` with the v1 shape.
+ * The window type is LOCAL (never `declare global`): each planner spec types
+ * only the slice of `window.planner` it drives.
  */
 import { test, expect, type Page } from '@playwright/test';
+import { spawn, type ChildProcess } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { goodGraphV2 } from '../helpers/sampleGraph';
 
 const ROOT = path.resolve(__dirname, '../..');
-const PLANNER = pathToFileURL(path.join(ROOT, 'tools/journey-planner.html')).href;
+const PLANNER = pathToFileURL(path.join(ROOT, 'tools/planner.html')).href;
 
 interface Expect_ {
   id: string; kind: string; target?: string; value?: string; after?: string;
@@ -43,7 +48,7 @@ interface Expect_ {
   lastResult?: { status: string; at: string; message?: string };
 }
 interface DocNode {
-  id: string; type: string; label?: string; notes?: string; sobject?: string; url?: string;
+  id: string; type: string; label?: string; notes?: string; sobject?: string; external?: boolean; url?: string;
   queryable?: boolean; searchable?: boolean; endpoint?: { method?: string; path?: string };
   snapshot?: { status: string; ref?: string; capturedAt?: string };
   steps?: { status: string; journeyId?: string; stepIndexes?: number[] };
@@ -61,7 +66,7 @@ interface CardWindow {
     applyPersonaWiring(p: string, wiring: unknown, envstatus: unknown, all?: unknown): void;
   };
   P2: {
-    state: { doc: Doc; sel: { kind: string; id: string }; cardOpen: boolean };
+    state: { doc: Doc; sel: { kind: string; id: string }; cardOpen: boolean; ref: string };
     ui: { select(sel: { kind: string; id: string }, open?: boolean): void; render(): void };
     ops: {
       setSnapshot(id: string, ref: string, status?: string): { ok: boolean; errors: string[] };
@@ -115,6 +120,31 @@ test('the session card shows only what a session uses, and writes every field ba
   const node = g.nodes.find((n) => n.id === 'sess_sf_sales')!;
   expect(node.url).toBe('/lightning/o/Expense__c/list');
   expect(node.notes).toBe('the submitter opens the expense list first');
+  expect(await page.evaluate(() => (window as unknown as CardWindow).planner.validate().ok)).toBe(true);
+});
+
+// S4.1 port of the `ef_auth` half of the deleted planner.spec.ts "edge form
+// binds and edits the v2 relations" — parity §5: v1 selected the login_as
+// edge and picked its auth from the edge form; v2 puts the picker on the
+// SESSION card, and it writes the same `data.auth` on the edge into it.
+test('the auth picker sits on the session card and writes the login_as edge', async ({ page }) => {
+  await openSession(page, 'sess_siebel_admin');
+  const auth = page.locator('#insp [data-f="auth"]');
+  await expect(auth).toHaveValue('ui');                       // read off edge e6
+  await expect(auth.locator('option')).toHaveCount(4);        // (from the persona) + 3
+  await expect(auth.locator('option').first()).toHaveText('from the persona');
+
+  await auth.selectOption('singleaccess');
+  let g = await doc(page);
+  expect(g.edges.find((e) => e.id === 'e6')!.data!.auth).toBe('singleaccess');
+  expect(await page.evaluate(() => (window as unknown as CardWindow).planner.validate().ok)).toBe(true);
+
+  // The empty option means "whatever the persona declares" — it removes the
+  // override rather than writing an empty auth the validator would reject.
+  await auth.selectOption('');
+  g = await doc(page);
+  const edge = g.edges.find((e) => e.id === 'e6')!;
+  expect(edge.data?.auth).toBeUndefined();
   expect(await page.evaluate(() => (window as unknown as CardWindow).planner.validate().ok)).toBe(true);
 });
 
@@ -182,7 +212,7 @@ test('snapshot: a run image shows as a thumbnail, and one can be attached by han
 
 // ---------------------------------------------------------------- step card
 
-test('the step card carries verb, record, SObject, catalog, port override and origin', async ({ page }) => {
+test('the step card carries verb, record, SObject, catalog, port override and the existing-record flag', async ({ page }) => {
   await openStep(page, 'e2');
   await expect(page.locator('#ncard_title')).toHaveText('step');
   await expect(page.locator('#insp [data-f="verb"]')).toHaveValue('submit');
@@ -192,7 +222,15 @@ test('the step card carries verb, record, SObject, catalog, port override and or
   // The port row is the parity §5 `ef_io` override — a select, not a relation
   // dropdown: the RELATION is inferred from the endpoints (parity §5 ef_type).
   await expect(page.locator('#insp [data-f="io"]')).toHaveValue('produces');
-  await expect(page.locator('#insp [data-f="origin"]')).toHaveCount(1);
+  // Sprint 4.4: the `origin` select collapsed to one checkbox — "this record
+  // already exists" (`external`), the only value a shipped graph ever used.
+  const external = page.locator('#insp input[type="checkbox"][data-f="external"]');
+  await expect(external).toHaveCount(1);
+  await expect(external).not.toBeChecked();
+  await external.check();
+  expect((await doc(page)).nodes.find((n) => n.id === 'expense')!.external).toBe(true);
+  await page.locator('#insp input[type="checkbox"][data-f="external"]').uncheck();
+  expect((await doc(page)).nodes.find((n) => n.id === 'expense')!.external).toBeUndefined();
 
   await page.locator('#insp [data-f="catalog"]').fill('expense.raise');
   await page.locator('#insp [data-f="catalog"]').blur();
@@ -397,4 +435,112 @@ test('Esc closes the card, and view mode leaves it read-only', async ({ page }) 
   await openSession(page, 'sess_sf_sales');
   await expect(page.locator('#insp #b_rec')).toBeHidden();      // .editonly is off
   await expect(page.locator('#insp [data-f="role"]')).toHaveCSS('pointer-events', 'none');
+});
+
+// ===================================================================
+// S4.2 — run evidence is a FILE now (src/graph/evidence.ts). The card
+// resolves `snapshot.ref` two ways: over file:// it can only NAME the file;
+// served, it loads it through /__evidence. The manual attach is unchanged —
+// a hand-picked image is a reference, not run evidence, so it stays a data
+// URL in the document (the test above pins that).
+// ===================================================================
+
+/** A graph whose session carries a run-written, file-based snapshot ref. */
+const graphWithFileRef = () => {
+  const g = goodGraphV2() as unknown as Doc;
+  g.nodes.find((n) => n.id === 'sess_sf_sales')!.snapshot = {
+    status: 'captured', ref: 'evidence/lead/run_1/sess_sf_sales.jpg', capturedAt: '2026-09-03T09:00:00Z',
+  };
+  return g;
+};
+
+test('file://: a file ref is NAMED, not broken — no <img>, and the card says how to see it', async ({ page }) => {
+  await page.evaluate((g: unknown) => { (window as unknown as CardWindow).planner.load(g); }, graphWithFileRef());
+  await openSession(page, 'sess_sf_sales');
+
+  await expect(page.locator('#insp .snap .shot')).toHaveCount(0);   // nothing to load over file://
+  await expect(page.locator('#insp .snap .reffile')).toHaveText('evidence/lead/run_1/sess_sf_sales.jpg');
+  await expect(page.locator('#insp .snap')).toContainText('npm run planner');
+});
+
+test.describe('served', () => {
+  let child: ChildProcess;
+  let base = '';
+  let tmp = '';
+
+  test.beforeAll(async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'planner-evidence-'));
+    fs.writeFileSync(path.join(tmp, 'personas.json'), JSON.stringify({
+      org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
+      personas: { admin: { kind: 'internal', usernameEnv: 'SF_ADMIN_USERNAME', passwordEnv: 'SF_ADMIN_PASSWORD' } },
+    }));
+    fs.writeFileSync(path.join(tmp, '.env'), '');
+    // A project holding the graph… and its evidence, where the ref says.
+    const project = path.join(tmp, 'projects', 'demo');
+    fs.mkdirSync(path.join(project, 'graphs'), { recursive: true });
+    fs.writeFileSync(path.join(project, 'project.json'), JSON.stringify({ project: 'demo', team: 'demo' }));
+    fs.writeFileSync(path.join(project, 'graphs', 'lead.graph.json'), JSON.stringify({ ...graphWithFileRef(), id: 'lead' }));
+    const runDir = path.join(project, 'evidence', 'lead', 'run_1');
+    fs.mkdirSync(runDir, { recursive: true });
+    // A REAL jpeg (the shipped demo graph's own evidence) so the browser
+    // decoding it is part of the assertion.
+    fs.copyFileSync(
+      path.join(ROOT, 'journeys/evidence/lead_to_customer/sim_mthrf41j/chk_customer.jpg'),
+      path.join(runDir, 'sess_sf_sales.jpg'),
+    );
+
+    child = spawn('node', [path.resolve(ROOT, 'tools/serve-planner.mjs')], {
+      env: { ...process.env, PLANNER_ROOT: tmp, PLANNER_PORT: '0', PLANNER_NO_REBUILD: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    base = await new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => { reject(new Error('server never announced its port')); }, 20_000);
+      child.stdout!.on('data', (buf: Buffer) => {
+        const m = /http:\/\/127\.0\.0\.1:(\d+)\//.exec(String(buf));
+        if (m) { clearTimeout(timer); resolve(`http://127.0.0.1:${m[1]}`); }
+      });
+      child.on('exit', (code) => { reject(new Error(`server exited early (${code})`)); });
+    });
+  });
+
+  test.afterAll(() => {
+    child?.kill();
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  test('the snapshot loads through /__evidence, addressed by the graph\'s ref', async ({ page }) => {
+    await page.goto(`${base}/`);
+    await page.waitForFunction(() => !!(window as unknown as CardWindow).planner, undefined, { timeout: 30_000 });
+    await page.evaluate((g: unknown) => {
+      const w = window as unknown as CardWindow;
+      w.planner.load(g);
+      w.P2.state.ref = 'demo/lead';   // the library row this document came from
+    }, graphWithFileRef());
+    await openSession(page, 'sess_sf_sales');
+
+    const img = page.locator('#insp .snap .shot');
+    await expect(img).toHaveCount(1);
+    const src = await img.getAttribute('src');
+    expect(src).toBe('/__evidence?ref=demo%2Flead&file=evidence%2Flead%2Frun_1%2Fsess_sf_sales.jpg');
+    // It is not merely addressed — it decodes:
+    await expect.poll(async () => img.evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    await expect(page.locator('#insp .snap')).toContainText('from the last run');
+  });
+
+  test('a data-URL ref (an old graph, or a hand attach) still renders as itself', async ({ page }) => {
+    await page.goto(`${base}/`);
+    await page.waitForFunction(() => !!(window as unknown as CardWindow).planner, undefined, { timeout: 30_000 });
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    await page.evaluate((args: { g: unknown; png: string }) => {
+      const w = window as unknown as CardWindow;
+      w.planner.load(args.g);
+      w.P2.state.ref = 'demo/lead';
+      w.P2.ops.setSnapshot('sess_sf_sales', args.png);
+    }, { g: graphWithFileRef(), png });
+    await openSession(page, 'sess_sf_sales');
+
+    const src = await page.locator('#insp .snap .shot').getAttribute('src');
+    expect(src).toBe(png);   // never routed through /__evidence
+  });
 });

@@ -23,9 +23,17 @@ change back. Personal and professional use are equally welcome.
    `.auth/`, and `recordings/` are gitignored — keep them that way.
 4. **`!` needs a comment** in `src/` naming the invariant that makes it
    safe. In tests, `!` is fine.
-5. The planner is built from `tools/planner-src.html` — edit that, run
-   `npm run build:planner`, and commit the regenerated single-file output.
+5. The planner is built from `tools/planner-v2/` (`index.html`, `style.css`
+   and one IIFE per file in `js/`, ordered by `modules.json`) — edit those,
+   run `npm run build:planner`, and commit the regenerated single-file
+   `tools/planner.html`.
    `src/journeys/generated/` is pipeline output: regenerate, never hand-edit.
+6. **New commands go in `src/cli/` behind `sfpw`**, not in a Playwright spec.
+   `bin/sfpw.mjs` runs TypeScript through `tsx`; each command is a thin
+   module that parses argv, calls a tested pure function and prints. Only
+   something that genuinely needs a browser belongs in `tests/record/`
+   (four specs do). Exit codes are the contract: 0 ok, 1 "no", 2 wrong
+   usage — `tests/unit/sfpw.spec.ts` holds them.
 
 ## Sign-off (DCO)
 
@@ -48,5 +56,5 @@ contribute the change under this project's license.
 ## Reporting problems
 
 Open an issue with the failing command, the output, and (for org-dependent
-problems) the `npm run doctor` report — it names exactly what's wired
+problems) the `npx sfpw doctor all` report — it names exactly what's wired
 without leaking any values.

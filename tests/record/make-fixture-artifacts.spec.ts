@@ -24,9 +24,8 @@ test('generate the committed fixture artifacts', async () => {
     journeyId: 'fixture_demo',
     persona: 'sales_user',
     personaIds: PersonaRegistry.load().ids(),
-    outDirs: { encoding: path.join('tests', 'fixtures', 'trace-demo') },
     today: '2026-08-30',
   });
    
-  console.log('committed fixture artifacts:', result.journeyFile, result.stubsFile, result.baselinesFile, result.batchFile);
+  console.log('committed fixture artifacts:', result.journeyFile, result.stubsFile, result.baselinesFile);
 });

@@ -122,7 +122,7 @@ test('grillme: backend checks without a budget are asked about — log search in
   const g = infraGraph();
   delete g.nodes.find((n) => n.id === 'chk_replicated')!.expects![1]!.timeoutMs;
   delete g.nodes.find((n) => n.id === 'chk_replicated')!.expects![1]!.pollMs;
-  const gaps = computeGaps(g, { knownPersonas: ['admin'] });
+  const { gaps } = computeGaps(g, { knownPersonas: ['admin'] });
   const budget = gaps.filter((x) => x.kind === 'api_no_timeout');
   expect(budget).toHaveLength(1);
   expect(budget[0]!.at).toBe('chk_replicated.endpoint_hit');

@@ -95,21 +95,21 @@ export function toJourney(graph: ProcessGraph, opts: ToJourneyOptions = {}): ToJ
       const withArgs: Record<string, unknown> = {};
       if (target?.type === 'data') {
         // The PORT decides what the step receives (STUDY-DATA-FLOW.md §3.3):
-        // consumes/updates → the runtime handle (bind map, or the default
-        // { record: '{ref:<ref>.id}' }); produces → the step publishes the
-        // record via ctx.produce(<ref>) and gets the handle name to use;
-        // no port at all → the label, as a business key.
-        const ref = target.ref ?? target.id;
+        // consumes/updates → the runtime handle, { record: '{ref:<id>.id}' };
+        // produces → the step publishes the record via ctx.produce(<id>) and
+        // gets the handle name to use; no port at all → the label, as a
+        // business key. The node id IS the handle (sprint 4.4).
+        const ref = target.id;
         const io = e.data?.io;
         const definedBy = dataflow.definedBy[target.id];
-        if ((io === 'consumes' || io === 'updates') && definedBy?.startsWith('ambient:') && !e.data?.bind) {
+        if ((io === 'consumes' || io === 'updates') && definedBy?.startsWith('ambient:')) {
           // Created by an integration hop (api → data): the run never learns
           // its id, so the step must locate it by business key.
           withArgs.record = target.label;
           if (target.sobject) withArgs.sobject = target.sobject;
-          warnings.push(`dataflow: '${doName}' ${io} '${target.label || target.id}', which an integration creates (${definedBy.slice(8)}) — no id reaches the run; the step must find it by business key (or bind an explicit {ref:} on the edge)`);
+          warnings.push(`dataflow: '${doName}' ${io} '${target.label || target.id}', which an integration creates (${definedBy.slice(8)}) — no id reaches the run; the step must find it by business key`);
         } else if (io === 'consumes' || io === 'updates') {
-          Object.assign(withArgs, e.data?.bind ?? { record: `{ref:${ref}.id}` });
+          withArgs.record = `{ref:${ref}.id}`;
         } else if (io === 'produces') {
           withArgs.produce = ref;
           if (target.sobject) withArgs.sobject = target.sobject;

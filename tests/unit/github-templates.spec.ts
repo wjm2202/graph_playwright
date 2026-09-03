@@ -80,7 +80,7 @@ test.describe('issue forms', () => {
   });
 
   test('bug report points at doctor rather than inviting an .env paste', () => {
-    expect(read('ISSUE_TEMPLATE/bug_report.yml')).toContain('npm run doctor');
+    expect(read('ISSUE_TEMPLATE/bug_report.yml')).toContain('sfpw doctor');
   });
 
   test('blank issues are off, so the forms actually get used', () => {

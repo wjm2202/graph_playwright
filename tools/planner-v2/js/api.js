@@ -240,7 +240,7 @@
     testCommands: function () {
       var id = (doc().id || '').trim();
       if (!id) return null;
-      return { run: 'SUITE=graph:' + id + ' npm run suite' };
+      return { run: 'npx sfpw suite graph:' + id };
     },
 
     // ---- structure ----

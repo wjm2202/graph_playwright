@@ -520,7 +520,14 @@
       // selects the edge instead of the record under the pointer.
       { selector: 'edge.hot, edge:selected', style: { label: 'data(label)' } },
       { selector: 'edge.chain', style: { width: 2.5, 'line-color': C.session, 'target-arrow-color': C.session, 'curve-style': 'bezier' } },
-      { selector: 'edge.thin', style: { width: 1, 'line-color': C.line, 'target-arrow-color': C.line, 'line-style': 'dotted', 'curve-style': 'unbundled-bezier' } },
+      // Relations that schedule nothing still have to be SEEN: `--line` is the
+      // panel's own hairline colour, which on a dark panel is invisible (owner
+      // report 2026-09-03: "some of the graph looks like it's not connected").
+      // Muted ink at rest, one dash pattern per relation so they tell apart.
+      { selector: 'edge.thin', style: { width: 1.3, 'line-color': C.muted, 'target-arrow-color': C.muted, 'line-style': 'dotted', 'curve-style': 'unbundled-bezier', opacity: 0.9 } },
+      { selector: 'edge.thin.handoff', style: { width: 1.6, 'line-color': C.session, 'target-arrow-color': C.session, 'line-style': 'dashed' } },
+      { selector: 'edge.thin.requires', style: { 'line-style': 'dashed' } },
+      { selector: 'edge.thin.next', style: { 'line-style': 'solid', 'curve-style': 'bezier' } },
       {
         selector: 'edge.io', style: {
           'curve-style': 'taxi', 'taxi-direction': 'downward', 'taxi-turn': '38%', 'taxi-turn-min-distance': 8,

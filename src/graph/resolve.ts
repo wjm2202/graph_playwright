@@ -16,7 +16,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ProcessGraph } from './schema';
-import { validateGraph } from './schema';
+import { normalizeGraph, validateGraph } from './schema';
 import { upgradeGraph, type V1Graph } from './upgrade';
 
 export interface ResolvedGraph {
@@ -78,7 +78,11 @@ export function listGraphRefs(rootDir = path.resolve('.')): ResolvedGraph[] {
  */
 export function loadGraphFile(file: string): ProcessGraph {
   const doc = JSON.parse(fs.readFileSync(file, 'utf8')) as V1Graph | ProcessGraph;
-  const graph = doc.schema === 'process-graph/1' ? upgradeGraph(doc).graph : doc;
+  const upgraded = doc.schema === 'process-graph/1' ? upgradeGraph(doc).graph : doc;
+  // Second, smaller door (sprint 4.4): pre-trim v2 documents may still carry
+  // origin / ref / data.bind. Normalise them and say so rather than refusing.
+  const { graph, warnings } = normalizeGraph(upgraded);
+  for (const w of warnings) console.warn(`graph '${file}': ${w}`);
   const v = validateGraph(graph);
   if (!v.ok) throw new Error(`graph '${file}' is invalid:\n - ${v.errors.join('\n - ')}`);
   return graph;

@@ -27,7 +27,7 @@ artifact to keep in sync.
 npm install
 npx playwright install chromium
 npm test                      # unit + harness — green with NO org, no .env
-npm run planner               # visual planner on http://127.0.0.1:8765
+npm run planner               # the Journey Script Planner on http://127.0.0.1:8765
 ```
 
 To run against a real org: `cp .env.example .env`, fill it (see
@@ -35,15 +35,21 @@ To run against a real org: `cp .env.example .env`, fill it (see
 what's still missing:
 
 ```bash
-GRAPH_DOCTOR=all npm run doctor
+npx sfpw doctor all           # or: npm run doctor -- all
 ```
+
+Everything this repo does from a terminal is one command — `sfpw` — with
+`--help` on every subcommand and honest exit codes (`0` ok, `1` the answer is
+"no", `2` you typed it wrong). The `npm run <name>` aliases below all forward
+to it, so `npm run doctor -- all` and `npx sfpw doctor all` are the same
+thing; the `--` is npm's, separating its arguments from the command's.
 
 ---
 
 ## Creating a graph
 
 Two ways in. Both end at the same place: a `.graph.json` in a project, a
-**check ✓** badge in the planner, and a capture queue. The rules every graph
+check strip reading `0 must fix`, and a capture queue. The rules every graph
 must satisfy are in [docs/GRAPH-SPEC.md](docs/GRAPH-SPEC.md); an AI can
 follow [skills/graph-author/SKILL.md](skills/graph-author/SKILL.md) to do
 the completing with you.
@@ -61,72 +67,87 @@ as; the account's env names are derived (`SF_<ACCOUNT>_USERNAME/_PASSWORD`,
 optional `_TOKEN`/`_TOTP_SECRET`) and their values live only in `.env`.
 Several roles may share one login. A graph never invents accounts.
 
-### Path A — draw it by hand
+### Path A — write it as a script
 
-1. **Project.** In the toolbar, PROJECT → `＋ new project…` and name it
-   (lower-case, e.g. `crm`). This creates `projects/crm/` with `graphs/`,
-   `imports/`, `steps/`, `specs/`… A graph belongs to a project.
-2. **New graph.** FILE → **new**. You get `start` and `end` waiting. Click
-   **graph** and give it an id (`create_customer`) and a title; add the
-   systems it touches (`sf` is there; add `siebel` with *one session max* if
-   the flow crosses into Siebel).
-3. **People first.** EDIT → **add ▾ → personas…** and paste the role names
-   (the ADO "Personas who can perform this action: …" line works as-is), or
-   tick personas from `personas.json`. Each becomes a role in this graph.
-   For roles the roster doesn't have, a *logs in as* row appears: a new
-   login named after the role (default), the same login as another pasted
-   role, or an existing account. Apply writes `personas.json` and shows
-   one `.env` block per **new login** — paste it into `.env` and fill the
-   values (the names are already in `.env.example`).
-4. **Sessions — who, where.** EDIT → **add ▾ → session** once per role ×
-   system: e.g. `Salesforce · client_lead`. On the session's card pick the
-   **system** and the **role / user** (the roles you just added, plus any
-   other persona from the roster — picking one adds the role); set the
-   **landing URL** (the list or record page the role starts on — this
-   enables pre-navigation so captures skip login).
-5. **Wire the login chain.** Drag from the edge of `start` to the first
-   session, then from each session to the next: these are `login_as` edges
-   (select one to set the auth method if it differs from the persona's). One
-   linear chain — no branches, no cycles; every session must be on it.
-6. **Records — what exists.** **add ▾ → data** for each business record the
-   flow creates or touches (`Customer record`, SObject `Account`). One data
-   node per record, even if several roles touch it — that node is the join.
-7. **Steps — what each role does.** Drag from a session to a data node (or a
-   screen/checkpoint): a `does` edge. On its card: the **label** ("create
-   customer"), the **step catalog** name (`cust.create`, `<noun>.<verb>`),
-   and — for edges onto data — the **data port**: *produces* (this step
-   creates the record), *consumes* (reads it), *updates*. The port is how the
-   record's id reaches later steps, including steps in a graph you insert
+The planner reads a graph as a numbered **script**: one line per session
+("who, where"), one indented line per step ("what they do to which record").
+You type the lines; ports, catalog names, relations and the login chain are
+inferred from them, and the canvas beside the script draws the same document
+as lanes. About **18 actions** to a complete first graph:
+
+1. **New graph.** **New ▾ → Blank graph**. One session line appears with the
+   cursor in the role field, and `start` / `end` already exist.
+2. **Who, where.** Type the role on the line (`Client Associate`), pick the
+   system **on**, and type the landing URL **at**
+   (`/lightning/o/Account/list` — the list or record page this role starts
+   on, which lets captures skip login). A role the roster doesn't know wears
+   a *new* pill; you are asked who it logs in as when you save, not now.
+3. **Name it.** **⚙ graph** (next to the script title, or on the canvas
+   footer): the id (`create_customer`,
+   lower_snake_case — it becomes the filename), a title, any suite `tags`,
+   and the systems as pills (＋ system opens a form: label, kind, url env,
+   *one session max* for a system like Siebel).
+4. **Steps.** **+ step** under the session line, then type the verb
+   (`create`) and the record (`Customer`). That one line creates the `does`
+   edge, the record node (shared by name with every other step that mentions
+   it), the catalog name `customer.create` and the SObject guess `Account` —
+   all editable on the card, none of them typed twice.
+5. **Confirm the port.** The step shows an amber `⇒ produces ?` pill: the
+   first touch of a record publishes it, later touches consume it. Click the
+   pill to keep the guess, or pick another on the card. Ports are how a
+   record's id reaches later steps — including steps in a graph you join in
    later.
-8. **What must be true.** On each data/checkpoint node's card, add checks:
+6. **What must be true.** Click the step, then **+ check** on its card:
    `api.record_exists` / `api.field_equals` (SObject, `Field=Value`),
-   `ui.toast` / `ui.text` / `ui.url`, or `db.query` / `log.traffic` against a
-   db/logger node. Use **after** to tie a check to the step that causes it;
-   give backend checks on async integrations a polling budget.
-9. **What must be refused.** For any multi-role flow, drag from a session to
-   the record and set the relation to `denied` with the capability
-   (`cust.delete`) — the security half of the test.
-10. **Check.** Click **check** — MUST FIX (validator) and TO FINISH (gap
-   questions) grouped by element; each row jumps to the culprit. Iterate
-   until the badge is **check ✓** with only *not captured* left. `⌘Z` undoes
-   any delete/insert/connect.
-11. **Save into the project.** FILE → **save ▾ → save to project "crm"**.
-    The dev server validates and writes
-    `projects/crm/graphs/create_customer.graph.json` (asks before
-    overwriting), the library refreshes and the graph reopens from the
-    project. *save … in this browser* is the offline fallback; **download**
-    gives you the file to place by hand.
-12. **Capture and run.** Double-click each session to copy its record
-    command (`RECORD_PERSONA=… RECORD_JOURNEY=… npm run record`), record it
-    once as that human; then `SUITE=graph:crm/create_customer npm run suite`
-    runs it — one generic spec walks whatever the suite selects, and every
-    run repaints the graph. Put the graph in `suites.json` (or give it a
-    `tags` entry) to make it part of a standing suite.
+   `ui.toast` / `ui.text` / `ui.url`, or `db.query` / `log.traffic` — the
+   last two offer the db / log systems this graph declares and create one if
+   it doesn't. A check is scoped `after` the step that causes it, and
+   backend checks on async integrations carry a polling budget.
+7. **What must be refused.** **+ must not** gives a `denied` line: verb plus
+   record again (`delete Customer`), and the capability `customer.delete` is
+   derived from it. This is the security half of the test.
+8. **More roles.** **+ session** appends the next lane and chains the login
+   order behind it. Steps under it that name `Customer` land on the *same*
+   record node — that node is the join between the roles.
+9. **Fix next.** The check strip at the top counts **must fix** (the
+   validator, the login chain and the data flow — the referees the runner
+   itself uses), **to finish** (open questions) and **hints**. **Fix next →**
+   selects the line the next problem lives on and says what it wants. Keep
+   going until it reads `0 must fix · 0 to finish` and the button becomes
+   **Run this graph**. `⌘Z` undoes any edit, not just structural ones.
+10. **Record.** **● record** on the lane (or on the line) starts
+    `sfpw record` as that session's persona through the dev server: a
+    headed browser opens, you drive the flow once, and the lane goes
+    *recording… → ✓ recorded*. Missing credentials are named with the exact
+    `.env` lines to paste; the terminal equivalent is under a disclosure on
+    the card.
+11. **Save into the project.** A graph belongs to a project —
+    **New ▾ → ＋ New project…** scaffolds `projects/crm/` (`graphs/`,
+    `imports/`, `evidence/`, `steps/`…) if you don't have one yet, the same
+    scaffolder as `npm run project:new`. Then **Save to project** (or
+    **Save to…** to pick another). The dev server validates and writes
+    `projects/crm/graphs/create_customer.graph.json` (asking before it
+    overwrites), and the library rail refreshes. Roles that aren't in
+    `personas.json` yet are collected here: pick a new login or an existing
+    account per role, and the save writes `personas.json` plus one `.env`
+    block per new login. **Export JSON** downloads the file instead, for
+    `file://` use.
+12. **Run.** `npx sfpw suite graph:crm/create_customer` — one generic
+    spec walks whatever the suite selects, and every run repaints the graph
+    (pass/fail borders, timings, check dots). Put the graph in `suites.json`
+    or give it a `tags` entry to make it part of a standing suite.
 
-Extending a flow: FILE → **insert ▾** brings another graph in as a
-selected island parked to the right; drag it where you want, draw one
-`login_as` into it, relink `end`. Shared data nodes merge, and the status
-line names which session the island must follow so its records exist first.
+Other doors into the same script: **New ▾ → Paste a script** takes the
+grammar above as text (what an AI, or a test case, can write:
+`as <Role> on <System> at <url>` / `<verb> <Record> (<SObject>)` /
+`✓ <kind> <target> <value>` / `must not <verb> <Record>`), and **Export →
+Copy as script** hands it back, naming anything the text cannot carry.
+
+Extending a flow: **Join another graph…** splices the other graph in —
+sessions merge on system + role, records merge by name, and the `after` is
+inferred, so there is no seam to draw by hand. If the merge is refused (two
+graphs defining one system differently, say), the refusal names the fix and
+offers to insert as an island instead.
 
 ### Path B — import test cases from Azure DevOps (Excel)
 
@@ -137,7 +158,7 @@ line names which session the island must follow so its records exist first.
    column included. Both layouts are recognised; keep the **Title** column.
    Write the steps ADO-style — `As <role>, <action>` with an expected result
    — and the importer gets the roles, records and checks right.
-2. **Planner → import cases.** FILE → **import cases** (dev server only).
+2. **Planner → New ▾ → From an ADO export** (dev server only).
 3. **Project.** Pick an existing project or `＋ new project…` and name it.
    The file will be stored under that project.
 4. **File.** Choose the `.xlsx` / `.csv`, click **read test cases**. The file
@@ -147,23 +168,24 @@ line names which session the island must follow so its records exist first.
    default. Untick what you don't want now — it stays in the stored import
    for later (*previous imports in this project* re-opens it, no re-upload).
 6. **Import selected.** One draft graph per case lands in
-   `projects/<p>/graphs/<slug-of-title>.graph.json`; the results list has an
-   **open** button for each and the planner lands on the first after the
-   rebuild.
+   `projects/<p>/graphs/<slug-of-title>.graph.json`; the results list names
+   every graph with an **open** button, and the planner lands on the first.
 7. **Understand what you got.** `As admin, …` → a session bound to alias
    `admin`; each step → a `does` edge named `<object>.<verb>`; nouns the
    expected result says were created/saved → data nodes; the verb → a *draft*
    port; the expected text → a *draft* check. Every guess is flagged.
-8. **Complete each graph.** Open it, click **check**, and answer the TO
-   FINISH questions (bind roles, confirm or drop each `draft?` check, confirm
-   ports, session policy, URLs). Or from a terminal:
-   `GRILLME=<p>/<id> npm run grillme` lists the same questions; answers go
-   back as a JSON ops file with `GRILLME_APPLY=`. Point your own AI at
+8. **Complete each graph.** Open it and work the check strip's **Fix next →**
+   through the *to finish* questions (bind roles, confirm or drop each
+   `draft?` check, confirm ports, session policy, URLs). Or from a terminal:
+   `npx sfpw grillme <p>/<id>` lists the same questions (`--json` prints them
+   as an array and nothing else); answers go back as a JSON ops file with
+   `sfpw grillme <p>/<id> --apply ops.json`. Point your own AI at
    `skills/graph-author/SKILL.md` and it will run this loop with you.
-9. **Capture and run** — as in Path A step 12.
+9. **Capture and run** — as in Path A steps 10–12.
 
-CLI equivalent of steps 2–6: `ADO_FILE=export.xlsx npm run ado:import`
-(writes to `journeys/graphs/`).
+CLI equivalent of steps 2–6: `npx sfpw import export.xlsx` (writes to
+`journeys/graphs/`), or `sfpw import export.xlsx --project crm` to keep the
+export as a project asset and land the drafts in `projects/crm/graphs/`.
 
 ## Features
 
@@ -185,70 +207,94 @@ CLI equivalent of steps 2–6: `ADO_FILE=export.xlsx npm run ado:import`
   infers where the imported flow must splice in, and the recorder derives
   the ports itself (the save that created a record defines it; every later
   mention becomes `{ref:}`). Study + science: `docs/STUDY-DATA-FLOW.md`.
-- **One authoring form.** `process-graph/2` is the only shape the validator,
-  the walker and the planner know; a legacy `process-graph/1` file still
-  opens because `upgradeGraph()` converts it at the load door.
+- **One authoring form, old files still open.** `process-graph/2` is the
+  only shape the validator, the walker and the planner know. Every load door
+  runs the same two conversions first: `upgradeGraph()` turns a
+  `process-graph/1` file into v2, and `normalizeGraph()` maps retired
+  data-flow fields (`origin`, `ref`, `data.bind`) forward, warning on stderr
+  and naming the node. Nothing is rewritten on disk until you save.
 - **Merge-back.** A run's results are merged onto the graph it came from —
   every node paints pass/fail with its duration and the screenshot the run
-  captured.
+  captured. The screenshots are FILES, under the graph's own
+  `evidence/<graph_id>/<runId>/` folder, and the node keeps a short relative
+  ref: a repainted graph stays a diff you can read (`node
+  tools/migrate-evidence.mjs <graph.json>` moves an older graph's inline
+  images out).
 - **Suites, not generated specs.** `suites.json` names selections — explicit
   `graphs`, a graph `tags` list, or a whole `project` — and ONE spec
-  (`tests/e2e/graphs.spec.ts`) runs whatever `SUITE=` selects, one test per
-  graph × persona-matrix binding. `SUITE=smoke npm run suite`; nothing is
+  (`tests/e2e/graphs.spec.ts`) runs whatever the selection names, one test per
+  graph × persona-matrix binding. `npx sfpw suite smoke`; nothing is
   code-generated, so a graph joins a suite by being tagged.
 
-### Authoring — the visual planner
+### Authoring — the Journey Script Planner
 
-`npm run planner` serves a self-contained cytoscape + dagre planner with
-auto-rebuild and live reload.
+`npm run planner` serves the planner on http://127.0.0.1:8765 — one
+self-contained file (`tools/planner.html`, built from `tools/planner-v2/`)
+with auto-rebuild and live reload while you develop it. It edits the *same*
+`ProcessGraph` the runner runs: there is no planner format.
 
-- **Editing on the canvas, not in a side panel.** Click a node and a card
-  flies out beside it, glued to the element through pan, zoom and drag. Cards
-  are type-aware and tiered: the fields that type actually uses up front, the
-  rest behind *extra settings*, foreign fields hidden entirely.
-- **Check panel** with a live badge. **MUST FIX** (validator errors) and **TO
-  FINISH** (gap questions) grouped *by graph element*, every row click-jumps
-  to the node or edge it's about.
-- **Readiness cockpit** in the status bar — `captured n/m · bound n/m ·
-  checks n (k drafts)`; captured sessions wear a `✓rec` chip; draft checks
-  carry a confirm-once button.
-- **Save straight into the project.** Served, *save ▾* writes
-  `projects/<p>/graphs/<id>.graph.json` through the dev server — validated
-  first, atomic, overwrite only on confirmation — and the library refreshes.
-  Browser-local saves remain for offline work.
-- **Editable env wiring.** The card names the **login** a role uses (and
-  who else shares it). Rename a credential's env *variable name* right there
+- **The script IS the graph.** A numbered script — `as <role> on <system> at
+  <url>`, then one line per step with its verb, record, port and checks —
+  where the line numbers are the run order the walker will take. Typing a
+  record name creates the record node; a second line naming it joins to the
+  same node. Ports (`⇒ produces` / `⇐ consumes` / `⇄ updates`), catalog names
+  (`<record>.<verb>`), relations and denial capabilities are **inferred** and
+  shown as amber drafts until you confirm them. Nothing is typed twice, and
+  nothing that the tool can work out is asked — which is why a first graph is
+  about eighteen actions.
+- **A canvas that draws the same document.** Cytoscape + dagre beside the
+  script: sessions are compound **lanes** in chain order, steps are their
+  children, records hang in the column of the lane that first touches them.
+  Drag to reposition (saved as `pos`), shift-drag to connect (the relation is
+  inferred from the endpoints, with a *does / must not* choice on drop),
+  SPACE-drag to box-select and move a group, double-click empty canvas for the
+  next session. Pan and zoom survive every edit — the canvas patches, it never
+  rebuilds under your hands.
+- **Cards, not a side panel.** Click a line, a lane or a record and a card
+  flies out beside it, glued through pan, zoom and drag, showing only what
+  that kind uses: the session card has role, persona, *logs in as*, auth,
+  system, landing URL and the credential rows; the step card has verb,
+  record, SObject, catalog, port, checks, evidence sources and
+  *replicated to →*; the ⚙ graph card has id, title, tags and the systems.
+- **One check strip** instead of a badge and a panel: **must fix** (the
+  validator, the login chain and the data flow — the same referees the
+  runner uses), **to finish**, **hints**, **captured n/m**, and one verb —
+  **Fix next →**, which selects the line the problem lives on, or **Run this
+  graph** once nothing is open.
+- **● record on the lane.** Starts `sfpw record` as that session's persona
+  through the dev server, streams the output, and flips the lane to
+  *✓ recorded*; missing credentials come back as the `.env` lines to paste.
+- **Editable env wiring.** The card names the **login** a role uses (and who
+  else shares it). Rename a credential's env *variable name* right there
   (`SF_SALES_USERNAME` → `SFDC_UAT_USERNAME`) — the dev server validates it
   and atomically rewrites the account in `personas.json`, so every role on
-  that login follows. Your `.env` is never touched. Credential dots go
-  green/red from a booleans-only endpoint.
-- **Self-explaining canvas** — every node and edge type describes itself on
-  hover, plus a dismissible legend and a typed `add ▾` palette with readable
-  ids (`db_1`, `api_1`, `sess_1`).
-
-**Planner v2 (preview): `npm run planner:v2`.** The same graph, read as a
-numbered *script* — `as <role> on <system> at <url>`, then one line per step
-with its record, port and checks — beside a lane canvas that draws the same
-document. The library rail lists every project's graphs with a readiness dot
-and a record ledger you can click to filter by record; the check strip at the
-top replaces the badge and the issues panel. It builds to the same
-`tools/journey-planner.html` and keeps the whole `window.planner` API, so both
-planners drive one model. It replaces `npm run planner` in sprint 4.
+  that login follows. Your `.env` is never touched; presence dots come from a
+  booleans-only endpoint.
+- **A library rail** listing every project's graphs with a readiness dot, a
+  record ledger you can click to filter the library by record, and the
+  suites from `suites.json` with the `sfpw suite` line to run them.
+- **Doors in and out.** **New ▾** — blank, paste a script, an ADO export, a
+  recording, open a `.graph.json`, ＋ new project. **Join another graph…**
+  splices rather than dumping an island. **Export JSON** copies or downloads,
+  and *Copy as script* hands the text back. **View** makes it read-only for
+  sharing a repainted graph; `⌘Z` undoes any edit.
+- **Self-explaining.** Every pill, lane and button has a hover title, and `?`
+  opens the legend.
 
 ### Getting a graph without drawing one
 
-- **import cases** (planner button, dev server) — an Azure DevOps export
+- **New ▾ → From an ADO export** (planner, dev server) — an Azure DevOps export
   (`.xlsx` from Test Plans "Export to Excel", or `.csv`) goes into a project
   you pick or create: the file is stored verbatim under
   `projects/<p>/imports/` with a manifest, you tick the test cases, and each
   becomes a draft graph in `projects/<p>/graphs/`. Cases you skip stay in the
   stored import for next time. The AI review of the drafts is *your* step —
   point any model at the graph files.
-- **`npm run ado:import`** — the same mapping from the CLI
-  (`ADO_FILE=<xlsx|csv>` or pasted text): roles → sessions, steps → `does`
+- **`sfpw import <file.xlsx|.csv>`** — the same mapping from the CLI
+  (`--paste <file.txt>` for pasted text): roles → sessions, steps → `does`
   edges (verb → data port), expected results → draft oracles. Every
   inference is flagged; it never clobbers an existing graph.
-- **Capture-first** — `PIPELINE_GRAPH=1 npm run pipeline` turns one recording
+- **Capture-first** — `sfpw pipeline <journey> --graph` turns one recording
   into a compact session→does→data graph with post-save redirects folded in,
   SObjects inferred, and draft oracles marked `draft?`.
 - **The graph spec + an AI-facing skill** — `docs/GRAPH-SPEC.md` is the
@@ -257,29 +303,32 @@ planners drive one model. It replaces `npm run planner` in sprint 4.
   against the code. `skills/graph-author/SKILL.md` hands it to any AI agent
   together with the import → draft → grill → capture workflow, so an
   external model can complete graphs correctly without bypassing the validator.
-- **`npm run grillme`** — the gap engine reads a draft graph and emits every
-  hole as an answerable multiple-choice question (12 gap kinds), with 11
-  validated write-back operations that apply your answers. Runs as a CLI or
-  through the `/grillme` skill.
-- **`npm run doctor`** — `GRAPH_DOCTOR=<id|all>`: per-graph ✓/✗ for the org
+- **`sfpw grillme <ref>`** — the gap engine reads a draft graph and emits every
+  hole as an answerable multiple-choice question (8 gap kinds), with 8
+  validated write-back operations that apply your answers (`--apply ops.json`).
+  Advice that has no answer (a missing landing URL, a state with nothing to
+  check, no must-NOT case) is printed separately as hints, never as work.
+  `--json` prints the questions as an array and nothing else — the contract
+  the `/grillme` skill parses.
+- **`sfpw doctor [<id>|all]`** — per-graph ✓/✗ for the org
   URL, every site URL and every persona, plus the exact `.env` skeleton to
   paste.
 
 ### Record once, replay forever
 
-- **The pipeline** — `npm run record` opens a headed session as a chosen
+- **The pipeline** — `sfpw record <persona> <journey>` opens a headed session as a chosen
   persona (close the window to finish) → a **version-pinned** trace reader →
   the distiller (starter grammar, settle attribution, name-me flags) → the
   generator, which emits journey JSON, a *working* vocabulary step module and
-  timing baselines. `npm run pipeline` stitches it, and the real runner
+  timing baselines. `sfpw pipeline <journey>` stitches it, and the real runner
   replays the generated journey verbatim.
 - **Identity data is auto-parameterized** — unique per run, `@e2e.invalid`
   emails. Two runs never collide.
 - **Multi-actor stitching** — one recording per persona, stitched on wall
-  clock, with cross-actor shared identifiers flagged (`PIPELINE_ALIASES=…`).
-- **Denial captures** — `RECORD_EXPECT_DENIAL=1` records what a role must
-  *not* be able to do, and a captured **success** refuses to generate a denial
-  test.
+  clock, with cross-actor shared identifiers flagged (`--aliases a=b,…`).
+- **Denial captures** — `sfpw record <persona> <journey> --expect-denial`
+  records what a role must *not* be able to do, and a captured **success**
+  refuses to generate a denial test.
 
 ### Running — multi-actor by design
 
@@ -318,7 +367,7 @@ planners drive one model. It replaces `npm run planner` in sprint 4.
 
 - Faker-backed factory, find-or-create seeding, and ordered dependencies with
   `{unique:}` / `{ref:x.y}` / `{runId}` placeholders.
-- **`npm run sweep`** finds — and with `SWEEP_DELETE=1` removes — everything
+- **`sfpw sweep`** finds — and with `--delete` removes — everything
   tagged `E2E-`.
 
 ### Secrets discipline
@@ -332,7 +381,8 @@ values never leave your machine.
 
 ### The bar this repo holds itself to
 
-- **Tests for everything.** ~338 unit + harness tests. The harness drives
+- **Tests for everything.** Some 690 unit + harness tests, run at several
+  worker counts so nothing depends on order. The harness drives
   **real browsers with no org and no `.env`** — you can verify the whole
   machine before you have a single credential. E2E specs self-skip, naming
   the vars they'd need.
@@ -342,11 +392,12 @@ values never leave your machine.
   invariant.
 - **ESLint** strict-type-checked + stylistic-type-checked, with each carve-out
   commented and justified in `eslint.config.mjs`.
-- **CI runs the same three gates you do** — `typecheck`, `lint`, suite — with
-  no secrets.
-- **L2 knowledge cache** (`L2/`) — the founding strategy document, an atom
-  schema and validated encoding batches, so a new test project bootstraps from
-  accumulated knowledge rather than from scratch.
+- **CI runs the same three gates you do** — `typecheck`, `lint`, `npm test`
+  — with no secrets and no browser-driven command specs: everything that can
+  be a plain Node exit code is one.
+- **A written record** — `L2/FOUNDING-DOCUMENT.md` is the strategy,
+  `docs/` holds the designs and studies with their status, and
+  [docs/README.md](docs/README.md) says which of them are normative today.
 - **Labour telemetry** — `npm run labour` prints scaffold→first-green wall
   clock per process, to prove or refute the project's targets.
 
@@ -368,21 +419,39 @@ Honest about where the line is:
 
 ## The commands
 
+One binary, `sfpw` (`bin/sfpw.mjs`), with `--help` on every subcommand.
+Exit codes are the contract: **0** it worked, **1** the honest answer is "no"
+(not ready, nothing to process, a run failed), **2** you used it wrong.
+Errors go to stderr; with `--json`, stdout carries the answer and nothing
+else. Run it as `npx sfpw <command>`, or through the `npm run` alias in the
+last column (`npm run doctor -- all` — npm needs the `--`).
+
+| Command | What it does | npm alias |
+|---|---|---|
+| `sfpw doctor [<ref>\|all\|project:<p>]` | exact `.env` lines between you and a runnable graph; exit 1 while anything is missing | `npm run doctor` |
+| `sfpw grillme <ref> [--apply <ops.json>] [--json]` | every gap in a graph as answerable questions; `--json` prints only the array | `npm run grillme` |
+| `sfpw compose <host> <sub> [--after <session>] [--island]` | extend one graph with another (island by default; `--after` splices) | `npm run graph:compose` |
+| `sfpw import <file.xlsx\|.csv> [--project <p>]` · `sfpw import --paste <file.txt>` | Azure DevOps test cases → draft graphs (the planner's **New ▾ → From an ADO export** does this into a project) | `npm run ado:import` |
+| `sfpw pipeline <journey> [--aliases a=b,…] [--capability <c>] [--graph] [--overwrite]` | trace → journey + steps (+ a capture-first graph) | `npm run pipeline` |
+| `sfpw contracts <journey> [--out <dir>]` | harvest the recording's MMPM settle-contract atoms into one review-only batch (never published; off unless asked) | — |
+| `sfpw sweep [--delete] [--targets …] [--patterns …]` | find (and with `--delete`, remove) `E2E`-named test data | `npm run sweep` |
+| `sfpw suite [<spec>] [playwright args…]` | run every graph the selection names (`<suite>`, `graph:<ref>`, `tag:<t>`, `project:<p>`; default `smoke`), repainting each | `npm run suite` |
+| `sfpw record <persona> <journey> [--expect-denial]` | capture a flow by driving it once (headed browser) | `npm run record` |
+| `sfpw simulate <ref> [--overwrite]` | no-org dry run: fabricated green report through the real merge-back (`sim_` runId, throwing step placeholders) | `npm run simulate` |
+| `sfpw fixture:trace` / `sfpw fixture:artifacts` | regenerate the committed test fixtures (maintainers, on a Playwright upgrade) | — |
+
+`record`, `simulate` and the two fixture generators delegate to Playwright —
+they are the only things here that need a browser. Everything else is plain
+Node, so it has a real exit code and does not rewrite `playwright-report/`.
+
+The rest is still npm:
+
 | Command | What it does |
 |---|---|
 | `npm test` | unit + harness suites (no org needed) |
-| `npm run planner` | visual graph planner, live-reload, env-status dots, editable env wiring |
-| `npm run planner:v2` | the Journey Script Planner (preview): the same graph as a numbered script — sessions, steps, ports, checks (`tools/journey-planner.html`) |
-| `npm run project:new` | `-- <name> [--team "…"]` — scaffold a team-named project under `projects/` (also in the planner: project ▾ → new) |
-| `npm run doctor` | `GRAPH_DOCTOR=<id\|project/id\|project:<name>\|all>` — exact `.env` lines between you and a runnable graph |
-| `npm run record` | `RECORD_PERSONA=x RECORD_JOURNEY=y` — capture a flow by driving it once |
-| `npm run pipeline` | `PIPELINE_JOURNEY=y` — trace → journey + steps (+`PIPELINE_GRAPH=1` for a capture-first graph) |
-| `npm run suite` | `SUITE=<suite\|graph:<ref>\|tag:<t>\|project:<p>>` (default `smoke`) — run every graph the selection names, repainting each; suites live in `suites.json` |
-| `npm run graph:compose` | `COMPOSE=<host> COMPOSE_WITH=<sub>` — extend one graph with another (sessions merge, chain splices; also planner insert ▾) |
-| `npm run simulate` | `SIMULATE=<id>` — no-org dry run: fabricated green report through the real merge-back (`sim_` runId, throwing step placeholders) |
-| `npm run ado:import` | `ADO_FILE=<xlsx|csv>` or `ADO_PASTE=<text>` — Azure DevOps test cases → draft graphs (the planner's **import cases** button does this into a project) |
-| `npm run grillme` | `GRILLME=<id>` — every gap in a graph as answerable questions |
-| `npm run sweep` | find (and with `SWEEP_DELETE=1`, remove) `E2E-` tagged test data |
+| `npm run planner` | the Journey Script Planner — the graph as a numbered script beside a lane canvas; live-reload, env-status dots, editable env wiring (`tools/planner.html`) |
+| `npm run build:planner` | rebuild that single file from `tools/planner-v2/` (a maintainer step; the output is committed) |
+| `npm run project:new` | `-- <name> [--team "…"]` — scaffold a team-named project under `projects/` (also in the planner: New ▾ → ＋ new project…) |
 | `npm run labour` | scaffold→first-green wall clock per process |
 | `npm run typecheck` / `npm run lint` | the two static gates CI runs |
 
@@ -390,21 +459,32 @@ Honest about where the line is:
 
 ```
 L2/                    knowledge cache — FOUNDING-DOCUMENT.md is the strategy
+bin/sfpw.mjs           the one command line; each subcommand is a thin module in src/cli/
+suites.json            named selections of graphs (explicit refs, tags, or a whole project)
 src/
+  cli/                 sfpw subcommands: parse → call the module below → print, exit code
   auth/                frontdoor + UI Bridge + TOTP (RFC 6238, any authenticator)
   fixtures/            Cast (multi-persona sessions), lightning component fixture
   components/ pages/   Lightning component objects + thin POMs
   journeys/            journey schema, runner (oracles, screenshots), catalog
-  graph/               schema, walker, merge-back, capture-first, ADO import, gaps
+  graph/               schema, walker, merge-back, capture-first, ADO import, gaps,
+                       the script codec (script.ts) and the inference rules (infer.ts)
   pipeline/            trace reader, distiller, generator, stitcher
   data/                faker factory, find-or-create seeding, data dictionary, sweeper
   personas/            personas.json schema/registry (env-var NAMES only) + env doctor
 tests/
   unit/  harness/      every helper tested; harness runs real browsers, no org
   e2e/                 real-org specs, env-gated (skip cleanly without .env)
-tools/                 planner build + dev server (single-file output committed)
+tools/
+  planner-v2/          the planner's source: index.html, style.css, js/*.js (one IIFE per module)
+  build-planner.mjs    inlines the libraries + the shared src/graph modules → tools/planner.html (committed)
+  serve-planner.mjs    the dev server: the planner at /, the /__ routes, live reload
 journeys/graphs/       the process graphs — the living plan/test/report artifacts
-docs/  HANDOVER.md     designs, studies, and the session-by-session ledger
+journeys/evidence/     their run screenshots, `<graph_id>/<runId>/<node>.jpg` (a
+                       project graph's live in projects/<p>/evidence/ instead)
+projects/<name>/       a team's graphs, imports, evidence and recordings (gitignored: customer work)
+docs/                  designs, studies and specs — docs/README.md is the map
+HANDOVER.md            the session-by-session ledger, newest first
 ```
 
 ## License & contributing

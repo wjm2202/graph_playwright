@@ -18,14 +18,14 @@ import { validateGraph, type EdgeType, type NodeType, type PEdge, type ProcessGr
 const SF = { label: 'Salesforce', kind: 'salesforce' as const };
 
 /** One session, one record; the caller decides the step edges. */
-function graphWith(edges: PEdge[], opts: { origin?: 'seed' | 'external'; sessions?: number } = {}): ProcessGraph {
+function graphWith(edges: PEdge[], opts: { external?: boolean; sessions?: number } = {}): ProcessGraph {
   const sessions = opts.sessions ?? 1;
   const g: ProcessGraph = {
     schema: 'process-graph/2', id: 'g', systems: { sf: { ...SF } },
     actors: { a: 'admin' },
     nodes: [
       { id: 'start', type: 'start', label: '' },
-      { id: 'customer', type: 'data', label: 'Customer record', sobject: 'Account', ...(opts.origin ? { origin: opts.origin } : {}) },
+      { id: 'customer', type: 'data', label: 'Customer record', sobject: 'Account', ...(opts.external ? { external: true } : {}) },
       { id: 'end', type: 'end', label: '' },
     ],
     edges: [{ id: 'e_end', from: 'customer', to: 'end', type: 'next' }],
@@ -167,18 +167,17 @@ test.describe('inferPorts', () => {
     expect(inferPorts(g2).ports.get('d1')).toMatchObject({ io: 'produces' });
   });
 
-  test('seed/external records are already defined — the first touch reads them', () => {
-    for (const origin of ['seed', 'external'] as const) {
-      const g = graphWith([step('d1', 'sess_1', 'verify Customer')], { origin });
-      const p = inferPorts(g).ports.get('d1');
-      expect(p, origin).toMatchObject({ io: 'consumes', draft: true });
-      expect(p?.reason).toContain(origin);
-      // Nothing on the walk defines it: the definition is declared, not drawn.
-      expect(inferPorts(g).definedBy.has('customer')).toBe(false);
-    }
+  test('an external record is already defined — the first touch reads it', () => {
+    const g0 = graphWith([step('d1', 'sess_1', 'verify Customer')], { external: true });
+    const p = inferPorts(g0).ports.get('d1');
+    expect(p).toMatchObject({ io: 'consumes', draft: true });
+    expect(p?.reason).toContain('external');
+    // Nothing on the walk defines it: the definition is declared, not drawn.
+    expect(inferPorts(g0).definedBy.has('customer')).toBe(false);
+
     // A mutating verb on a declared record still updates it — the record
     // exists either way, so only "does it change?" is left to decide.
-    const g = graphWith([step('d1', 'sess_1', 'approve Customer')], { origin: 'seed' });
+    const g = graphWith([step('d1', 'sess_1', 'approve Customer')], { external: true });
     expect(inferPorts(g).ports.get('d1')).toMatchObject({ io: 'updates' });
   });
 
@@ -246,13 +245,17 @@ test.describe('applyInferredPorts', () => {
     expect(painted.edges.find((e) => e.id === 'd2')?.data).toMatchObject({ io: 'consumes', ioDraft: true });
   });
 
-  test('data_no_port becomes data_io_draft — an open question becomes one with a default', () => {
+  test('data_port gains a default — the open question becomes one with a guess', () => {
     const g = graphWith([step('d1', 'sess_1', 'create Customer'), step('d2', 'sess_1', 'approve Customer')]);
-    const kinds = (doc: ProcessGraph) => computeGaps(doc).filter((x) => x.kind === 'data_no_port' || x.kind === 'data_io_draft');
+    const ports = (doc: ProcessGraph) => computeGaps(doc).gaps.filter((x) => x.kind === 'data_port');
 
-    expect(kinds(g).map((x) => x.kind)).toEqual(['data_no_port', 'data_no_port']);
-    const after = kinds(applyInferredPorts(g));
-    expect(after.map((x) => x.kind)).toEqual(['data_io_draft', 'data_io_draft']);
+    // Sprint 4.4 merged data_no_port + data_io_draft into ONE kind: before
+    // inference the question has no default, after it the guess IS the default.
+    const before = ports(g);
+    expect(before.map((x) => x.kind)).toEqual(['data_port', 'data_port']);
+    expect(before[0]?.options?.[0]).toBe('produces (creates it)');
+    const after = ports(applyInferredPorts(g));
+    expect(after.map((x) => x.kind)).toEqual(['data_port', 'data_port']);
     expect(after[0]?.question).toContain('produces');
     expect(after[1]?.question).toContain('updates');
     expect(after[0]?.options?.[0]).toBe('keep: produces');

@@ -10,10 +10,15 @@ import { PersonaRegistry } from '../../src/personas/registry';
 
 const doc = {
   org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
+  accounts: {
+    siebel_admin: { system: 'siebel' },
+    siebel_sales: { system: 'siebel' },
+    sf_admin: {},
+  },
   personas: {
-    siebel_admin: { kind: 'internal', usernameEnv: 'SIEBEL_ADMIN_USERNAME' },
-    siebel_sales: { kind: 'internal', usernameEnv: 'SIEBEL_SALES_USERNAME' },
-    sf_admin: { kind: 'internal', usernameEnv: 'SF_ADMIN_USERNAME' },
+    siebel_admin: { kind: 'internal', account: 'siebel_admin' },
+    siebel_sales: { kind: 'internal', account: 'siebel_sales' },
+    sf_admin: { kind: 'internal', account: 'sf_admin' },
   },
 };
 

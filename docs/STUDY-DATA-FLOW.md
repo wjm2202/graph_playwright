@@ -186,6 +186,16 @@ io mapping. Harness: planner edge form round-trips `io`.
 
 ## 5. Shipped 2026-09-02 (suite 481 green · typecheck · lint clean)
 
+> **Superseded in part by sprint 4.4 (2026-09-03).** The model below shipped
+> as described; the review then trimmed it to the parts a graph actually
+> uses. `bind` and `ref` are gone (the data node's **id** is the handle, and
+> `consumes`/`updates` always receive `{ record: '{ref:<nodeId>.id}' }`), and
+> `origin` collapsed to `external?: boolean` (`seed` was never used by a
+> shipped graph). The gap kinds `data_io_draft` + `data_no_port` merged into
+> `data_port`, and the ops `confirmIo`/`setOrigin` into `setIo` (no `io` =
+> confirm) / `setExternal`. `normalizeGraph()` maps old files forward.
+> Read this section as history; `docs/GRAPH-SPEC.md` §7 is normative.
+
 | Piece | Where | Pinned by |
 |---|---|---|
 | Schema: `ref`/`sobject`/`origin` on data nodes; `io`/`bind`/`ioDraft` on edges; validation | `src/graph/schema.ts` | `tests/unit/graph-dataflow.spec.ts` (schema) |
@@ -198,7 +208,7 @@ io mapping. Harness: planner edge form round-trips `io`.
 | Capture-first graph ports per group (`portFor`) + `sobject`/`origin` on data nodes | `src/graph/fromCapture.ts` | (capture-first graph tests) |
 | ADO: `verbIo()` verb → draft port; steps on a known object land on its data node | `src/graph/fromAdo.ts` | (ADO import) |
 | grillme: gap kinds `data_io_draft`, `data_no_port`, `data_unproduced`; ops `setIo`, `confirmIo`, `setOrigin` | `src/graph/gaps.ts` | (grillme) |
-| Planner: port selector on edges onto data nodes, port glyph on the edge label (⇒ out / ⇐ in / ⇔ upd), dataflow errors in the check panel | `tools/planner-src.html`, `build-planner.mjs` | `tests/harness/planner.spec.ts` |
+| Planner: the port pill on every step line (⇒ produces / ⇐ consumes / ⇄ updates), inferred first-touch and amber until confirmed, override on the card, dataflow errors as must-fix rows in the check strip | `tools/planner-v2/` (`view.js`, `ops.js`, `cards.js`), `src/graph/infer.ts` | `tests/harness/planner-shell.spec.ts`, `planner-cards.spec.ts` |
 | Shipped graphs carry ports (`expense_to_siebel`, `lead_to_customer`) | `journeys/graphs/` | drift guard + `graph-v2.spec.ts` |
 
 **Not done / follow-ups:** the `/grillme` skill's ask-order should add the

@@ -216,14 +216,14 @@ export function runOrder(g: ProcessGraph): RunOrder {
  * Dataflow health — reaching definitions over the walk (STUDY-DATA-FLOW.md
  * §3.2). A data node is a runtime variable; edges landing on it carry a
  * port (`data.io`). In walk order, every `consumes`/`updates` needs a
- * definition BEFORE it: a `produces` edge earlier in the walk, the node's
- * `origin` being 'seed' (journey seed block) or 'external' (found, not
- * created), or a produces edge from a non-session node (an integration hop
- * such as api → data, which the walk does not schedule — treated as ambient).
+ * definition BEFORE it: a `produces` edge earlier in the walk, the node
+ * being `external: true` (a record that already exists — the run finds it),
+ * or a produces edge from a non-session node (an integration hop such as
+ * api → data, which the walk does not schedule — treated as ambient).
  *
  * `errors` = use-before-def (the test WILL run against the wrong record or
  * none). `warnings` = a second produces on an already-defined node, or a
- * produces on a seed/external node (contradiction: who defines it?).
+ * produces on an external node (contradiction: who defines it?).
  * `unused` = data nodes defined but never consumed (fine; informational).
  * Edges without a port are invisible here — legacy graphs report clean.
  */
@@ -231,7 +231,7 @@ export interface DataflowHealth {
   errors: string[];
   warnings: string[];
   unused: string[];
-  /** data node id → edge id (or 'origin:<seed|external>' / 'ambient:<edge>') that defines it. */
+  /** data node id → edge id (or 'external' / 'ambient:<edge>') that defines it. */
   definedBy: Record<string, string>;
 }
 
@@ -244,7 +244,7 @@ export function dataflowHealth(g: ProcessGraph): DataflowHealth {
   if (!dataNodes.length) return out;
 
   for (const n of dataNodes) {
-    if (n.origin === 'seed' || n.origin === 'external') out.definedBy[n.id] = `origin:${n.origin}`;
+    if (n.external) out.definedBy[n.id] = 'external';
   }
   let chain: string[];
   try {
@@ -269,10 +269,10 @@ export function dataflowHealth(g: ProcessGraph): DataflowHealth {
       const name = e.label ?? e.data.catalog ?? e.id;
       if (e.data.io === 'produces') {
         const prior = out.definedBy[e.to];
-        if (prior?.startsWith('origin:')) {
-          out.warnings.push(`edge ${e.id} ('${name}') produces '${target.label || target.id}' but the node's origin is ${prior.slice(7)} — who defines it? (drop the origin, or make this edge consumes/updates)`);
+        if (prior === 'external') {
+          out.warnings.push(`edge ${e.id} ('${name}') produces '${target.label || target.id}' but the node is marked external — who defines it? (drop external, or make this edge consumes/updates)`);
         } else if (prior && !prior.startsWith('ambient:')) {
-          out.warnings.push(`edge ${e.id} ('${name}') produces '${target.label || target.id}' again — already defined by ${prior}; a second create overwrites {ref:${target.ref ?? target.id}}`);
+          out.warnings.push(`edge ${e.id} ('${name}') produces '${target.label || target.id}' again — already defined by ${prior}; a second create overwrites {ref:${target.id}}`);
         }
         out.definedBy[e.to] = e.id;
       } else {
@@ -280,7 +280,7 @@ export function dataflowHealth(g: ProcessGraph): DataflowHealth {
         if (!out.definedBy[e.to]) {
           out.errors.push(
             `edge ${e.id} ('${name}') ${e.data.io} '${target.label || target.id}' but nothing defines it before this point — ` +
-              `create it earlier in the walk (a produces edge), seed it (origin: seed), or mark it pre-existing (origin: external)`,
+              `create it earlier in the walk (a produces edge), or mark the record pre-existing (external: true)`,
           );
         }
       }

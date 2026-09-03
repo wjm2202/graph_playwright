@@ -1,5 +1,7 @@
 # Sprint plan — Journey Script Planner (planner v2) and the simplification
 
+> **Status (2026-09-03): complete.** All four sprints shipped and are committed in order; this file is the ledger of what each one delivered and why, kept as written at the time (so early entries name files that later sprints renamed — `journey-planner.html` became `tools/planner.html` in 4.1). The current state of the code is described by the README and [GRAPH-SPEC.md](GRAPH-SPEC.md); [README.md](README.md) here maps the rest of `docs/`.
+
 *Built from `REVIEW-SIMPLIFICATION-2026-09-03.md` (§4 ranked plan, §5 UI) and
 `PLANNER-FEATURE-PARITY.md` (the retirement gate). Each sprint is independently
 shippable: three green gates (`typecheck`, `lint`, `npm test`) at the end of every
@@ -104,12 +106,177 @@ now drops the redundant pass. Not committed (human git).*
 
 ## Sprint 4 — Retire and polish
 
+*4.1 done 2026-09-03 — **v2 IS the planner; v1 is gone.** Deleted
+`tools/planner-src.html`, `tools/process-planner.html`, `buildV1`, the
+`planner:v2` script and the `PLANNER_V2` flag, the two v1 review drivers, and
+the six old harness specs. The build output is now `tools/planner.html`
+(`npm run build:planner` unchanged); `npm run planner` serves it at `/` and
+by name, and `/process-planner.html` + `/journey-planner.html` **301** to it.
+`tools/persona-wiring.mjs` is KEPT (both the build and the server use it to
+shape personas.json for the page — `src/personas/wiring.ts` is the mutation
+half: addPersonas / renameEnvName), with a comment saying so. The seven v2
+harness specs dropped their `-v2-` qualifier; before deleting the old ones,
+five behaviours with no equivalent were ported — the load-door refusal, the
+run command + the strip's one verb, the `?` legend (→ `planner-shell`), the
+`ef_auth` picker now on the session card (→ `planner-cards`), and the
+credential env rename against a real server (→ `planner-sheets`, served) —
+plus a new route test for the 301s. `tests/unit/planner-parity.spec.ts` now
+extracts from `tools/planner-v2/index.html` + `js/*.js` +
+`serve-planner.mjs` and requires every control, New ▾ entry, canvas event,
+route and `window.planner` name to be named in PARITY.md (new §10 indexes the
+live surface); it also holds the retirement (v1 files stay deleted, no `○`
+returns) and no longer tests the prototype, which is kept as design history.
+`tests/unit/build-planner-v2.spec.ts` → `build-planner.spec.ts`. Docs:
+README (Path A rewritten script-first ≈18 actions, the Authoring section
+rewritten from the parity v2 column, one `planner` command, the layout tree),
+GRAPH-SPEC §2/§8/§10/§12, the graph-author skill, CONTRIBUTING, the PR
+template, PARITY preface + §9 + §10, HANDOVER. Suite: **621 unit+harness
+green at 8 workers AND at 4** (was 689 — the six old specs took 74 tests with
+them; 6 new ones landed: the five ports plus a route test for the 301s).
+Not committed (human git).*
+
+*4.2 done 2026-09-03 — **evidence lives in files; graphs stay readable.**
+`src/graph/evidence.ts` is the one layout rule: a graph's ROOT is its folder,
+or that folder's parent when the folder is `graphs`, so evidence lands in
+`<root>/evidence/<graph_id>/<runId>/<node_id>.jpg` — `projects/<p>/evidence/`
+for a project graph, `journeys/evidence/` for a legacy flat one — and the
+node stores the path RELATIVE to that root
+(`evidence/<id>/<runId>/<node>.jpg`), so a project folder travels with its
+paint. `mergeRunIntoGraph` takes an `evidenceDir` and writes the file
+(`runGraphFile` derives it from where the graph lives; `simulateRun` passes
+it too, `sim_` runId and all). With no `evidenceDir` — `runGraph` on an
+in-memory graph — the legacy inline data URL is still produced, and old
+graphs with `data:` refs open everywhere and migrate on the next merge-back.
+The planner resolves a ref through `P2.net.evidenceUrl`: served, `GET
+/__evidence?ref=<graph ref>&file=<rel>` (path-traversal-safe — anything
+resolving outside that graph's evidence folder is a 403, unknown graph or
+missing file a 404); over `file://` the card NAMES the file instead of
+showing a broken image. The manual attach is untouched (still a data URL — a
+hand-picked reference is not run evidence). `tools/migrate-evidence.mjs`
+(idempotent, `--dry-run`, reusable on customers' graphs) moved the shipped
+`lead_to_customer` graph's six inline JPEGs to
+`journeys/evidence/lead_to_customer/sim_mthrf41j/`: **91 KB → 12 KB**. Those
+six (≈70 KB) stay TRACKED — `.gitignore` ignores `journeys/evidence/**` and
+negates that one folder — so a fresh clone still shows paint. New specs
+`tests/unit/migrate-evidence.spec.ts` + evidence arms in `close-loop`,
+`graph-simulate`, `serve-planner` and `planner-cards` (a real served server,
+the image decoded in the browser). Docs: GRAPH-SPEC §2 + §4, README
+merge-back bullet, DESIGN-PROJECTS §3.7, PARITY §4 + §7 (`/__evidence`).
+Suite: **677 unit+harness green at 8 workers AND at 4.**
+Not committed (human git).*
+
+*4.4 done 2026-09-03 — **fewer concepts, same power** (review §3.1 / §4 #6,
+#8, #9, #10). **Gap engine 12 → 8 kinds, 11 → 8 ops.** `computeGaps` now
+returns `{ gaps, hints }`: a GAP has a write-back op behind it, a HINT does
+not and never blocks. `session_no_url`, `no_oracles` and `no_deny_coverage`
+became hints (which is what the 4.1 strip already called them); the two port
+questions — "no port" and "keep the guess?" — were always one question and
+merged into `data_port`. `api_no_timeout` now fires only for `db.`/`log.`
+checks or when the graph spans more than one system, so a single-system
+`api.*` check on the 10 s default is no longer a nag (the shipped
+`lead_to_customer` opens with **zero** gaps, against eight before).
+`no_session_policy` is asked once per system **per project**: `sfpw grillme`
+collects the sibling graphs' settled systems and passes them in
+(`settledSystems`); with no project context the question stays per graph, as
+before. Ops: `confirmExpect`+`removeExpect` → `answerExpect {node,id,keep}`,
+`confirmIo` folded into `setIo` (no `io` = confirm what is there),
+`setOrigin` → `setExternal`, `setUrl` retired with its hint; the union is
+`AnswerOp` and the list `ANSWER_OPS`. **Data-flow trim:** `bind` gone
+(`consumes`/`updates` always receive `{ record: '{ref:<nodeId>.id}' }`),
+`ref` gone (the node **id** is the handle — the "two data nodes may not share
+a handle" rule collapses into id uniqueness), `origin` → `external?: boolean`
+(`seed` was never used by a shipped graph; grep confirmed). The script form
+prints/parses `(external)` instead of `as <handle>`; the planner's origin
+select became one "exists already" checkbox. Old files still open: a new
+`normalizeGraph()` runs in `resolve.loadGraphFile`, `cli/readGraph` and the
+planner's `loadDoc`, mapping `origin:'seed'|'external'` → `external: true`,
+dropping `origin:'step'`, `ref` and `data.bind`, each with a warning naming
+the node or edge (`upgrade.ts` stays the v1 door and is untouched).
+**Legacy self-wired personas removed:** `usernameEnv/passwordEnv/tokenEnv/
+totpEnv` are gone from `PersonaDef` (a new `EffectivePersona` carries the
+DERIVED names), with the `ownWiring` XOR, `effectivePersona`'s early return,
+`envBlockFor`'s fallback, the `admin` SF_USERNAME/SF_PASSWORD/SF_ACCESS_TOKEN
+fallback in `registry.ts` and the `.env.example` legacy block. Every
+internal/portal persona must name an `account`; both refusals name the exact
+fix (`add accounts["x"] … then set personas["x"].account`). All 13 personas
+in the repo roster already did. **MMPM emitter** left `generate.ts`
+(artifact #4) for `sfpw contracts <journey> [--out <dir>]`, off by default —
+generating a journey no longer writes to a memory substrate as a side
+effect. Docs: GRAPH-SPEC §4/§5/§7/§9/§13, README (8 kinds / 8 ops, the
+`contracts` row, the normalize door), the graph-author skill's ask-order,
+STUDY-DATA-FLOW §5 marked superseded, HANDOVER. Tests: `gaps.spec` rewritten
+(10), new `contracts.spec` (4), `graph-dataflow`/`graph-infer`/`graph-script`/
+`graph-spec`/`readme`/`personas`/`personas-wiring`/`serve-planner`/`doctor`/
+`totp`/`planner-cards`/`planner-sheets` + the cast/runner harness fixtures
+moved to accounts. Suite: **687 unit+harness green at 8 workers AND at 4**;
+`sfpw grillme <ref> --json` prints only the new kinds. Not committed (human
+git).*
+
+*4.3 done 2026-09-03 — **one CLI; Playwright only where a browser is.**
+`bin/sfpw.mjs` (+ `"bin": {"sfpw": …}`, executable) is a thin ESM launcher
+that registers **tsx** — BOTH hooks: the ESM one so the .mjs can `import()` a
+.ts entry, the CJS one because with no `"type": "module"` tsx transpiles
+`src/**` to CommonJS and the extensionless `./schema` imports are resolved by
+the require hook (registering one alone fails "Cannot find module
+'./schema'"). Every command is a thin module in `src/cli/` — parse argv, call
+the existing pure function, print — so the unit suite can import them
+directly: `args.ts` (the shared parser: unknown option = exit 2, `--help`
+anywhere, `--` passes through), `doctor grillme compose import pipeline sweep
+suite record simulate fixture`, plus `playwright.ts` (the ONE place a browser
+is started) and `graphFile.ts`. Grammar: `doctor [<ref>|all|project:<p>]` ·
+`grillme <ref> [--apply <ops.json>] [--json]` · `compose <host> <sub>
+[--after <s>] [--island]` · `import <file.xlsx|.csv> [--project <p>] |
+--paste <file.txt>` · `pipeline <journey> [--aliases a=b,…] [--capability c]
+[--graph] [--overwrite]` · `sweep [--delete] [--targets …] [--patterns …]` ·
+`suite [<spec>] [playwright args…]` · `record <persona> <journey>
+[--expect-denial]` · `simulate <ref> [--overwrite]` · `fixture:trace` ·
+`fixture:artifacts`. Exit codes are the contract — **0** ok, **1** the honest
+"no" (doctor not ready, no recordings, no org for sweep), **2** wrong usage —
+errors on stderr, and `--json` puts the `Gap[]` array on stdout and nothing
+else (it replaces the `GAPS_JSON …` line the skill used to scrape out of a
+reporter's stdout; `.env` is read with `dotenv.parse`, not `config()`, whose
+banner would land on stdout). `sweep` no longer needs Playwright at all: a
+25-line fetch-backed request context feeds the same `SalesforceApi`. DELETED:
+`tests/record/{doctor,grillme,ado-import,compose,pipeline,sweep}.spec.ts`;
+the four that need a browser stay (`record`, `simulate` — `page.setContent`
+renders the evidence cards —, the two fixture generators) and `sfpw`
+delegates to them with the env set (`--dry-run` prints the exact command,
+which is how the suite tests the wiring without a browser). The nine npm
+scripts became `node bin/sfpw.mjs <command>` aliases, so `npm run doctor --
+all` and `npx sfpw doctor all` are the same thing and muscle memory survives.
+CI drops `--project=record` (it ran eight tests that skipped to green). The
+planner's dev server now spawns `npm run record -- <persona> <journey>`
+(argv, not env) and its copy-a-command surfaces say `npx sfpw suite …` /
+`npx sfpw pipeline … --graph`. New `tests/unit/sfpw.spec.ts` (38 tests)
+spawns the real bin: help, unknown command/option, doctor exit 1 + the "no
+graphs" sentence, `--json` is exactly one line of JSON, `--apply` writes,
+compose writes the host and never the sub, CSV and `--paste` imports, sweep
+without an org, the four delegations verbatim, and the retirement itself.
+`cli.spec`/`doctor.spec`/`gaps.spec` are untouched — they test pure
+functions. Docs: README (a `sfpw` command table with the npm aliases beside
+it, every env-var invocation rewritten), GRAPH-SPEC §2/§8/§9/§10/§12,
+graph-author skill, CONTRIBUTING ground rule 6, DESIGN-PROJECTS §3.2/§3.7,
+PARITY §3/§7/§10, HANDOVER, the project scaffolder + the salesforce project
+README, the bug-report template. Suite: **677 unit+harness green at 8 workers
+AND at 4** (38 of them the new spec); `--project=record --list` shows exactly
+the four browser specs. Not committed (human git).*
+
 | # | Deliverable |
 |---|---|
-| 4.1 | Remove `tools/planner-src.html` / `process-planner.html`; `npm run planner` serves the new one; README "Creating a graph" rewritten (Path A ≈ 18 actions); parity table rows all ✓; parity test now guards the new source. |
-| 4.2 | Evidence to files (`mergeRun` writes `projects/<p>/evidence/<id>/<runId>/*.jpg`, graph stores refs). |
-| 4.3 | `sfpw` CLI (`doctor grillme compose import pipeline sweep suite`; `record`/`simulate` delegate to Playwright); `tests/record/*` reduced to the browser-needing three. |
-| 4.4 | Gap engine 12 → 8 kinds; data-flow trim (`bind`, `ref` → gone, `origin` → `external?`); legacy self-wired personas removed; MMPM batch emitter behind `sfpw contracts`. |
+| 4.1 | ✅ Remove `tools/planner-src.html` / `process-planner.html`; `npm run planner` serves the new one; README "Creating a graph" rewritten (Path A ≈ 18 actions); parity table rows all ✓; parity test now guards the new source. |
+| 4.2 | ✅ Evidence to files (`mergeRun` writes `<graph root>/evidence/<id>/<runId>/<node>.jpg`, the graph stores the relative ref; `/__evidence` serves them; `tools/migrate-evidence.mjs` moves old inline paint out). |
+| 4.3 | ✅ `sfpw` CLI (`doctor grillme compose import pipeline sweep suite`, `record`/`simulate`/`fixture:*` delegate to Playwright); argv not env vars, exit 0/1/2, `--help` everywhere; `tests/record/*` reduced to the four that need a browser; CI stops running the record project. |
+| 4.4 | ✅ Gap engine 12 → 8 kinds, 11 → 8 ops (+ 3 hints with no op); data-flow trim (`bind`, `ref` → gone, `origin` → `external?`, `normalizeGraph()` load door); legacy self-wired personas removed; MMPM batch emitter behind `sfpw contracts`. |
+
+**Sprint 4 is done.** Four deliverables, one theme: *fewer concepts, same
+power*. 4.1 retired the v1 planner and rewrote the authoring path around a
+script the canvas renders. 4.2 moved evidence out of the document and into
+files. 4.3 replaced eleven Playwright specs-as-CLIs with one `sfpw` binary
+that has exit codes and `--help`. 4.4 took the review's trim list: the gap
+engine stopped asking questions whose answer is "the default", the data-flow
+model lost its second handle namespace and its unused seed origin, and a
+persona now always names the account that plays it. Nothing a graph could
+express before it cannot express now; there is simply less to learn.
 
 ## Working rules
 

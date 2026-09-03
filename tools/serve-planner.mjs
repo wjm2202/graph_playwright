@@ -3,11 +3,11 @@
  * Planner dev server — zero dependencies. `npm run planner`
  *
  * - serves tools/ over http://127.0.0.1:8765 (PLANNER_PORT overrides). `/`
- *   is planner v1 (process-planner.html) until sprint 4 retires it;
- *   PLANNER_V2=1 (npm run planner:v2) makes it the journey script planner.
- *   Both files are always built and always reachable by name.
- * - rebuilds BOTH planners whenever the PLANNER SOURCE changes
- *   (planner-src.html, planner-v2/**, build-planner.mjs, src/graph/*.ts) and live-reloads
+ *   and `/planner.html` are the Journey Script Planner; the two names the
+ *   retired planners answered to (`/process-planner.html`,
+ *   `/journey-planner.html`) 301 to it so old bookmarks still land.
+ * - rebuilds the planner whenever the PLANNER SOURCE changes
+ *   (planner-v2/**, build-planner.mjs, src/graph/*.ts) and live-reloads
  *   every open tab via SSE. Saved DATA — graphs, projects, personas — is read
  *   back over /__library, /__projects and /__personas instead: a save is a
  *   fetch, never a 1.1 MB re-inline plus a reload of the app you are editing
@@ -31,6 +31,7 @@ const requireCjs = createRequire(import.meta.url);
 const BRIDGE = {
   imports: ['graph/adoImports.js', 'src/graph/adoImports.ts'],
   schema: ['graph/schema.js', 'src/graph/schema.ts'],
+  evidence: ['graph/evidence.js', 'src/graph/evidence.ts'],
   personas: ['personas/schema.js', 'src/personas/schema.ts'],
   wiring: ['personas/wiring.js', 'src/personas/wiring.ts'],
 };
@@ -68,7 +69,7 @@ function transpileBridge(name, src, file) {
   if (!existsSync(file)) throw new Error(`${name} bridge not built — run npm run build:planner`);
 }
 /** What this server process can do — the page compares it with what it expects. */
-const SERVER_CAPABILITIES = { version: 6, imports: true, graphs: true, projects: true, personas: true, accounts: true, library: true, record: true, recordings: true };
+const SERVER_CAPABILITIES = { version: 7, imports: true, graphs: true, projects: true, personas: true, accounts: true, library: true, record: true, recordings: true, evidence: true };
 /** Persona ids from the data root's personas.json (draft-graph role binding hints). */
 function knownPersonas() {
   try {
@@ -104,6 +105,10 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
 };
 
 // Live reload — DEFERRED while the page says it is mid-dialog (the import
@@ -126,11 +131,12 @@ export function contentTypeFor(path) {
 }
 
 /**
- * Which planner `/` serves. v1 stays the default until sprint 4 retires it;
- * `PLANNER_V2=1 npm run planner` (or `npm run planner:v2`) opens the new one.
- * Both files are always built and both are always reachable by name.
+ * The single planner file this server serves, at `/` and by name (sprint
+ * 4.1). The names the retired planners used redirect to it — permanently,
+ * because those files are gone from the repo, not merely renamed.
  */
-const DEFAULT_PLANNER = process.env.PLANNER_V2 ? 'journey-planner.html' : 'process-planner.html';
+export const PLANNER_FILE = 'planner.html';
+const REDIRECTS = new Set(['/process-planner.html', '/journey-planner.html']);
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
@@ -168,7 +174,6 @@ if (isMain) {
   // open tab. The page reads that data over /__library, /__projects and
   // /__personas now, so a save changes nothing the browser is running.
   const watchTargets = [
-    join(toolsDir, 'planner-src.html'),
     join(toolsDir, 'planner-v2'),
     join(toolsDir, 'planner-v2', 'js'),
     join(toolsDir, 'build-planner.mjs'),
@@ -415,12 +420,15 @@ if (isMain) {
   }
 
   // ---- recording runs (review §7: the planner starts `npm run record`) ---
-  // The child is a plain `npm run record` with RECORD_PERSONA/RECORD_JOURNEY
-  // in its environment — the SAME command a human types, so there is no
-  // second way to record. PLANNER_RECORD_CMD replaces it (tests point it at
-  // a script that exits without opening a browser). RECORD_PROJECT is NOT
-  // passed: parseRecordEnv (src/pipeline/recording.ts) knows journey ids
-  // only, so `project` here just resolves WHICH graph is meant.
+  // The child is a plain `npm run record -- <persona> <journey>` — the SAME
+  // command a human types (4.3: the CLI takes argv, not env vars), so there
+  // is no second way to record. RECORD_PERSONA/RECORD_JOURNEY are ALSO put
+  // in the environment: tests/record/record.spec.ts still reads them (sfpw
+  // sets them when it delegates), and PLANNER_RECORD_CMD stand-ins do too.
+  // PLANNER_RECORD_CMD replaces the command (tests point it at a script that
+  // exits without opening a browser). RECORD_PROJECT is NOT passed:
+  // parseRecordEnv (src/pipeline/recording.ts) knows journey ids only, so
+  // `project` here just resolves WHICH graph is meant.
   const RECORD_TAIL = 40;
   const recordings = new Map();
   let recordSeq = 0;
@@ -439,7 +447,8 @@ if (isMain) {
     };
     // detached:false — the recorder stays in the server's process group, so
     // Ctrl+C on `npm run planner` stops the headed browser with it.
-    const child = spawn(argv[0], argv.slice(1), {
+    // `--` so npm hands the two arguments to sfpw rather than eating them.
+    const child = spawn(argv[0], [...argv.slice(1), '--', persona, target.id], {
       cwd: root,
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -486,6 +495,25 @@ if (isMain) {
     if (url.pathname === '/__library' && req.method === 'GET') {
       try { sendJson(res, 200, { ok: true, ...readLibrary() }); }
       catch (e) { sendJson(res, 400, { ok: false, error: e.message }); }
+      return;
+    }
+    // ---- run evidence: GET /__evidence?ref=<graph ref>&file=<relative> ----
+    // Since sprint 4.2 a graph's snapshots are FILES under its own
+    // `<root>/evidence/` (src/graph/evidence.ts) and the node keeps the
+    // relative ref. This is the only door to them, and it opens ONLY inside
+    // that one directory: the ref comes out of a JSON file on disk, so
+    // `../../.env` must resolve to a 403, not to a secret.
+    if (url.pathname === '/__evidence' && req.method === 'GET') {
+      const graphRef = String(url.searchParams.get('ref') ?? '');
+      const rel = String(url.searchParams.get('file') ?? '');
+      const row = graphRef ? findGraph('', graphRef) : undefined;
+      if (!row) { sendJson(res, 404, { ok: false, error: `no such graph '${graphRef}'` }); return; }
+      const graphFile = join(dataRoot, row.file);
+      const file = bridge('evidence').resolveEvidenceRef(graphFile, rel);
+      if (!file) { sendJson(res, 403, { ok: false, error: `'${rel}' is not inside this graph's evidence folder` }); return; }
+      if (!existsSync(file)) { sendJson(res, 404, { ok: false, error: `no evidence file '${rel}'` }); return; }
+      res.writeHead(200, { 'Content-Type': contentTypeFor(file), 'Cache-Control': 'no-store' });
+      res.end(readFileSync(file));
       return;
     }
     // GET /__recordings → { ok, recordings: [{journey, latest, runs:[{dir, persona, at}]}] }
@@ -685,7 +713,13 @@ if (isMain) {
       });
       return;
     }
-    const rel = url.pathname === '/' ? `/${DEFAULT_PLANNER}` : url.pathname;
+    // Old bookmarks (both retired planners) land on the one that exists.
+    if (REDIRECTS.has(url.pathname)) {
+      res.writeHead(301, { Location: `/${PLANNER_FILE}`, 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
+    const rel = url.pathname === '/' ? `/${PLANNER_FILE}` : url.pathname;
     const file = normalize(join(toolsDir, rel));
     if (!file.startsWith(toolsDir) || !existsSync(file)) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
@@ -711,8 +745,7 @@ if (isMain) {
   rebuild('startup');
   server.listen(port, '127.0.0.1', () => {
     const actual = server.address().port; // PLANNER_PORT=0 → OS-assigned (tests)
-    console.log(`process planner → http://127.0.0.1:${actual}/${DEFAULT_PLANNER}`);
-    if (!process.env.PLANNER_V2) console.log(`journey script planner (v2) → http://127.0.0.1:${actual}/journey-planner.html   (PLANNER_V2=1 makes it the default)`);
-    console.log('watching planner-src.html, planner-v2/, build-planner.mjs, src/graph/ — planner-source edits rebuild + live-reload. Saved graphs do not (the page re-reads /__library). Ctrl+C to stop.');
+    console.log(`journey script planner → http://127.0.0.1:${actual}/${PLANNER_FILE}`);
+    console.log('watching planner-v2/, build-planner.mjs, src/graph/ — planner-source edits rebuild + live-reload. Saved graphs do not (the page re-reads /__library). Ctrl+C to stop.');
   });
 }

@@ -45,8 +45,8 @@ test.describe('scaffolder (npm run project:new)', () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'project.json'), 'utf8')) as Record<string, unknown>;
     expect(manifest).toMatchObject({ project: 'web_shop', team: 'Web', systems: [], uses: [], namePrefix: 'E2E_WEB_SHOP' });
     const readme = fs.readFileSync(path.join(dir, 'docs', 'README.md'), 'utf8');
-    expect(readme).toContain('GRAPH_DOCTOR=project:web_shop');
-    expect(readme).toContain('GRILLME=web_shop/<graph_id>');
+    expect(readme).toContain('sfpw doctor project:web_shop');
+    expect(readme).toContain('sfpw grillme web_shop/<graph_id>');
     // Asset dirs are kept in git; scratch dirs are not.
     expect(fs.existsSync(path.join(dir, 'graphs', '.gitkeep'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'recordings', '.gitkeep'))).toBe(false);

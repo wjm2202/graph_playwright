@@ -1,5 +1,7 @@
 # DESIGN — Projects: multi-team, multi-application structure
 
+> **Status (2026-09-03): design history, shipped.** Projects, refs (`<project>/<id>`) and the scaffolder are as described. One mechanism it names has been replaced: per-graph spec generation (`toSpec`, `graph:spec`) gave way to suites — `suites.json` plus one generic `tests/e2e/graphs.spec.ts`, run with `sfpw suite`. See [GRAPH-SPEC.md](GRAPH-SPEC.md) §2 and the README.
+
 *Proposal, 2026-09-01. Status: for review — no code changed yet.*
 
 ## 1. The problem
@@ -142,13 +144,15 @@ rebuild. Deleting a project is deleting its folder.
 
 ### 3.2 Graph references
 
-Every CLI keeps its env-var interface; the value gains a project segment:
+Every command takes a ref where it used to take a bare id; the ref gains a
+project segment. (Sprint 4.3 turned these env vars into one `sfpw` argv
+grammar — the refs are unchanged.)
 
 ```
-GRILLME=salesforce/lead_intake        npm run grillme
-SUITE=graph:e2e-journeys/lead_to_customer npm run suite
-SIMULATE=digital-frontend/checkout    npm run simulate
-GRAPH_DOCTOR=project:siebel           npm run doctor     (whole project)
+sfpw grillme salesforce/lead_intake
+sfpw suite graph:e2e-journeys/lead_to_customer
+sfpw simulate digital-frontend/checkout
+sfpw doctor project:siebel                      (whole project)
 ```
 
 One new helper (`src/graph/resolve.ts`) resolves `<project>/<id>` →
@@ -237,9 +241,19 @@ test runs and stay as they are. Team scoping is path scoping:
 
 Run output (report.json, per-step screenshots) lands in
 `projects/<p>/evidence/<graph_id>/<runId>/` via the runner's existing
-`runDir` parameter — gitignored; the graph keeps embedding its ≤300KB
-thumbnails so the planner still paints, and heavyweight evidence has a
-predictable, per-team home (retention policy per team, not per repo).
+`runDir` parameter — gitignored; heavyweight evidence has a predictable,
+per-team home (retention policy per team, not per repo).
+
+**Sprint 4.2 made that folder the graph's only evidence store.** Merge-back
+writes each snapshot to `<graph root>/evidence/<graph_id>/<runId>/<node>.jpg`
+— the root being `projects/<p>/` here, `journeys/` for a legacy flat graph —
+and the node keeps the path RELATIVE to that root
+(`evidence/<graph_id>/<runId>/<node>.jpg`), so a project folder carries its
+paint wherever it is copied. Nothing base64 goes into the document any more:
+`lead_to_customer.graph.json` went from 91 KB to 12 KB. The planner reads
+those files over `GET /__evidence?ref=<graph ref>&file=<relative ref>`, which
+serves nothing outside that one directory. `src/graph/evidence.ts` owns the
+rule; `tools/migrate-evidence.mjs` moves an older graph's inline images out.
 Telemetry events gain a `project` field; `npm run labour` reports per team.
 
 ## 4. Cross-application E2E — the point of the exercise
@@ -254,7 +268,7 @@ Telemetry events gain a `project` field; `npm run labour` reports per team.
 - **Vocabulary** composes — the E2E spec runs on the SF team's captured
   `lead.create` and the Siebel team's `siebel.check_customer`; the E2E team
   captures nothing the app teams already own.
-- **Readiness aggregates** — `GRAPH_DOCTOR=project:e2e-journeys` walks
+- **Readiness aggregates** — `sfpw doctor project:e2e-journeys` walks
   `uses` and reports every env var the whole journey needs.
 - **Naming**: E2E runs use their own `namePrefix` (`E2E_X`), so a
   cross-app run's records are distinguishable from any app team's — and the
@@ -270,7 +284,7 @@ folder depths — which is the property that keeps the platform singular.
 `create_customer` and the test covers more functionality.
 
 ```
-COMPOSE=<host_ref> COMPOSE_WITH=<sub_ref> [COMPOSE_AFTER=<session_id>] npm run graph:compose
+sfpw compose <host_ref> <sub_ref> [--after <session_id>] [--island]
 planner: insert ▾ (file group) — splices after the selected session
 ```
 
@@ -320,11 +334,11 @@ generated artifacts* (graphs, steps, specs, evidence) plus docs.
   `expense_to_siebel` → `siebel/`), add `resolveGraphRef` with the legacy
   fallback, update the ~12 hardcoded `journeys/graphs` sites + their tests.
 - **M1 — manifests + doctor/planner awareness**: `project.json`,
-  `GRAPH_DOCTOR=project:<p>`, planner PLANNER_ROOT recipe documented,
+  `sfpw doctor project:<p>`, planner PLANNER_ROOT recipe documented,
   `/__projects` + dropdown.
 - **M2 — output relocation**: pipeline `outDirs` → project folders
   (journeys, steps, baselines, recordings); one generic suite runner
-  (`tests/e2e/graphs.spec.ts`) covers every project graph (`SUITE=project:<p>`).
+  (`tests/e2e/graphs.spec.ts`) covers every project graph (`sfpw suite project:<p>`).
 - **M3 — team fencing**: `namePrefix` wired through uniqueName / sweeper /
   oracle scope; telemetry `project` field; CI matrix; CODEOWNERS.
 - **M4 — deferred decisions** (§7).

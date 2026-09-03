@@ -14,9 +14,10 @@ import { PersonaRegistry } from '../../src/personas/registry';
 const doc = {
   org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
   sites: { portal: { urlEnv: 'SF_SITE_URL' } },
+  accounts: { sub: {}, app: {} },
   personas: {
-    submitter: { kind: 'internal', usernameEnv: 'SF_SUB_USERNAME' },
-    approver: { kind: 'internal', usernameEnv: 'SF_APP_USERNAME' },
+    submitter: { kind: 'internal', account: 'sub' },
+    approver: { kind: 'internal', account: 'app' },
     guest: { kind: 'guest', site: 'portal' },
   },
 };

@@ -241,7 +241,7 @@ export function inferDataflow(
       h.origin = 'external';
       flags.push(
         `record ${h.id}${h.sobject ? ` (${h.sobject})` : ''} pre-existed — no step in this recording created it; ` +
-          `it stays literal as {external ${handle}}: seed it (origin: seed) or find it by name (origin: external) before relying on the replay`,
+          `it stays literal as {external ${handle}}: seed it, or mark the graph's record external and find it by name, before relying on the replay`,
       );
       continue;
     }

@@ -1,5 +1,7 @@
 # Review — feature accretion, simplification, and a new authoring UI
 
+> **Status (2026-09-03): acted on.** Every proposal in §4 and the design in §5 shipped through the four sprints in [SPRINT-PLAN-PLANNER-V2.md](SPRINT-PLAN-PLANNER-V2.md); the retired planner it measures in §2 no longer exists. Kept as the record of what was found and why the shape changed.
+
 *2026-09-03. Code review of `src/graph`, `src/journeys`, `src/pipeline`, `src/personas`, `tools/` (planner + dev server), and a hands-on run of the planner (Path A from the README, driven with Playwright, screenshots land in `docs/review-shots/`, which is gitignored — regenerate them with `node tools/review/drive-planner.mjs` against a running `npm run planner`). Judged against the seven product goals: (1) UI-built journeys assembled across personas and systems, (2) inferred data elements shared between graphs, (3) speed and simplicity of creating/joining graphs, (4) hand- or AI-crafted graphs, (5) graphs → specs, (6) CI and local runs, (7) suites.*
 
 ## 1. Verdict in one paragraph

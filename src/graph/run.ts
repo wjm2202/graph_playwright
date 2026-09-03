@@ -12,6 +12,7 @@ import { baselinesPathFor, loadBaselinesFile, saveBaselinesFile, updateBaselines
 import { toJourney } from './toJourney';
 import { mergeRunIntoGraph, type MergeResult } from './mergeRun';
 import { loadGraphFile } from './resolve';
+import { evidenceDirFor } from './evidence';
 import type { AuthMethod, ProcessGraph } from './schema';
 import { runId } from '../utils/naming';
 import { recordEvent } from '../telemetry';
@@ -33,6 +34,9 @@ export async function runGraph(
     actorOverrides?: Record<string, string> | undefined;
     /** Names the variant in the report / telemetry ("client_lead"). */
     variant?: string | undefined;
+    /** Where run screenshots land (src/graph/evidence.ts). runGraphFile
+     *  derives it from the graph's location; unset = legacy inline refs. */
+    evidenceDir?: string | undefined;
   },
 ): Promise<RunGraphResult> {
   // A persona-matrix variant is ONE binding for THIS walk. The graph that is
@@ -44,7 +48,6 @@ export async function runGraph(
       if (!(alias in graph.actors)) throw new Error(`actorOverrides: alias '${alias}' is not in the graph's actors (${Object.keys(graph.actors).join(', ')})`);
     }
     const { alternatives: _matrix, ...rest } = graph; // the validator would refuse an alternative equal to the new default
-    void _matrix;
     walkGraph = { ...rest, actors: { ...graph.actors, ...deps.actorOverrides } };
   }
   const walked = toJourney(walkGraph, {
@@ -74,6 +77,7 @@ export async function runGraph(
     journeyId: walked.journey.journey,
     stepEdgeIds: walked.stepEdgeIds,
     runId: runId(),
+    ...(deps.evidenceDir ? { evidenceDir: deps.evidenceDir } : {}),
   });
 
   if (deps.runDir) {
@@ -90,13 +94,17 @@ export interface RunGraphFileOptions {
 }
 
 /** File flavor: load (upgrading v1 on the way in), run, save the painted
- *  graph in place + the report. */
+ *  graph in place + the report, with the run's screenshots written to the
+ *  graph's own evidence folder (`<root>/evidence/…`, evidence.ts). */
 export async function runGraphFile(
   graphFile: string,
   deps: Parameters<typeof runGraph>[1],
   opts: RunGraphFileOptions = {},
 ): Promise<RunGraphResult> {
   const graph = loadGraphFile(graphFile);
+  // WHERE the graph lives decides where its evidence lives: a project graph
+  // paints into projects/<p>/evidence/, a legacy one into journeys/evidence/.
+  const evidenceDir = deps.evidenceDir ?? evidenceDirFor(graphFile);
 
   // Timing knowledge is a repo file, not part of the graph (baselines.ts):
   // when journeys/baselines/<id>.baselines.json exists the runner grades every
@@ -107,7 +115,7 @@ export async function runGraphFile(
   const baselines = deps.baselines ?? stored;
 
   const started = Date.now();
-  const result = await runGraph(graph, { ...deps, ...(baselines ? { baselines } : {}) });
+  const result = await runGraph(graph, { ...deps, evidenceDir, ...(baselines ? { baselines } : {}) });
   fs.writeFileSync(graphFile, JSON.stringify(result.graph, null, 2) + '\n');
   // Labour telemetry: real graph runs mark the scaffold→green wall clock.
   const green =

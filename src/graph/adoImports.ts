@@ -150,13 +150,12 @@ export function applyImport(
 }
 
 /** lower_snake_case graph id from the title (ADO id as a tiebreaker), unique in the folder. */
-function graphIdFor(tc: AdoCase, project: string, graphsDir: string): string {
+function graphIdFor(tc: AdoCase, _project: string, graphsDir: string): string {
   let base = tc.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').replace(/^[^a-z]+/, '').slice(0, 48);
   if (!base) base = `case_${tc.id ?? 'x'}`.replace(/[^a-z0-9_]+/g, '_');
   const taken = (x: string) => fs.existsSync(path.join(graphsDir, `${x}.graph.json`));
   let id = base;
   if (taken(id) && tc.id) id = `${base}_${tc.id.replace(/[^a-z0-9]+/gi, '').toLowerCase()}`; // the ADO id disambiguates
   for (let n = 2; taken(id); n++) id = `${base}_${n}`;
-  void project;
   return id;
 }

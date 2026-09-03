@@ -1,6 +1,11 @@
 /**
  * personas.json schema + registry: the no-secrets-in-JSON contract, pool
- * suffixing, legacy env fallback, and actionable failure messages.
+ * suffixing, and actionable failure messages.
+ *
+ * Sprint 4.4 removed the legacy self-wired persona (credential env names
+ * directly on a persona, the `admin` SF_USERNAME/SF_PASSWORD fallback):
+ * every internal/portal persona names an ACCOUNT, and the account owns the
+ * wiring. The rejections below are the loud errors that say so.
  */
 import { test, expect } from '@playwright/test';
 import * as path from 'path';
@@ -10,10 +15,17 @@ import { PersonaRegistry } from '../../src/personas/registry';
 const good = () => ({
   org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
   sites: { portal: { urlEnv: 'SF_SITE_URL' } },
+  // The derived names are the same ones the old self-wired personas spelled
+  // out by hand: SF_<ACCOUNT>_USERNAME/_PASSWORD/_TOKEN/_TOTP_SECRET.
+  accounts: {
+    admin: { auth: 'frontdoor' },
+    sales: { poolSize: 4 },
+    portal: { auth: 'singleaccess' },
+  },
   personas: {
-    admin: { kind: 'internal', usernameEnv: 'SF_ADMIN_USERNAME', passwordEnv: 'SF_ADMIN_PASSWORD', tokenEnv: 'SF_ADMIN_TOKEN', auth: 'frontdoor' },
-    sales_user: { kind: 'internal', usernameEnv: 'SF_SALES_USERNAME', passwordEnv: 'SF_SALES_PASSWORD', poolSize: 4 },
-    portal_user: { kind: 'portal', site: 'portal', usernameEnv: 'SF_PORTAL_USERNAME', tokenEnv: 'SF_PORTAL_TOKEN', auth: 'singleaccess' },
+    admin: { kind: 'internal', account: 'admin' },
+    sales_user: { kind: 'internal', account: 'sales' },
+    portal_user: { kind: 'portal', site: 'portal', account: 'portal' },
     guest: { kind: 'guest', site: 'portal' },
   },
 });
@@ -31,12 +43,25 @@ test.describe('validatePersonas', () => {
     expect(validatePersonas(good()).ok).toBe(true);
   });
 
-  test('non-guest persona without an account or usernameEnv is rejected', () => {
+  test('a non-guest persona without an account is rejected, and the error names the fix', () => {
     const d = good();
-    delete (d.personas.admin as Record<string, unknown>).usernameEnv;
+    delete (d.personas.admin as Record<string, unknown>).account;
     const r = validatePersonas(d);
     expect(r.ok).toBe(false);
-    expect(r.errors.join()).toContain('admin.account: required');
+    const err = r.errors.join('\n');
+    expect(err).toContain('personas.admin.account: required');
+    expect(err).toContain('accounts["admin"]');            // what to add
+    expect(err).toContain('personas["admin"].account');     // and what to point at it
+  });
+
+  test('credential env names ON A PERSONA are refused, naming the account to move them to', () => {
+    for (const key of ['usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv']) {
+      const d = good();
+      (d.personas.admin as Record<string, unknown>)[key] = 'SF_ADMIN_THING';
+      const err = validatePersonas(d).errors.join('\n');
+      expect(err, key).toContain(`personas.admin.${key}: credential env names live on the ACCOUNT`);
+      expect(err, key).toContain('sprint 4.4 removed self-wired personas');
+    }
   });
 
   test('portal persona requires a declared site', () => {
@@ -50,14 +75,15 @@ test.describe('validatePersonas', () => {
   });
 
   test('portal + classic frontdoor is rejected (site sessions need singleaccess)', () => {
-    const d = good();
-    (d.personas.portal_user as Record<string, unknown>).auth = 'frontdoor';
+    // The ACCOUNT's auth is what Cast uses, so that is what the rule reads.
+    const d = good() as unknown as { accounts: Record<string, Record<string, unknown>> };
+    d.accounts.portal!.auth = 'frontdoor';
     expect(validatePersonas(d).errors.join()).toContain('singleaccess');
   });
 
   test('inline secrets are rejected: *Env fields must be env-var NAMES', () => {
-    const d = good();
-    (d.personas.admin as Record<string, unknown>).passwordEnv = 'hunter2!secret';
+    const d = good() as unknown as { accounts: Record<string, Record<string, unknown>> };
+    d.accounts.admin!.passwordEnv = 'hunter2!secret';
     const r = validatePersonas(d);
     expect(r.ok).toBe(false);
     expect(r.errors.join()).toContain('inline secret');
@@ -71,16 +97,35 @@ test.describe('validatePersonas', () => {
     expect(r.errors.join()).toContain('unknown key');
   });
 
-  test('guest personas carry no credential envs', () => {
+  test('guest personas carry no credential envs and no account', () => {
     const d = good();
     (d.personas.guest as Record<string, unknown>).usernameEnv = 'SF_GUEST_USERNAME';
-    expect(validatePersonas(d).errors.join()).toContain('unauthenticated');
+    expect(validatePersonas(d).errors.join()).toContain('credential env names live on the ACCOUNT');
+    const d2 = good();
+    (d2.personas.guest as Record<string, unknown>).account = 'admin';
+    expect(validatePersonas(d2).errors.join()).toContain('unauthenticated');
   });
 
   test('poolSize must be a positive integer', () => {
     const d = good();
     (d.personas.sales_user as Record<string, unknown>).poolSize = 0;
     expect(validatePersonas(d).ok).toBe(false);
+  });
+
+  test('every persona in the repo personas.json names an account (or is the guest)', () => {
+     
+    const doc = require(path.resolve(__dirname, '../../personas.json')) as PersonasDoc;
+    const ids = Object.keys(doc.personas);
+    expect(ids.length).toBeGreaterThan(10);
+    for (const id of ids) {
+      const p = doc.personas[id]!;
+      if (p.kind === 'guest') { expect(p.account, id).toBeUndefined(); continue; }
+      expect(p.account, `persona '${id}' must name an account`).toBeTruthy();
+      expect(doc.accounts?.[p.account!], `account '${p.account}' must be declared`).toBeTruthy();
+      for (const key of ['usernameEnv', 'passwordEnv', 'tokenEnv', 'totpEnv']) {
+        expect(p as unknown as Record<string, unknown>, id).not.toHaveProperty(key);
+      }
+    }
   });
 });
 
@@ -101,22 +146,19 @@ test.describe('PersonaRegistry', () => {
     expect(reg().envNamesFor('admin', 3).username).toBe('SF_ADMIN_USERNAME');
   });
 
-  test('totpEnv: parsed, pool-suffixed, names-only enforced, refused on guests', () => {
-    const doc = good() as { personas: Record<string, Record<string, unknown>> };
-    doc.personas.admin!.totpEnv = 'SF_ADMIN_TOTP_SECRET';
-    doc.personas.sales_user!.totpEnv = 'SF_SALES_TOTP_SECRET'; // poolSize 4
-    const r = PersonaRegistry.fromDoc(doc);
+  test('totpEnv: derived, pool-suffixed, names-only enforced, refused on guests', () => {
+    const r = PersonaRegistry.fromDoc(good());
     expect(r.envNamesFor('admin').totp).toBe('SF_ADMIN_TOTP_SECRET');
-    expect(r.envNamesFor('sales_user', 6).totp).toBe('SF_SALES_TOTP_SECRET_W2');
+    expect(r.envNamesFor('sales_user', 6).totp).toBe('SF_SALES_TOTP_SECRET_W2'); // poolSize 4
 
     // Inline-looking values are rejected — env NAMES only, same as the rest:
-    const bad = good() as { personas: Record<string, Record<string, unknown>> };
-    bad.personas.admin!.totpEnv = 'JBSWY3DPEHPK3PXP'; // smells like the secret itself
+    const bad = good() as unknown as { accounts: Record<string, Record<string, unknown>> };
+    bad.accounts.admin!.totpEnv = 'JBSWY3DPEHPK3PXP'; // smells like the secret itself
     expect(() => PersonaRegistry.fromDoc(bad)).toThrow(/looks like an inline secret|NAMES only/);
 
     const guest = good() as { personas: Record<string, Record<string, unknown>> };
     guest.personas.guest!.totpEnv = 'GUEST_TOTP';
-    expect(() => PersonaRegistry.fromDoc(guest)).toThrow(/guest personas are unauthenticated/);
+    expect(() => PersonaRegistry.fromDoc(guest)).toThrow(/credential env names live on the ACCOUNT/);
   });
 
   test('resolveCreds reads values from the env map', () => {
@@ -124,9 +166,12 @@ test.describe('PersonaRegistry', () => {
     expect(c).toEqual({ username: 'u2@x', password: 'pw', token: undefined });
   });
 
-  test('legacy fallback: admin resolves SF_USERNAME/SF_PASSWORD/SF_ACCESS_TOKEN', () => {
+  test('the legacy admin fallback is GONE: SF_USERNAME/SF_PASSWORD/SF_ACCESS_TOKEN no longer log anyone in', () => {
     const c = reg().resolveCreds('admin', { SF_USERNAME: 'a@x', SF_PASSWORD: 'p', SF_ACCESS_TOKEN: 't' });
-    expect(c).toEqual({ username: 'a@x', password: 'p', token: 't' });
+    expect(c).toEqual({ username: undefined, password: undefined, token: undefined });
+    expect(reg().hasCreds('admin', { SF_USERNAME: 'a@x', SF_PASSWORD: 'p' })).toBe(false);
+    // Its account's own names still do:
+    expect(reg().resolveCreds('admin', { SF_ADMIN_TOKEN: 't' })).toEqual({ username: undefined, password: undefined, token: 't' });
   });
 
   test('hasCreds: token alone suffices; guest always true; empty env false', () => {
@@ -147,7 +192,9 @@ test.describe('PersonaRegistry', () => {
   });
 
   test('statePathForPersona: pooled personas get worker-suffixed files', () => {
-    expect(reg().statePathForPersona('sales_user', 6)).toContain('sales_user-w2.json');
+    // The session file belongs to the LOGIN, not the role: `sales_user`
+    // plays the `sales` account, so its state file is that account's.
+    expect(reg().statePathForPersona('sales_user', 6)).toContain('sales-w2.json');
     expect(reg().statePathForPersona('admin', 6)).toContain('admin.json');
   });
 
@@ -158,9 +205,12 @@ test.describe('PersonaRegistry', () => {
   });
 
   test('fromDoc surfaces every validation error at once', () => {
-    const bad = good();
-    delete (bad.personas.admin as Record<string, unknown>).usernameEnv;
-    (bad.personas.portal_user as Record<string, unknown>).auth = 'frontdoor';
+    const bad = good() as unknown as {
+      accounts: Record<string, Record<string, unknown>>;
+      personas: Record<string, Record<string, unknown>>;
+    };
+    delete bad.personas.admin!.account;
+    bad.accounts.portal!.auth = 'frontdoor';
     expect(() => PersonaRegistry.fromDoc(bad)).toThrow(/admin\.account[\s\S]*singleaccess/);
   });
 });
@@ -182,7 +232,6 @@ const withAccounts = (): PersonasDoc => ({
     bdm: { kind: 'internal', role: 'Business Development Manager', account: 'sales_mgr' },
     siebel_agent: { kind: 'internal', role: 'CRM Agent', account: 'crm_ops' },
     old_timer: { kind: 'internal', role: 'Old Timer', account: 'legacy' },
-    self_wired: { kind: 'internal', usernameEnv: 'SF_SELF_USERNAME', passwordEnv: 'SF_SELF_PASSWORD' },
     guest: { kind: 'guest', site: 'portal' },
   },
 });
@@ -244,10 +293,10 @@ test.describe('accounts: the env convention', () => {
     expect(r.errors.join()).toContain("'sales_mgrr' is not declared in accounts");
   });
 
-  test('account AND own *Env wiring on one persona is rejected', () => {
-    const d = withAccounts();
+  test('*Env wiring on a persona is rejected outright — the account owns it', () => {
+    const d = withAccounts() as unknown as { personas: Record<string, Record<string, unknown>> };
     d.personas.client_lead!.usernameEnv = 'SF_X_USERNAME';
-    expect(validatePersonas(d).errors.join()).toContain('the account owns the wiring');
+    expect(validatePersonas(d).errors.join()).toContain('credential env names live on the ACCOUNT');
   });
 
   test('accounts reject unknown keys, inline secrets, bad system ids, bad pools', () => {
@@ -263,13 +312,13 @@ test.describe('accounts: the env convention', () => {
     expect(errs).toContain('accounts.legacy.poolSize');
   });
 
-  test('guests take no account; non-guests need an account or legacy usernameEnv', () => {
+  test('guests take no account; every non-guest needs one', () => {
     const d = withAccounts();
     d.personas.guest!.account = 'sales_rep';
     expect(validatePersonas(d).errors.join()).toContain('guest personas are unauthenticated — no account');
     const d2 = withAccounts();
-    delete d2.personas.self_wired!.usernameEnv;
-    expect(validatePersonas(d2).errors.join()).toContain('self_wired.account: required');
+    delete d2.personas.old_timer!.account;
+    expect(validatePersonas(d2).errors.join()).toContain('old_timer.account: required');
   });
 
   test("the account's auth decides the portal/frontdoor rule", () => {
@@ -303,14 +352,12 @@ test.describe('PersonaRegistry with accounts', () => {
     expect(lead.poolSize).toBe(2);
     expect(reg().get('siebel_agent').passwordEnv).toBe('SIEBEL_CRM_OPS_PASSWORD');
     expect(reg().get('old_timer').usernameEnv).toBe('OLD_USER');
-    expect(reg().get('self_wired').usernameEnv).toBe('SF_SELF_USERNAME');
   });
 
   test('two roles on one account resolve the same login and share one session file', () => {
     const r = reg();
     expect(r.accountOf('client_lead')).toBe('sales_mgr');
     expect(r.accountOf('bdm')).toBe('sales_mgr');
-    expect(r.accountOf('self_wired')).toBe('self_wired');
     expect(r.rolesOf('sales_mgr')).toEqual(['client_lead', 'bdm']);
     const env = { SF_SALES_MGR_USERNAME_W1: 'mgr@x', SF_SALES_MGR_PASSWORD_W1: 'pw' };
     expect(r.resolveCreds('bdm', env, 1)).toEqual({ username: 'mgr@x', password: 'pw', token: undefined });
@@ -340,7 +387,7 @@ test('personas.schema.json (editor help) agrees with the TypeScript validator on
   }
   for (const k of personaKeys) {
     const d = withAccounts() as unknown as { personas: Record<string, Record<string, unknown>> };
-    d.personas.self_wired![k] = k === 'poolSize' ? 1 : k === 'auth' ? 'ui' : k === 'kind' ? 'internal' : k === 'permissionSets' ? [] : k === 'site' ? 'portal' : k === 'account' ? 'sales_rep' : 'SF_X_NAME';
+    d.personas.old_timer![k] = k === 'poolSize' ? 1 : k === 'auth' ? 'ui' : k === 'kind' ? 'internal' : k === 'permissionSets' ? [] : k === 'site' ? 'portal' : k === 'account' ? 'sales_rep' : 'SF_X_NAME';
     expect(validatePersonas(d).errors.filter((e) => e.includes('unknown key')), `personas.${k}`).toEqual([]);
   }
   const bad = withAccounts() as unknown as { accounts: Record<string, Record<string, unknown>>; personas: Record<string, Record<string, unknown>> };

@@ -1,5 +1,7 @@
 # DESIGN — Process Graphs: plan → capture → relate
 
+> **Status (2026-09-03): design history.** The model this proposed shipped as `process-graph/2` and is specified in [GRAPH-SPEC.md](GRAPH-SPEC.md). What has since gone: the v1 activity-node form (`action`/`decision`/`snapshot` nodes, `navigates`/`deny` edges — a v1 file still opens, upgraded at the load door), the Mermaid and batch exporters, and the first planner (`tools/process-planner.html`), replaced by the Journey Script Planner in `tools/planner-v2/`. The decisions here still hold; read the spec for the mechanism.
+
 *Research + proposal, 2026-08-31. Status: for discussion — decision points at the
 end. Extends docs/multi-actor-orchestration-design.md and sprint S-REC.*
 
@@ -222,8 +224,10 @@ the suite tests, so web-view validation can never drift from the package.
   2026-08-31 after engine research: powered by inlined Cytoscape.js +
   edgehandles + dagre (§3.5)** — less code than hand-rolled SVG, real graph UX.
   React Flow stays the upgrade path only.
-- **D2 — where the planner lives**: ✅ repo file (`tools/process-planner.html`)
-  + a published artifact copy; graphs save as repo `.graph.json`.
+- **D2 — where the planner lives**: ✅ repo file + a published artifact copy;
+  graphs save as repo `.graph.json`. *(2026-09-03: that file is now
+  `tools/planner.html`, built from `tools/planner-v2/` — the Journey Script
+  Planner replaced this one, see `docs/PLANNER-FEATURE-PARITY.md`.)*
 - **D3 — capture-graph emission**: ✅ ON DEMAND only — a dedicated flag/command
   (e.g. `npm run pipeline:graph` or `PIPELINE_GRAPH=1`), NOT on every run.
 - **D4 — Siebel session policy**: ✅ v1 in-process per-system mutex in the

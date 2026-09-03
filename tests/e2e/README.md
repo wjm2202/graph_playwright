@@ -2,7 +2,7 @@
 
 Env-gated: without `SF_*` variables in `.env` these skip and `npm test` stays green.
 
-`graphs.spec.ts` is the suite runner: `SUITE=smoke npm run suite` walks every
+`graphs.spec.ts` is the suite runner: `npx sfpw suite smoke` walks every
 graph the selection names (`suites.json`, or `graph:<ref>` / `tag:<t>` /
 `project:<p>`), one test per graph × persona-matrix binding, repainting each
 graph with the run's evidence. Nothing is generated per graph — a graph joins

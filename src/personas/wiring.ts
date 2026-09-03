@@ -16,7 +16,7 @@
 import { parse as parseDotenv } from 'dotenv';
 import {
   accountEnvNames, envBlockFor,
-  type AccountDef, type PersonaDef, type PersonasDoc,
+  type AccountDef, type PersonasDoc,
 } from './schema';
 
 const ENV_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
@@ -26,7 +26,7 @@ const PERSONA_ID_RE = /^[a-z][a-z0-9_]*$/;
 export type CredSlot = 'username' | 'password' | 'token' | 'totp';
 export const CRED_SLOTS: CredSlot[] = ['username', 'password', 'token', 'totp'];
 
-/** The four *Env keys, on an account or on a legacy self-wired persona. */
+/** The four *Env keys — they live on an ACCOUNT and nowhere else. */
 type CredHolder = Pick<AccountDef, 'usernameEnv' | 'passwordEnv' | 'tokenEnv' | 'totpEnv'>;
 const ENV_KEY: Record<CredSlot, keyof CredHolder> = {
   username: 'usernameEnv', password: 'passwordEnv', token: 'tokenEnv', totp: 'totpEnv',
@@ -94,7 +94,7 @@ export interface AddPersonasResult {
  *
  * Throws on anything that would make a bad login: a role that yields no
  * usable id, an account id that is not lower_snake_case (it becomes the env
- * prefix), or a name that belongs to a legacy self-wired persona.
+ * prefix), or an account id already taken by a PERSONA of that name.
  */
 export function addPersonas(roster: PersonasDoc, requests: readonly PersonaRequest[]): AddPersonasResult {
   // A roster read off disk may be missing either map — the validator runs on
@@ -120,10 +120,6 @@ export function addPersonas(roster: PersonasDoc, requests: readonly PersonaReque
       throw new Error(`account '${account}' for '${role}' must be lower_snake_case (it becomes the env prefix)`);
     }
     if (!accounts[account]) {
-      const clash = doc.personas[account];
-      if (clash && clash.account === undefined) {
-        throw new Error(`'${account}' is a legacy self-wired persona, not an account — give it an account first`);
-      }
       accounts[account] = { auth: 'frontdoor' };
       accountsCreated.push(account);
     }
@@ -143,9 +139,8 @@ export function addPersonas(roster: PersonasDoc, requests: readonly PersonaReque
 /**
  * Point ONE credential of ONE login at a different env-var name (the team's
  * existing `.env` vocabulary). Names only — `.env` itself is never read or
- * written. `accountId` names a declared account, else a legacy self-wired
- * persona of that id; every role that logs in as it follows automatically,
- * because the name lives on the login.
+ * written. `accountId` names a DECLARED account; every role that logs in as
+ * it follows automatically, because the name lives on the login.
  *
  * `newName` empty clears the mapping ("this system has no token"), except
  * the username — every login has one. Returns a copy; throws with the reason
@@ -160,20 +155,14 @@ export function renameEnvName(
 ): PersonasDoc {
   const doc = structuredClone(roster);
   const key = ENV_KEY[slot];
-  const account: AccountDef | undefined = doc.accounts?.[accountId];
-  const persona: PersonaDef | undefined = doc.personas[accountId];
-  const target: CredHolder | undefined = account ?? persona;
+  const target: AccountDef | undefined = doc.accounts?.[accountId];
   if (!target) throw new Error(`account '${accountId}' is not declared in personas.json`);
 
   const name = newName.trim();
   if (!name) {
     if (slot === 'username') throw new Error(`${key} is required for authenticated personas`);
-    // On an ACCOUNT an explicit '' is the override that says "this login
-    // does not use it"; a legacy persona simply drops the key.
-    if (account) target[key] = '';
-    // `key` is one of four literals out of ENV_KEY — dynamic only to the rule.
-    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-    else delete target[key];
+    // An explicit '' is the override that says "this login does not use it".
+    target[key] = '';
     return doc;
   }
 
@@ -197,12 +186,7 @@ function envNameOwners(doc: PersonasDoc): Map<string, { login: string; slot: Cre
     const names = accountEnvNames(id, a);
     for (const slot of CRED_SLOTS) claim(names[slot], id, slot);
   }
-  for (const [id, p] of Object.entries(doc.personas)) {
-    // Only legacy self-wired personas own names; an account-bound role
-    // borrows its login's (and the validator forbids it carrying any).
-    if (p.account !== undefined || p.kind === 'guest') continue;
-    for (const slot of CRED_SLOTS) claim(p[ENV_KEY[slot]], id, slot);
-  }
+  // Personas own no env names: a role borrows its account's (sprint 4.4).
   return owners;
 }
 

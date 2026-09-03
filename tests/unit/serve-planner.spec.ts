@@ -13,9 +13,16 @@ import * as path from 'path';
 const FIXTURE = {
   org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
   sites: { siebel: { urlEnv: 'SIEBEL_URL' } },
+  // Explicit overrides, so the fixture's env vocabulary is the team's own
+  // (and `tokenEnv: ''` says "this login has no token" — the wiring tests
+  // below need password to be the LAST secret standing).
+  accounts: {
+    sales: { usernameEnv: 'SF_SALES_USERNAME', passwordEnv: 'SF_SALES_PASSWORD', tokenEnv: '' },
+    siebel_admin: { system: 'siebel', usernameEnv: 'SIEBEL_ADMIN_USERNAME', passwordEnv: 'SIEBEL_ADMIN_PASSWORD', tokenEnv: '' },
+  },
   personas: {
-    sales_user: { kind: 'internal', usernameEnv: 'SF_SALES_USERNAME', passwordEnv: 'SF_SALES_PASSWORD' },
-    siebel_admin: { kind: 'internal', site: 'siebel', usernameEnv: 'SIEBEL_ADMIN_USERNAME', passwordEnv: 'SIEBEL_ADMIN_PASSWORD' },
+    sales_user: { kind: 'internal', account: 'sales' },
+    siebel_admin: { kind: 'internal', site: 'siebel', account: 'siebel_admin' },
     guest: { kind: 'guest' },
   },
 };
@@ -85,10 +92,12 @@ test('remap to the team\'s existing .env names — written to personas.json, dot
   expect(j.wiring).toMatchObject({ username: 'SFDC_UAT_USERNAME', totp: 'SFDC_UAT_TOTP_SECRET', url: 'SF_INSTANCE_URL' });
   expect(j.envstatus.SFDC_UAT_USERNAME).toBe(true); // exists in the team .env
 
+  // The names live on the LOGIN, not the role (sprint 4.4: a persona carries none).
   const doc = personas();
-  expect(doc.personas.sales_user.usernameEnv).toBe('SFDC_UAT_USERNAME');
-  expect(doc.personas.sales_user.totpEnv).toBe('SFDC_UAT_TOTP_SECRET');
-  expect(doc.personas.sales_user.passwordEnv).toBe('SF_SALES_PASSWORD'); // untouched
+  expect(doc.accounts.sales.usernameEnv).toBe('SFDC_UAT_USERNAME');
+  expect(doc.accounts.sales.totpEnv).toBe('SFDC_UAT_TOTP_SECRET');
+  expect(doc.accounts.sales.passwordEnv).toBe('SF_SALES_PASSWORD'); // untouched
+  expect(doc.personas.sales_user).toEqual({ kind: 'internal', account: 'sales' });
 });
 
 test('site personas route urlEnv to their site; org personas to the org', async () => {
@@ -105,14 +114,14 @@ test('a system that does not use a credential: clearing removes the mapping; los
   let j = await r.json();
   expect(j.wiring.totp).toBeUndefined();
   expect(j.warning).toBeUndefined();
-  expect('totpEnv' in personas().personas.sales_user).toBe(false);
+  expect(personas().accounts.sales.totpEnv).toBe(''); // '' = this login has no TOTP
 
   // password cleared with no token left → allowed, but WARNS:
   r = await post({ personaId: 'sales_user', passwordEnv: '' });
   expect(r.status).toBe(200);
   j = await r.json();
   expect(j.warning).toContain('cannot authenticate until one is wired');
-  expect('passwordEnv' in personas().personas.sales_user).toBe(false);
+  expect(personas().accounts.sales.passwordEnv).toBe('');
 
   // re-wire for the tests that follow:
   await post({ personaId: 'sales_user', passwordEnv: 'SF_SALES_PASSWORD' });
@@ -274,7 +283,26 @@ test('graphs: POST saves a valid graph into the project (atomic), 409s on an exi
 
 test('capabilities: the page can tell a current server from a stale one', async () => {
   const j = await (await fetch(`${base}/__capabilities`)).json();
-  expect(j).toEqual({ version: 6, imports: true, graphs: true, projects: true, personas: true, accounts: true, library: true, record: true, recordings: true });
+  expect(j).toEqual({ version: 7, imports: true, graphs: true, projects: true, personas: true, accounts: true, library: true, record: true, recordings: true, evidence: true });
+});
+
+// S4.1 — one planner, two dead names. The old files are deleted, so the old
+// URLs must move rather than 404 in a bookmark someone kept.
+test('/ serves the planner, and the retired planners\' URLs 301 to it', async () => {
+  const root = await fetch(`${base}/`);
+  expect(root.status).toBe(200);
+  expect(root.headers.get('content-type')).toContain('text/html');
+  expect(await root.text()).toContain("version: 'planner/2'");
+
+  const named = await fetch(`${base}/planner.html`);
+  expect(named.status).toBe(200);
+
+  for (const old of ['/process-planner.html', '/journey-planner.html']) {
+    const res = await fetch(`${base}${old}`, { redirect: 'manual' });
+    expect(res.status, `${old} should move permanently`).toBe(301);
+    expect(res.headers.get('location')).toBe('/planner.html');
+  }
+  expect((await fetch(`${base}/planner-src.html`)).status).toBe(404);
 });
 
 test('the served page carries a live-reload snippet that defers to window.plannerHoldReload', async () => {
@@ -288,8 +316,8 @@ test('personas: GET lists roster + accounts; POST /__personas/add binds each rol
   fs.writeFileSync(path.join(tmp, '.env.example'), 'SF_INSTANCE_URL=\n');
   let j = await (await fetch(`${base}/__personas`)).json();
   expect(j.roster.map((p: { id: string }) => p.id)).toEqual(['sales_user', 'siebel_admin', 'guest']);
-  expect(j.roster[0].account).toBe('sales_user'); // legacy self-wired persona = its own login
-  expect(j.accounts).toEqual([]);
+  expect(j.roster[0].account).toBe('sales'); // the login the role plays
+  expect(j.accounts.map((a: { id: string }) => a.id)).toEqual(['sales', 'siebel_admin']);
 
   const add = await fetch(`${base}/__personas/add`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -312,12 +340,13 @@ test('personas: GET lists roster + accounts; POST /__personas/add binds each rol
     'SF_SALES_MGR_TOKEN=', 'SF_SALES_MGR_TOTP_SECRET=',
   ]);
   expect(j.accounts.map((a: { id: string; roles: string[] }) => [a.id, a.roles])).toEqual([
+    ['sales', ['sales_user']], ['siebel_admin', ['siebel_admin']],
     ['client_associate', ['client_associate']], ['sales_mgr', ['client_lead', 'business_development_manager']],
   ]);
   const doc = personas();
   expect(doc.personas.client_lead).toEqual({ kind: 'internal', role: 'Client Lead', account: 'sales_mgr' });
   expect(doc.accounts.sales_mgr).toEqual({ auth: 'frontdoor' });
-  expect(doc.personas.sales_user.usernameEnv).toBe('SF_SALES_USERNAME'); // untouched
+  expect(doc.personas.sales_user).toEqual({ kind: 'internal', account: 'sales' }); // untouched
   const example = fs.readFileSync(path.join(tmp, '.env.example'), 'utf8');
   expect(example).toContain('SF_CLIENT_ASSOCIATE_USERNAME=');
   expect(example.match(/SF_SALES_MGR_USERNAME=/g)).toHaveLength(1); // one block per LOGIN, not per role
@@ -563,4 +592,70 @@ test('wiring edits on a role bound to an account land on the ACCOUNT — every r
   expect(doc.accounts.sales_mgr).toEqual({ auth: 'frontdoor', usernameEnv: 'SFDC_UAT_MGR_USER', totpEnv: '' });
   expect(doc.personas.client_lead).toEqual({ kind: 'internal', role: 'Client Lead', account: 'sales_mgr' }); // no wiring on the role
   expect(r.envstatus.SFDC_UAT_MGR_USER).toBe(false);
+});
+// ---------------------------------------------------------------------------
+// S4.2 — /__evidence: run screenshots are FILES under the graph's own
+// evidence folder (src/graph/evidence.ts), and this is the only door to them.
+// ---------------------------------------------------------------------------
+test.describe('/__evidence', () => {
+  const JPEG = Buffer.from('ffd8ffe000104a46494600010100000100010000ffd9', 'hex');
+
+  /** Seeded from inside each test, never in a hook: the library tests above
+   *  assert the EXACT contents of journeys/graphs, so these files must not
+   *  exist before they have run. */
+  const seed = () => {
+    // A legacy flat graph → journeys/evidence/…
+    fs.mkdirSync(path.join(tmp, 'journeys', 'graphs'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'journeys', 'graphs', 'evidence_demo.graph.json'),
+      JSON.stringify({ schema: 'process-graph/2', id: 'evidence_demo', systems: {}, actors: {}, nodes: [], edges: [] }));
+    const legacy = path.join(tmp, 'journeys', 'evidence', 'evidence_demo', 'run_1');
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, 'sess_one.jpg'), JPEG);
+    // A project graph → projects/<p>/evidence/…
+    fs.mkdirSync(path.join(tmp, 'projects', 'crm', 'graphs'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'projects', 'crm', 'project.json'), JSON.stringify({ project: 'crm', team: 'crm' }));
+    fs.writeFileSync(path.join(tmp, 'projects', 'crm', 'graphs', 'in_project.graph.json'),
+      JSON.stringify({ schema: 'process-graph/2', id: 'in_project', systems: {}, actors: {}, nodes: [], edges: [] }));
+    const proj = path.join(tmp, 'projects', 'crm', 'evidence', 'in_project', 'sim_x');
+    fs.mkdirSync(proj, { recursive: true });
+    fs.writeFileSync(path.join(proj, 'chk.jpg'), JPEG);
+    // The secret a traversal would be after.
+    fs.writeFileSync(path.join(tmp, 'journeys', 'secret.txt'), 'not for the browser');
+  };
+
+  test('serves the image a graph ref + relative file name, with the right content type', async () => {
+    seed();
+    const r = await fetch(`${base}/__evidence?ref=evidence_demo&file=${encodeURIComponent('evidence/evidence_demo/run_1/sess_one.jpg')}`);
+    expect(r.status).toBe(200);
+    expect(r.headers.get('content-type')).toBe('image/jpeg');
+    expect(Buffer.from(await r.arrayBuffer())).toEqual(JPEG);
+
+    // Same rule inside a project: the ref is relative to projects/<p>/.
+    const p = await fetch(`${base}/__evidence?ref=crm/in_project&file=${encodeURIComponent('evidence/in_project/sim_x/chk.jpg')}`);
+    expect(p.status).toBe(200);
+    expect(Buffer.from(await p.arrayBuffer())).toEqual(JPEG);
+  });
+
+  test('refuses anything outside the graph\'s evidence folder', async () => {
+    seed();
+    for (const file of ['../secret.txt', 'evidence/../../journeys/secret.txt', '/etc/passwd', 'evidence/../../../../etc/passwd']) {
+      const r = await fetch(`${base}/__evidence?ref=evidence_demo&file=${encodeURIComponent(file)}`);
+      expect(r.status, file).toBe(403);
+      expect((await r.json()).error, file).toContain('evidence folder');
+    }
+    // A project graph cannot reach another project's evidence either.
+    const cross = await fetch(`${base}/__evidence?ref=crm/in_project&file=${encodeURIComponent('../../../journeys/evidence/evidence_demo/run_1/sess_one.jpg')}`);
+    expect(cross.status).toBe(403);
+  });
+
+  test('404s an unknown graph and a missing file', async () => {
+    seed();
+    const ghost = await fetch(`${base}/__evidence?ref=nope&file=evidence/nope/r/n.jpg`);
+    expect(ghost.status).toBe(404);
+    expect((await ghost.json()).error).toContain("no such graph 'nope'");
+
+    const missing = await fetch(`${base}/__evidence?ref=evidence_demo&file=${encodeURIComponent('evidence/evidence_demo/run_1/absent.jpg')}`);
+    expect(missing.status).toBe(404);
+    expect((await missing.json()).error).toContain('no evidence file');
+  });
 });

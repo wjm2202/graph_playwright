@@ -12,10 +12,15 @@ const registry = () =>
   PersonaRegistry.fromDoc({
     org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
     sites: { siebel: { urlEnv: 'SIEBEL_URL' } },
+    accounts: {
+      sales: { tokenEnv: '' },
+      admin: {},
+      siebel_admin: { system: 'siebel', tokenEnv: '' },
+    },
     personas: {
-      sales_user: { kind: 'internal', usernameEnv: 'SF_SALES_USERNAME', passwordEnv: 'SF_SALES_PASSWORD' },
-      admin: { kind: 'internal', usernameEnv: 'SF_ADMIN_USERNAME', passwordEnv: 'SF_ADMIN_PASSWORD', tokenEnv: 'SF_ADMIN_TOKEN' },
-      siebel_admin: { kind: 'internal', site: 'siebel', usernameEnv: 'SIEBEL_ADMIN_USERNAME', passwordEnv: 'SIEBEL_ADMIN_PASSWORD' },
+      sales_user: { kind: 'internal', account: 'sales' },
+      admin: { kind: 'internal', account: 'admin' },
+      siebel_admin: { kind: 'internal', site: 'siebel', account: 'siebel_admin' },
       portal_user: { kind: 'guest' },
     },
   });
@@ -87,12 +92,8 @@ test('an actor bound to an unknown persona is a named failure, not a crash', () 
 test('totp secrets are informational — noted when declared but unset, never blocking', () => {
   const r = PersonaRegistry.fromDoc({
     org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
-    personas: {
-      sales_user: {
-        kind: 'internal',
-        usernameEnv: 'SF_SALES_USERNAME', passwordEnv: 'SF_SALES_PASSWORD', totpEnv: 'SF_SALES_TOTP_SECRET',
-      },
-    },
+    accounts: { sales: { tokenEnv: '' } },
+    personas: { sales_user: { kind: 'internal', account: 'sales' } },
   });
   const g: ProcessGraph = {
     schema: 'process-graph/2', id: 'g', systems: { sf: { label: 'SF', kind: 'salesforce' } },

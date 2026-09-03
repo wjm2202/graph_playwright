@@ -2,8 +2,10 @@
  * THE FULL AUTOMATED LOOP, live in a real browser and no org:
  * plan graph → toJourney → run (real Cast contexts, central oracle
  * evaluation, per-step screenshots) → merge-back paints the plan.
- * Proven BOTH ways: a passing run paints green with embedded snapshots;
- * a failing oracle throws JourneyRunError and paints red — automatically.
+ * Proven BOTH ways: a passing run paints green with its snapshots; a failing
+ * oracle throws JourneyRunError and paints red — automatically. The FILE
+ * flavor also proves where the evidence lands: `<graph root>/evidence/…`,
+ * with the graph keeping only the relative ref (sprint 4.2).
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
@@ -13,11 +15,13 @@ import { Cast } from '../../src/fixtures/cast';
 import { PersonaRegistry } from '../../src/personas/registry';
 import { StepCatalog } from '../../src/journeys/catalog';
 import { runGraph, runGraphFile } from '../../src/graph/run';
+import { resolveEvidenceRef } from '../../src/graph/evidence';
 import type { ProcessGraph } from '../../src/graph/schema';
 
 const personasDoc = {
   org: { instanceUrlEnv: 'SF_INSTANCE_URL' },
-  personas: { demo_user: { kind: 'internal', usernameEnv: 'SF_DEMO_USERNAME' } },
+  accounts: { demo: {} },
+  personas: { demo_user: { kind: 'internal', account: 'demo' } },
 };
 
 const planGraph = (): ProcessGraph => ({
@@ -81,6 +85,8 @@ test('green path: run paints oracles pass, captures status + snapshots — untou
     expect(record.expects![0]!.lastResult?.status).toBe('pass');
     const chk = result.graph.nodes.find((n) => n.id === 'chk_done')!;
     expect(chk.expects![0]!.lastResult?.status).toBe('pass');
+    // runGraph on an IN-MEMORY graph has no folder to write evidence into, so
+    // it keeps the inline form; runGraphFile (below) writes files.
     expect(chk.snapshot?.ref).toMatch(/^data:image\/jpeg;base64,/); // checkpoint holds the assert-step shot
     const sess = result.graph.nodes.find((n) => n.id === 'sess')!;
     expect(sess.steps).toMatchObject({ status: 'captured', journeyId: 'close_loop_demo' });
@@ -115,6 +121,15 @@ test('file flavor: runGraphFile saves the painted graph in place and logs labour
     // The graph FILE now carries the paint:
     const saved = JSON.parse(fs.readFileSync(graphFile, 'utf8')) as ProcessGraph;
     expect(saved.nodes.find((n) => n.id === 'record')!.expects![0]!.lastResult?.status).toBe('pass');
+
+    // S4.2 — and its EVIDENCE is beside it, as files: the graph on disk holds
+    // short relative refs, not 90 KB of base64 (review §3.2).
+    expect(fs.readFileSync(graphFile, 'utf8')).not.toContain('base64');
+    const snap = saved.nodes.find((n) => n.id === 'chk_done')!.snapshot!;
+    expect(snap.ref).toMatch(/^evidence\/close_loop_demo\/[a-z0-9_]+\/chk_done\.jpg$/);
+    const onDisk = resolveEvidenceRef(graphFile, snap.ref)!;
+    expect(onDisk.startsWith(path.join(tmp, 'evidence'))).toBe(true);
+    expect(fs.statSync(onDisk).size).toBeGreaterThan(0);
 
     // And the labour ledger gained a green run event:
     const events = fs.readFileSync(telemetry, 'utf8').trim().split('\n').map((l) => JSON.parse(l));

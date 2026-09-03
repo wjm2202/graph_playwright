@@ -1,5 +1,7 @@
 # STUDY — Representing multi-role, multi-system Playwright suites as graphs
 
+> **Status (2026-09-03): adopted.** `process-graph/2` — nodes are states, edges are relations — is the only authoring form; the activity-node form this study argues against is retired. The normative statement is [GRAPH-SPEC.md](GRAPH-SPEC.md).
+
 *2026-08-31, prompted by owner review of the planner: "in my mind the edges are
 relations — start → login as → sf". Verdict up front: that intuition matches
 the strongest tradition in the field, and process-graph v2 should adopt it.*

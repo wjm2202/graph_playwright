@@ -28,7 +28,7 @@
  *   tags: smoke, sod
  *
  *   as <role> [(<persona>)] [on <system>] [at <url>] [via <auth>]
- *     <verb> <Record> [(<SObject>)] [-> produces|consumes|updates[?]] [as <handle>] [[<catalog>]]
+ *     <verb> <Record> [(<SObject>)] [(external)] [-> produces|consumes|updates[?]] [[<catalog>]]
  *     <verb> screen <Screen name> [[<catalog>]]
  *     verify <Checkpoint name>
  *     must not <verb> <Record> [[<capability>]]
@@ -143,11 +143,12 @@ interface StepLine {
   sobject: string | undefined;
   io: DataIo | undefined;
   ioDraft: boolean;
-  handle: string | undefined;
+  /** `(external)` was written: the record already exists, the run finds it. */
+  external: boolean;
   catalog: string | undefined;
   denied: boolean;
   screen: boolean;
-  /** Any of (SObject) / -> port / as handle / [catalog] was written. */
+  /** Any of (SObject) / (external) / -> port / [catalog] was written. */
   annotated: boolean;
 }
 
@@ -155,7 +156,7 @@ interface StepLine {
 function parseStepLine(text: string): StepLine {
   let rest = text;
   let catalog: string | undefined;
-  let handle: string | undefined;
+  let external = false;
   let io: DataIo | undefined;
   let ioDraft = false;
   let sobject: string | undefined;
@@ -165,11 +166,12 @@ function parseStepLine(text: string): StepLine {
     if (catalog === undefined && (m = /^(.*?)\s*\[([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)\]$/.exec(rest))) {
       catalog = m[2]; rest = m[1] ?? ''; continue;
     }
-    if (handle === undefined && (m = /^(.*\S)\s+as\s+([a-z][a-z0-9_]*)$/.exec(rest))) {
-      handle = m[2]; rest = m[1] ?? ''; continue;
-    }
     if (io === undefined && (m = /^(.*?)\s*->\s*(produces|consumes|updates)(\??)$/.exec(rest))) {
       io = m[2] as DataIo; ioDraft = m[3] === '?'; rest = m[1] ?? ''; continue;
+    }
+    // Before the SObject slot: `(external)` would otherwise read as an SObject.
+    if (!external && (m = /^(.*\S)\s*\(external\)$/.exec(rest))) {
+      external = true; rest = m[1] ?? ''; continue;
     }
     if (!sobjectSlot && (m = /^(.*\S)\s*\((-|[A-Za-z][A-Za-z0-9_]*)\)$/.exec(rest))) {
       sobjectSlot = true;
@@ -188,8 +190,8 @@ function parseStepLine(text: string): StepLine {
   let target = words.slice(1).join(' ');
   if (/^screens?$/i.test(words[1] ?? '')) { screen = true; target = words.slice(2).join(' '); }
   return {
-    verb, target, sobject, io, ioDraft, handle, catalog, denied, screen,
-    annotated: catalog !== undefined || handle !== undefined || io !== undefined || sobjectSlot,
+    verb, target, sobject, io, ioDraft, external, catalog, denied, screen,
+    annotated: catalog !== undefined || external || io !== undefined || sobjectSlot,
   };
 }
 
@@ -481,16 +483,14 @@ export function parseScript(text: string): ParseScriptResult {
           node = addNode({
             id: takeId(s.target, `data_${records.size + 1}`), type: 'data', label: s.target,
             ...(s.sobject !== undefined ? { sobject: s.sobject } : {}),
-            ...(s.handle !== undefined ? { ref: s.handle } : {}),
+            ...(s.external ? { external: true } : {}),
           });
           records.set(s.target, node);
         } else {
           if (s.sobject !== undefined && node.sobject !== undefined && node.sobject !== s.sobject) {
             problems.push({ line: line.n, message: `record '${s.target}' is already (${node.sobject}) — ignoring (${s.sobject})` });
           } else if (s.sobject !== undefined && node.sobject === undefined) node.sobject = s.sobject;
-          if (s.handle !== undefined && node.ref !== undefined && node.ref !== s.handle) {
-            problems.push({ line: line.n, message: `record '${s.target}' already has handle '${node.ref}' — ignoring '${s.handle}'` });
-          } else if (s.handle !== undefined && node.ref === undefined) node.ref = s.handle;
+          if (s.external) node.external = true;
         }
       }
 
@@ -531,19 +531,6 @@ export function parseScript(text: string): ParseScriptResult {
   const end: PNode = { id: 'end', type: 'end', label: '' };
   graph.nodes.push(end);
   graph.edges.push({ id: nextEdgeId(), from: chainTail, to: 'end', type: 'next' });
-
-  // Two data nodes must never share a runtime handle (validator rule) — a
-  // duplicate `as <handle>` is reported and the second one dropped.
-  const handles = new Map<string, string>();
-  for (const n of graph.nodes) {
-    if (n.type !== 'data') continue;
-    const ref = n.ref ?? n.id;
-    const other = handles.get(ref);
-    if (other !== undefined && n.ref !== undefined) {
-      problems.push({ line: 1, message: `handle '${ref}' is already used by record '${other}'` });
-      delete n.ref;
-    } else handles.set(ref, n.id);
-  }
 
   // Safety net: parseScript promises a graph the validator accepts. Anything
   // that still trips it is a codec bug, surfaced rather than swallowed.
@@ -633,7 +620,6 @@ export function printScript(graph: ProcessGraph): PrintScriptResult {
     if (n.snapshot !== undefined) pushDropped(dropped, 'node snapshot', n.id);
     if (n.timing !== undefined) pushDropped(dropped, 'node timing', n.id);
     if (n.account !== undefined) pushDropped(dropped, 'session account (usernameEnv)', n.id);
-    if (n.origin !== undefined) pushDropped(dropped, 'data node origin', n.id);
   }
 
   // Session order = the login chain the walker uses; stranded sessions are
@@ -706,7 +692,7 @@ export function printScript(graph: ProcessGraph): PrintScriptResult {
       const target = nodeById.get(edge.to);
       if (!target) continue;
       printedEdges.add(edge.id);
-      for (const field of ['deltaMs', 'meanMs', 'frequency', 'recordRef', 'bind'] as const) {
+      for (const field of ['deltaMs', 'meanMs', 'frequency', 'recordRef'] as const) {
         if (edge.data?.[field] !== undefined) pushDropped(dropped, `edge data.${field}`, edge.id);
       }
 
@@ -730,8 +716,8 @@ export function printScript(graph: ProcessGraph): PrintScriptResult {
         sobjectPrinted.add(target.id);
         line = `  ${s.kind === 'denied' ? 'must not ' : ''}${verb} ${target.type === 'screen' ? 'screen ' : ''}${target.label}`
           + sobjectSlot(target.label, firstTouch && target.type === 'data' ? target.sobject : undefined)
+          + (firstTouch && target.type === 'data' && target.external === true ? ' (external)' : '')
           + (io !== undefined ? ` -> ${io}${edge.data?.ioDraft === true ? '?' : ''}` : '')
-          + (firstTouch && target.type === 'data' && target.ref !== undefined ? ` as ${target.ref}` : '')
           + (explicit !== undefined ? ` [${explicit}]` : '');
         const want = s.kind === 'denied' ? `must NOT ${verb}` : `${verb} ${target.label}`.toLowerCase();
         if (edge.label !== want) pushDropped(dropped, 'edge label', edge.id);

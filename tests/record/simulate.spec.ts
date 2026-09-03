@@ -1,6 +1,6 @@
 /**
  * Simulated-run CLI — paint a graph green WITHOUT an org:
- *   SIMULATE=<graph_id> npm run simulate
+ *   npx sfpw simulate <graph_id>          (sets SIMULATE= and runs this spec)
  *
  * Renders one labeled "SIMULATED" evidence card (jpeg) per step, fabricates a
  * passing report, and merges it through the REAL merge-back (same paint a
@@ -16,6 +16,7 @@ import {
   simulateReport, simulateRun, generatedStepsModule, SIMULATED_MODULE_MARKER,
 } from '../../src/graph/simulate';
 import { resolveGraphRef } from '../../src/graph/resolve';
+import { evidenceDirFor } from '../../src/graph/evidence';
 import { isDenyStep } from '../../src/journeys/schema';
 import { PersonaRegistry } from '../../src/personas/registry';
 import type { ProcessGraph } from '../../src/graph/schema';
@@ -57,7 +58,9 @@ test('simulate a green run for a graph', async ({ page }, testInfo) => {
 
   // Pass 2 — simulate + merge through the real paint path, then save in place.
   const runId = `sim_${Date.now().toString(36)}`;
-  const result = simulateRun(graph, { ...walkOpts, runId, screenshots: shots });
+  // S4.2 — evidence is written beside the graph (<root>/evidence/…), not
+  // inlined into it; the graph keeps the relative ref.
+  const result = simulateRun(graph, { ...walkOpts, runId, screenshots: shots, evidenceDir: evidenceDirFor(file) });
   fs.writeFileSync(file, JSON.stringify(result.graph, null, 2) + '\n');
 
   // Generated-steps module: simulated placeholders, never over real output.
@@ -77,5 +80,5 @@ test('simulate a green run for a graph', async ({ page }, testInfo) => {
   for (const c of result.changes) console.log(`  · ${c}`);
   for (const w of result.warnings) console.log(`  ⚠ ${w}`);
   console.log(`✔ steps module written: ${moduleFile} (throwing placeholders)`);
-  console.log(`next:  SUITE=graph:${id} npm run suite   ·   GRILLME=${id} npm run grillme`);
+  console.log(`next:  npx sfpw suite graph:${id}   ·   npx sfpw grillme ${id}`);
 });

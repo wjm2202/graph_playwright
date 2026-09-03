@@ -1,6 +1,12 @@
 # S17 — CI: the same three gates a local dev runs, so the standards enforce
-# themselves. No org secrets here — unit + harness + record are green with no
-# .env by design (e2e specs self-skip).
+# themselves. No org secrets here — unit + harness are green with no .env by
+# design (e2e specs self-skip).
+#
+# 4.3: the record project is no longer run here. It only ever executed
+# env-gated CLIs that skipped to green; the four specs left in tests/record/
+# all need a human at the keyboard or a deliberate GEN_FIXTURE=1, so CI has
+# nothing to run there. Those CLIs are now `sfpw`, covered by
+# tests/unit/sfpw.spec.ts in the unit project.
 name: ci
 
 on:
@@ -26,6 +32,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npx playwright install --with-deps chromium
-      - run: npx playwright test --project=unit --project=harness --project=record
+      - run: npx playwright test --project=unit --project=harness
         env:
           CI: 'true'

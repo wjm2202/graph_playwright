@@ -57,11 +57,7 @@
           "profile": { "type": "string" },
           "license": { "type": "string" },
           "permissionSets": { "type": "array", "items": { "type": "string" } },
-          "account": { "$ref": "#/definitions/id", "description": "A declared account this role logs in as. Roles may share one." },
-          "usernameEnv": { "$ref": "#/definitions/envName", "description": "LEGACY self-wired persona (no account). Do not write new ones." },
-          "passwordEnv": { "$ref": "#/definitions/envName" },
-          "tokenEnv": { "$ref": "#/definitions/envName" },
-          "totpEnv": { "$ref": "#/definitions/envName" },
+          "account": { "$ref": "#/definitions/id", "description": "REQUIRED for internal/portal roles: the declared account this role logs in as. Roles may share one; credential env names live on the account, never here." },
           "auth": { "$ref": "#/definitions/auth" },
           "poolSize": { "type": "integer", "minimum": 1 }
         }

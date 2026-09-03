@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Before anything else: **never paste credentials, tokens, TOTP seeds or
-        `.env` contents here.** `npm run doctor` reports what's wired using
+        `.env` contents here.** `npx sfpw doctor all` reports what's wired using
         variable *names* only — that output is safe to share, and is usually
         the most useful thing in the report.
 
@@ -81,7 +81,7 @@ body:
     attributes:
       label: Doctor output (for anything org-dependent)
       description: >
-        `GRAPH_DOCTOR=all npm run doctor` — names only, no values. Skip this
+        `npx sfpw doctor all` — names only, no values. Skip this
         if the problem doesn't involve a real org.
       render: shell
     validations:

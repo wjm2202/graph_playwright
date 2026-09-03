@@ -8,7 +8,8 @@
  * Nothing in the UI branches on the protocol — it asks net, and net decides.
  *
  * Routes (tools/serve-planner.mjs): /__capabilities /__library /__envstatus
- * /__graphs /__personas /__personas/add /__projects /__record + /__record/<id>.
+ * /__graphs /__personas /__personas/add /__projects /__record + /__record/<id>
+ * /__evidence.
  * Live reload is injected by the server itself; the page only exposes
  * `window.plannerHoldReload` so a reload cannot close a sheet mid-edit.
  */
@@ -290,9 +291,29 @@
     });
   }
 
+  /**
+   * A node's `snapshot.ref` → something an <img> can load, or '' when this
+   * page cannot reach it (sprint 4.2: run evidence is a FILE under the
+   * graph's `evidence/` folder, not a base64 blob in the document).
+   *
+   *   data: URL  → itself, always (old graphs, and the manual attach)
+   *   served     → /__evidence?ref=<graph ref>&file=<relative ref>
+   *   file://    → '' — the card prints the ref instead, because a
+   *                double-clicked planner has no reader for a repo path.
+   */
+  function evidenceUrl(ref, graphRef) {
+    var text = String(ref || '');
+    if (!text) return '';
+    if (/^data:/i.test(text)) return text;
+    var target = String(graphRef === undefined ? state.ref : graphRef || '');
+    if (!served() || !target) return '';
+    return '/__evidence' + '?ref=' + encodeURIComponent(target) + '&file=' + encodeURIComponent(text);
+  }
+
   P2.net = {
     served: served,
     probe: probe,
+    evidenceUrl: evidenceUrl,
     refreshLibrary: refreshLibrary,
     refreshEnv: refreshEnv,
     refreshPersonas: refreshPersonas,

@@ -13,6 +13,10 @@ export default tseslint.config(
       // plain-JS build/dev scripts, the built single-file planners, and the
       // planner v2 sources (tools/planner-v2/**: browser IIFEs, no TS project)
       'tools/**',
+      // bin/sfpw.mjs: the ESM launcher that registers tsx. Plain JS outside
+      // the TS project, like tools/** — everything it runs (src/cli/**) IS
+      // linted.
+      'bin/**',
       'L2/**',
       'recordings/**',
       'src/journeys/generated/**', // pipeline output — regenerate, never lint

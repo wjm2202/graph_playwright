@@ -89,7 +89,7 @@
   sheets.register('ado', function (args) {
     if (!served()) {
       sheets.notice('From an ADO export',
-        'importing test cases needs the dev server: it stores the .xlsx/.csv under projects/<project>/imports/ and writes one draft graph per ticked case. Run: npm run planner (then open http://127.0.0.1:8765/journey-planner.html).');
+        'importing test cases needs the dev server: it stores the .xlsx/.csv under projects/<project>/imports/ and writes one draft graph per ticked case. Run: npm run planner (then open http://127.0.0.1:8765/planner.html).');
       return;
     }
     IC.project = (args && args.project) || IC.project || state.project || '';
@@ -326,7 +326,7 @@
       return;
     }
     html('<h3>From a recording</h3>' +
-      '<div class="hint" style="margin-bottom:8px">capture-first: <span class="mono">PIPELINE_GRAPH=1</span> builds sessions per actor, one step per save-bounded group, records per SObject with ports from def-use. Pick the journey you recorded.</div>' +
+      '<div class="hint" style="margin-bottom:8px">capture-first: <span class="mono">sfpw pipeline --graph</span> builds sessions per actor, one step per save-bounded group, records per SObject with ports from def-use. Pick the journey you recorded.</div>' +
       '<div id="rc_list" class="caselist"><div class="stub">reading recordings/…</div></div>' +
       '<div id="rc_cmd"></div>' +
       '<div class="row"><button data-sheet="close">Close</button></div>');
@@ -353,7 +353,7 @@
     });
 
     function showCommand(journey) {
-      var cmd = 'PIPELINE_JOURNEY=' + journey + ' PIPELINE_GRAPH=1 npm run pipeline';
+      var cmd = 'npx sfpw pipeline ' + journey + ' --graph';
       var box = el('rc_cmd');
       box.innerHTML = '<div class="warnbox"><b>run this in the repo:</b>' +
         '<div class="cmd mono">' + esc(cmd) + '</div>' +

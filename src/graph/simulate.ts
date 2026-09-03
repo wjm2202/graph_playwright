@@ -33,8 +33,12 @@ export interface SimulateOptions {
   now?: string;
   /** Deterministic duration basis: step i reports baseMs + i*137 ms. */
   baseMs?: number;
-  /** Per-step-index screenshot file paths (jpeg) to embed as snapshots. */
+  /** Per-step-index screenshot file paths (jpeg) to attach as snapshots. */
   screenshots?: (string | undefined)[];
+  /** `<graph root>/evidence` (evidenceDirFor(graphFile)): simulated evidence
+   *  is written to files under `<dir>/<graphId>/sim_<run>/` exactly as a real
+   *  run's is. Unset = the legacy inline data URL. */
+  evidenceDir?: string;
   personaIds?: string[] | undefined;
   personaAuth?: Record<string, AuthMethod | undefined> | undefined;
 }
@@ -107,6 +111,7 @@ export function simulateRun(graph: ProcessGraph, opts: SimulateOptions = {}): Si
     journeyId: walk.journey.journey,
     stepEdgeIds: walk.stepEdgeIds,
     runId: walk.runId,
+    ...(opts.evidenceDir ? { evidenceDir: opts.evidenceDir } : {}),
     ...(opts.now ? { now: opts.now } : {}),
   });
   return { ...merged, ...walk };
@@ -139,9 +144,9 @@ export function generatedStepsModule(graph: ProcessGraph): string {
 
   return `/**
  * GENERATED for graph '${graph.id}' — ${SIMULATED_MODULE_MARKER}.
- * Written by \`SIMULATE=${graph.id} npm run simulate\`; every entry THROWS on
+ * Written by \`npx sfpw simulate ${graph.id}\`; every entry THROWS on
  * use. Replace it with real captures: record each session
- * (RECORD_PERSONA=<persona> RECORD_JOURNEY=${graph.id} npm run record), then
+ * (npx sfpw record <persona> ${graph.id}), then
  * run the pipeline — its generated module overwrites this one.
  */
 import type { StepCatalog, StepFn } from '../catalog';

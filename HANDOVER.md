@@ -10,6 +10,87 @@ objective = the session's task) — the full research corpus and all project
 decisions/state live there now (treeVersion 32). Then read this file. Repo:
 `~/Documents/code/SalesForce/salesforce_playwright/` (re-request folder access).
 
+## SPRINT 4.4 — SIMPLIFICATION TRIM, SHIPPED 2026-09-03 (suite 687)
+
+*Fewer concepts, same power* — the review's §3.1 trim list. Full write-up:
+`docs/SPRINT-PLAN-PLANNER-V2.md` (the 4.4 entry).
+
+- **Gap engine 12 → 8 kinds, 11 → 8 ops.** `computeGaps()` now returns
+  `{ gaps, hints }`. Gaps have a write-back op; **hints** (`session_no_url`,
+  `no_oracles`, `no_deny_coverage`) have none and never block. `data_no_port`
+  + `data_io_draft` merged into `data_port`. `api_no_timeout` fires only for
+  `db.`/`log.` checks or in a multi-system graph — `lead_to_customer` now
+  opens with **zero** gaps (it opened with eight). `no_session_policy` is
+  asked once per system **per project**. Ops: `answerExpect {node,id,keep}`
+  replaces `confirmExpect`/`removeExpect`; `setIo` with no `io` confirms the
+  guess (`confirmIo` gone); `setExternal` replaces `setOrigin`; `setUrl`
+  retired. The union is `AnswerOp`, the list `ANSWER_OPS`.
+- **Data-flow trim.** `PEdge.data.bind` and `PNode.ref` are gone — the data
+  node's **id** is the runtime handle, and `consumes`/`updates` always
+  receive `{ record: '{ref:<nodeId>.id}' }`. `PNode.origin` collapsed to
+  `external?: boolean`.
+
+  > **RELEASE NOTE — old graphs still open.** A new `normalizeGraph()` runs
+  > at every load door (`resolve.loadGraphFile`, `src/cli/graphFile.readGraph`,
+  > the planner's `loadDoc`): `origin: 'seed'|'external'` → `external: true`,
+  > `origin: 'step'` dropped (it was the default), `ref` and `data.bind`
+  > dropped — each with a warning on stderr naming the node or edge. Nothing
+  > is rewritten on disk until you save. `upgrade.ts` remains the v1 door.
+  > If a graph relied on a `bind` map to pass a field other than the record
+  > id, re-express it as a step argument — the walker no longer reads `bind`.
+
+- **RELEASE NOTE — legacy self-wired personas are gone.** A persona may no
+  longer carry `usernameEnv` / `passwordEnv` / `tokenEnv` / `totpEnv`: every
+  internal/portal persona names an `account`, and the account owns the
+  wiring (env names derived from the account id). The `admin` fallback that
+  accepted `SF_USERNAME` / `SF_PASSWORD` / `SF_ACCESS_TOKEN` as a browser
+  login is removed — rename those to `SF_ADMIN_USERNAME` /
+  `SF_ADMIN_PASSWORD` / `SF_ADMIN_TOKEN` in `.env` (they remain in
+  `.env.example` as the ORG-LEVEL API credential for seeding and sweeps,
+  which is a different thing). Both validator refusals print the exact fix.
+  All 13 personas in the repo roster already named an account, so
+  `personas.json` needed no change.
+- **MMPM emitter moved out of the pipeline.** `generate.ts` no longer writes
+  `L2/encoding/batch-rec-<id>.json`; `sfpw contracts <journey> [--out <dir>]`
+  harvests it on demand (review only, never published). Generating a journey
+  has no memory-substrate side effect.
+
+## PLANNER v2 SHIPPED, v1 RETIRED — 2026-09-03 (docs/SPRINT-PLAN-PLANNER-V2.md)
+
+The **Journey Script Planner** is now *the* planner. Sprints 1–3 built it
+(model trim + suites; the script codec `src/graph/script.ts` and the
+inference module `src/graph/infer.ts`; the UI in `tools/planner-v2/` —
+`index.html` + `style.css` + 14 IIFE modules ordered by `modules.json`, with
+`ops.js` as the only writer and `view.js` the projection); sprint **4.1**
+retired the old one:
+
+- **Deleted**: `tools/planner-src.html`, `tools/process-planner.html`, the
+  `buildV1` branch of `tools/build-planner.mjs`, the `planner:v2` script and
+  the `PLANNER_V2` flag, the two v1 review drivers, and the six old harness
+  specs (`planner`, `planner-compose`, `planner-group`,
+  `planner-import-cases`, `planner-order-health`, `planner-projects`).
+- **Renamed**: the build output is `tools/planner.html` (was
+  `journey-planner.html`), and `tests/harness/planner-v2-*.spec.ts` →
+  `planner-*.spec.ts` — the "v2" qualifier means nothing with one planner.
+- **`npm run planner`** serves it at `/` and `/planner.html`;
+  `/process-planner.html` and `/journey-planner.html` **301** to it so old
+  bookmarks land.
+- **Five behaviours were PORTED before the old specs went** (the load-door
+  refusal, the run command / one-verb strip, the `?` legend, the auth picker
+  now on the session card, and the served credential-env rename); the rest of
+  the old→new coverage map is in `docs/PLANNER-FEATURE-PARITY.md` §9 and the
+  header of `tests/harness/planner-cards.spec.ts`.
+- **`tests/unit/planner-parity.spec.ts` now guards the NEW source**: every
+  interactive control id, New ▾ entry, canvas event, dev-server route and
+  `window.planner` name in `tools/planner-v2/` must be named in the parity
+  doc (§10 indexes the live surface), the v1 files must stay deleted, and no
+  v2 column cell may go back to `○`. The prototype-hooks test is gone —
+  `docs/PROTOTYPE-journey-script-planner.html` is kept as design history and
+  is no longer tested.
+- README "Creating a graph" is rewritten: Path A is the script-first flow
+  (~18 actions, down from ~70), Path B is unchanged apart from the new door
+  names.
+
 ## Sprints S19+S20 CHECK PANEL POLISH — SHIPPED 2026-08-31 (suite 338)
 
 - **S19**: check rows in node cards went two-line (kind/ms/draft/✕ on line 1,
@@ -235,9 +316,9 @@ remaining work is captures + one-beat judgments. Suite 296 passed. Shipped:
   compact session→does→data graph (post-save redirects folded in, SObjects
   inferred, draft oracles api.record_exists/ui.url flagged `draft?`) + a
   composite steps module replaying journey slices (`src/journeys/slice.ts`).
-  `PIPELINE_GRAPH=1` on `npm run pipeline` emits it (never over an authored
-  graph without `PIPELINE_GRAPH_OVERWRITE=1`).
-- **Env doctor** — `GRAPH_DOCTOR=<id|all> npm run doctor`: per-graph ✓/✗ for
+  `sfpw pipeline <journey> --graph` emits it (never over an authored graph
+  without `--overwrite`).
+- **Env doctor** — `sfpw doctor [<ref>|all|project:<p>]`: per-graph ✓/✗ for
   org URL, site URLs, every persona, plus the exact .env skeleton to paste.
 - **Readiness cockpit** — planner status bar `captured n/m · bound n/m ·
   checks n (k drafts)`; captured sessions labeled `✓rec`; does edges get
@@ -246,15 +327,15 @@ remaining work is captures + one-beat judgments. Suite 296 passed. Shipped:
 - **Labour telemetry** — `journeys/telemetry.jsonl` (capture/pipeline/run
   events, best-effort) via src/telemetry.ts; `npm run labour` prints
   scaffold→first-green wall clock per id. Proves/refutes the 50% target.
-- **ado:import** — `ADO_FILE=<csv>` or `ADO_PASTE=<text>` `npm run
-  ado:import` → draft graph (roles→sessions, steps→does edges, expected
+- **ado:import** — `sfpw import <file.xlsx|.csv>` (or `--paste <file.txt>`)
+  → draft graph (roles→sessions, steps→does edges, expected
   results→draft oracles, Siebel auto-provisioned maxConcurrent 1), every
   guess flagged; never clobbers (suffix `_ado`). Mapping validated on
   fixtures; PENDING validation against a real ADO export.
 - **/grillme** — Cowork skill (saved to account) + engine
   `src/graph/gaps.ts` (`computeGaps` 9 gap kinds phrased as multiple-choice
   questions; `applyAnswers` 8 validated write-back ops) + CLI
-  `GRILLME=<id> [GRILLME_APPLY=<ops.json>] npm run grillme`. Demo draft:
+  `sfpw grillme <ref> [--apply <ops.json>] [--json]`. Demo draft:
   `journeys/graphs/lead_to_customer_via_ado.graph.json` (20 gaps listed).
 
 Still creds-blocked (user adds .env later): capture queue + pre-navigation,
@@ -337,11 +418,12 @@ auto-checkpoints. D3 reminder: capture-graphs are ON DEMAND (owner call).
 `npm run record` (headed Cast session, close-window-to-finish) → version-pinned
 trace reader → distiller (starter grammar + settle attribution + name-me flags)
 → generator (journey JSON + WORKING vocabulary steps + baselines + reviewed
-settle-contract batches) → `npm run pipeline` → the real runner replays the
+settle-contract batches) → `sfpw pipeline` → the real runner replays the
 generated journey VERBATIM (tests/harness/generated-journey.spec.ts).
-Deny captures: `RECORD_EXPECT_DENIAL=1` + `PIPELINE_CAPABILITY=…`; a captured
-success REFUSES to generate. Multi-actor: one recording per persona, stitched
-on wall-clock with cross-actor shared-id flags (`PIPELINE_ALIASES=…`).
+Deny captures: `sfpw record <persona> <journey> --expect-denial` +
+`sfpw pipeline <journey> --capability …`; a captured success REFUSES to
+generate. Multi-actor: one recording per persona, stitched on wall-clock with
+cross-actor shared-id flags (`--aliases a=b,…`).
 
 **Remaining:** R8 real-org binding — blocked on H0 (npm install + git init,
 SETUP-REAL-ORG.md, pick journey #1), then: record the real flow → pipeline →

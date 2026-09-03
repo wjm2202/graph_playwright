@@ -21,7 +21,7 @@ export async function runJourneySlice(
 ): Promise<void> {
   if (!fs.existsSync(journeyFile)) {
     throw new Error(
-      `journey file missing: ${journeyFile} — run the pipeline for this capture first (PIPELINE_JOURNEY=<id> npm run pipeline)`,
+      `journey file missing: ${journeyFile} — run the pipeline for this capture first (sfpw pipeline <id>)`,
     );
   }
   const journey = JSON.parse(fs.readFileSync(journeyFile, 'utf8')) as { steps?: Record<string, unknown>[] };

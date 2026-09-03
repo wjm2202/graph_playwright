@@ -155,11 +155,10 @@ export function compactFromDistillation(d: Distillation, opts: FromCaptureOption
         // anything else merely CONSUMES. A record nobody created is external.
         const port = portFor(g, d, sobject);
         io = port.io;
-        if (port.external && !node.origin) {
-          node.origin = 'external';
-          flags.push(`${catalog}: ${sobject} record pre-existed in the capture — seed it or find it by name (node '${node.id}' origin: external)`);
+        if (port.external && !node.external) {
+          node.external = true;
+          flags.push(`${catalog}: ${sobject} record pre-existed in the capture — seed it or find it by name (node '${node.id}' external: true)`);
         }
-        if (port.handle && port.handle !== node.id) node.ref = port.handle;
       } else {
         screenSeq += 1;
         targetId = `scr_${seg.alias}_${screenSeq}`;

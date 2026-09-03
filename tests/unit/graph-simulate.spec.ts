@@ -12,6 +12,7 @@ import {
   SIMULATED_MODULE_MARKER,
 } from '../../src/graph/simulate';
 import { mergeRunIntoGraph } from '../../src/graph/mergeRun';
+import { evidenceDirFor, resolveEvidenceRef } from '../../src/graph/evidence';
 import { validateGraph, type ProcessGraph } from '../../src/graph/schema';
 
 const GRAPH_FILE = path.resolve('journeys', 'graphs', 'lead_to_customer.graph.json');
@@ -95,14 +96,34 @@ test('deny steps never flip a session to captured', () => {
   expect(sess?.steps).toBeUndefined();
 });
 
-test('embeds a provided screenshot as the acting session snapshot', ({}, testInfo) => {
+test('a provided screenshot becomes an evidence FILE under sim_<runId>', ({}, testInfo) => {
   const shot = testInfo.outputPath('shot.jpg');
+  fs.mkdirSync(path.dirname(shot), { recursive: true });
+  fs.writeFileSync(shot, Buffer.from('fake-jpeg-bytes-for-embedding-test'));
+  // A scratch graph root: <root>/graphs/<id>.graph.json + <root>/evidence/.
+  const root = testInfo.outputPath('repo');
+  fs.mkdirSync(path.join(root, 'graphs'), { recursive: true });
+  const graphFile = path.join(root, 'graphs', 'lead_to_customer.graph.json');
+  fs.copyFileSync(GRAPH_FILE, graphFile);
+
+  const result = simulateRun(loadGraph(), { ...OPTS, screenshots: [shot], evidenceDir: evidenceDirFor(graphFile) });
+  const creator = result.graph.nodes.find((n) => n.id === 'sess_sf_lead_creator');
+  expect(creator?.snapshot?.status).toBe('captured');
+  // Simulated evidence lands exactly where a real run's does — the sim_ runId
+  // in the path is the only difference, and it is visible in the ref.
+  expect(creator?.snapshot?.ref).toBe('evidence/lead_to_customer/sim_test/sess_sf_lead_creator.jpg');
+  expect(fs.readFileSync(resolveEvidenceRef(graphFile, creator!.snapshot!.ref)!, 'utf8'))
+    .toBe('fake-jpeg-bytes-for-embedding-test');
+  expect(JSON.stringify(result.graph)).not.toContain('base64');
+});
+
+test('with no evidence folder to write into, a screenshot still embeds inline', ({}, testInfo) => {
+  const shot = testInfo.outputPath('inline.jpg');
   fs.mkdirSync(path.dirname(shot), { recursive: true });
   fs.writeFileSync(shot, Buffer.from('fake-jpeg-bytes-for-embedding-test'));
 
   const result = simulateRun(loadGraph(), { ...OPTS, screenshots: [shot] });
   const creator = result.graph.nodes.find((n) => n.id === 'sess_sf_lead_creator');
-  expect(creator?.snapshot?.status).toBe('captured');
   expect(creator?.snapshot?.ref?.startsWith('data:image/jpeg;base64,')).toBe(true);
 });
 
