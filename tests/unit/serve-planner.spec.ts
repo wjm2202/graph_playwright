@@ -433,9 +433,14 @@ test('library: suites.json rides along, and a malformed one is an empty set rath
 });
 
 test('a saved graph is DATA: no rebuild, no reload pushed at the tab doing the saving', async () => {
+  // Self-contained: fullyParallel may hand this test to a worker of its own
+  // (its own server, its own log), so create the project HERE rather than
+  // relying on the library test above having run first.
+  expect((await makeProject('datalib')).status).toBe(200);
+  expect((await saveGraph('datalib', twoSessionGraph('data_only'))).status).toBe(200);
   // The observable is the server's own log: rebuild() announces itself even
   // when PLANNER_NO_REBUILD short-circuits it.
-  expect(log).toMatch(/rebuild skipped \(new project 'lib'\)/);  // the mechanism still works…
+  expect(log).toMatch(/rebuild skipped \(new project 'datalib'\)/);  // the mechanism still works…
   expect(log).not.toMatch(/rebuild skipped \(saved /);           // …and a graph save never reaches it
   expect(log).not.toMatch(/reloading \d+ tab/);
 });
@@ -500,16 +505,18 @@ test('recordings: journeys under recordings/ with their captures, manifest first
 });
 
 test('record: one session per journey (409), unknown persona or journey refused, unknown id 404s', async () => {
-  expect((await saveGraph('rec', twoSessionGraph('hold_flow'))).status).toBe(200);
+  // Own project: the 'rec' project belongs to the spawn test, which may run in another worker.
+  expect((await makeProject('rec2')).status).toBe(200);
+  expect((await saveGraph('rec2', twoSessionGraph('hold_flow'))).status).toBe(200);
   const first = await (await fetch(`${base}/__record`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ persona: 'sales_user', journey: 'rec/hold_flow' }), // ref form, no project field
+    body: JSON.stringify({ persona: 'sales_user', journey: 'rec2/hold_flow' }), // ref form, no project field
   })).json();
   expect(first.ok).toBe(true);
 
   const second = await fetch(`${base}/__record`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ persona: 'siebel_admin', journey: 'hold_flow', project: 'rec' }),
+    body: JSON.stringify({ persona: 'siebel_admin', journey: 'hold_flow', project: 'rec2' }),
   });
   expect(second.status).toBe(409);
   expect(await second.json()).toMatchObject({ ok: false, running: true, id: first.id });
@@ -517,23 +524,32 @@ test('record: one session per journey (409), unknown persona or journey refused,
 
   const ghostPersona = await fetch(`${base}/__record`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ persona: 'nobody', journey: 'tiny_flow', project: 'rec' }),
+    body: JSON.stringify({ persona: 'nobody', journey: 'tiny_flow', project: 'rec2' }),
   });
   expect(ghostPersona.status).toBe(400);
   expect((await ghostPersona.json()).error).toContain("unknown persona 'nobody'");
 
   const ghostJourney = await fetch(`${base}/__record`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ persona: 'sales_user', journey: 'nope', project: 'rec' }),
+    body: JSON.stringify({ persona: 'sales_user', journey: 'nope', project: 'rec2' }),
   });
   expect(ghostJourney.status).toBe(400);
-  expect((await ghostJourney.json()).error).toContain("unknown journey 'rec/nope'");
+  expect((await ghostJourney.json()).error).toContain("unknown journey 'rec2/nope'");
 
   const ghostId = await fetch(`${base}/__record/rec_nothing`);
   expect(ghostId.status).toBe(404);
 });
 
 test('wiring edits on a role bound to an account land on the ACCOUNT — every role on that login follows', async () => {
+  // Self-contained: bind the two roles to one login here. addPersonas leaves a
+  // role that already exists alone (reported under `existing`), so this is
+  // harmless when the /__personas/add test ran first in the same worker.
+  fs.writeFileSync(path.join(tmp, '.env.example'), 'SF_INSTANCE_URL=\n', { flag: 'a' });
+  const bind = await fetch(`${base}/__personas/add`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roles: ['Client Lead', 'Business Development Manager'], accounts: { 'Client Lead': 'sales_mgr', 'Business Development Manager': 'sales_mgr' } }),
+  });
+  expect(bind.status).toBe(200);
   const r = await (await fetch(`${base}/__personas`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ personaId: 'client_lead', usernameEnv: 'SFDC_UAT_MGR_USER', totpEnv: '' }),
