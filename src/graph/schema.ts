@@ -4,8 +4,13 @@
  * A process is a typed property graph: systems (with session policies — Siebel
  * gets maxConcurrent 1), actors (aliases onto personas.json), nodes carrying
  * the four planning data points (account env-name, app URL, steps placeholder,
- * snapshot slot) plus timing, and typed edges (next / navigates / handoff /
- * deny) that carry captured timing and shared-record joints.
+ * snapshot slot) plus timing, and typed relation edges (login_as / does /
+ * denied / asserts / touches / handoff / requires / next) that carry captured
+ * timing, data ports and shared-record joints.
+ *
+ * `process-graph/2` is the ONLY authoring form. v1 documents still open —
+ * upgrade.ts converts them at the load door (resolve.ts, the planner) — but
+ * nothing downstream of that door knows the v1 vocabulary.
  *
  * Discipline mirrors personas.json: env-var NAMES only (inline secrets are
  * rejected), lower_snake_case ids, dependency-free validation reporting every
@@ -72,8 +77,8 @@ export type DataOrigin = 'step' | 'seed' | 'external';
 export type DataIo = 'produces' | 'consumes' | 'updates';
 
 export type NodeType =
-  | 'start' | 'action' | 'decision' | 'checkpoint' | 'snapshot' | 'end'
-  // process-graph/2 (state nodes — STUDY-TEST-GRAPH-REPRESENTATION.md):
+  | 'start' | 'checkpoint' | 'end'
+  // State nodes — STUDY-TEST-GRAPH-REPRESENTATION.md:
   | 'session' | 'screen' | 'data'
   // Infra nodes (S7): evidence sources + integration hops, not steps.
   | 'db' | 'logger' | 'api';
@@ -92,8 +97,6 @@ export interface PNode {
   steps?: { status: PlanStatus; journeyId?: string; stepIndexes?: number[] };
   snapshot?: { status: PlanStatus; ref?: string; capturedAt?: string };
   timing?: { plannedMs?: number; capturedMeanMs?: number; capturedP95Ms?: number };
-  /** Step-catalog binding once known (export uses it; planner form offers it). */
-  catalog?: string;
   /** State oracles — what must be TRUE here (pass/fail per expectation). */
   expects?: Expectation[];
   /** db nodes only: can tests query it? Many DBs can't be reached — leave
@@ -120,8 +123,8 @@ export interface PNode {
 }
 
 export type EdgeType =
-  | 'next' | 'navigates' | 'handoff' | 'deny'
-  // process-graph/2 (relation edges — actions/relations live ON the edge):
+  | 'next' | 'handoff'
+  // Relation edges — actions/relations live ON the edge:
   | 'login_as' | 'does' | 'requires' | 'touches' | 'asserts' | 'denied';
 
 export interface PEdge {
@@ -135,11 +138,11 @@ export interface PEdge {
     recordRef?: string;
     frequency?: number;
     meanMs?: number;
-    /** Required on deny/denied edges: the capability being refused. */
+    /** Required on denied edges: the capability being refused. */
     capability?: string;
-    /** v2 `does` edges: the step-catalog action this relation performs. */
+    /** `does` edges: the step-catalog action this relation performs. */
     catalog?: string;
-    /** v2 `login_as` edges: how the session is acquired. */
+    /** `login_as` edges: how the session is acquired. */
     auth?: AuthMethod;
     /** Edges landing on a data node: the port direction (see DataIo). */
     io?: DataIo;
@@ -155,7 +158,7 @@ export interface PEdge {
 }
 
 export interface ProcessGraph {
-  schema: 'process-graph/1' | 'process-graph/2';
+  schema: 'process-graph/2';
   id: string;
   title?: string;
   systems: Record<string, SystemDef>;
@@ -173,6 +176,13 @@ export interface ProcessGraph {
    * personas.json; the alias must exist in `actors`.
    */
   alternatives?: Record<string, string[]>;
+  /**
+   * Suite labels (`sod`, `smoke`, `regression`…): lower_snake_case, no
+   * duplicates. The schema deliberately fixes no vocabulary — `suites.json`
+   * decides which tags mean anything, and `selectGraphs('tag:sod')` is the
+   * only reader (src/suites.ts).
+   */
+  tags?: string[];
 }
 
 export interface GraphValidation {
@@ -182,8 +192,8 @@ export interface GraphValidation {
 
 const ID_RE = /^[a-z][a-z0-9_]*$/;
 const ENV_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
-export const NODE_TYPES: NodeType[] = ['start', 'action', 'decision', 'checkpoint', 'snapshot', 'end', 'session', 'screen', 'data', 'db', 'logger', 'api'];
-export const EDGE_TYPES: EdgeType[] = ['next', 'navigates', 'handoff', 'deny', 'login_as', 'does', 'requires', 'touches', 'asserts', 'denied'];
+export const NODE_TYPES: NodeType[] = ['start', 'checkpoint', 'end', 'session', 'screen', 'data', 'db', 'logger', 'api'];
+export const EDGE_TYPES: EdgeType[] = ['next', 'handoff', 'login_as', 'does', 'requires', 'touches', 'asserts', 'denied'];
 export const SYSTEM_KINDS: SystemKind[] = ['salesforce', 'siebel', 'web', 'api', 'other'];
 export const STATUSES: PlanStatus[] = ['planned', 'captured'];
 export const DATA_IOS: DataIo[] = ['produces', 'consumes', 'updates'];
@@ -207,9 +217,9 @@ export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): Gr
   const g = doc as Partial<ProcessGraph> | null;
   if (!g || typeof g !== 'object') return { ok: false, errors: ['graph must be an object'] };
 
-  if (g.schema !== 'process-graph/1' && g.schema !== 'process-graph/2') {
-    errors.push("schema: must be 'process-graph/1' or 'process-graph/2'");
-  }
+  // v2 only: a v1 document is upgraded at the load door (upgrade.ts) and
+  // never reaches the validator still wearing its old tag.
+  if (g.schema !== 'process-graph/2') errors.push("schema: must be 'process-graph/2'");
   if (!g.id || !ID_RE.test(g.id)) errors.push('id: lower_snake_case required');
 
   const systems = g.systems ?? {};
@@ -245,6 +255,17 @@ export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): Gr
       }
     }
   }
+  const tags = g.tags;
+  if (tags !== undefined) {
+    if (!Array.isArray(tags)) errors.push('tags: array of lower_snake_case labels required');
+    else {
+      for (const [i, t] of tags.entries()) {
+        if (typeof t !== 'string' || !ID_RE.test(t)) errors.push(`tags[${i}]: lower_snake_case label required`);
+        else if (tags.indexOf(t) !== i) errors.push(`tags: '${t}' listed twice`);
+      }
+    }
+  }
+
   for (const [i, c] of (g.composedFrom ?? []).entries()) {
     if (!c || typeof c.ref !== 'string' || !c.ref || typeof c.graphId !== 'string' || !c.graphId || typeof c.at !== 'string' || !c.at) {
       errors.push(`composedFrom[${i}]: needs { ref, graphId, at } strings`);
@@ -384,8 +405,8 @@ export function validateGraph(doc: unknown, opts: ValidateGraphOptions = {}): Gr
     for (const end of ['from', 'to'] as const) {
       if (!e?.[end] || !nodeIds.has(e[end])) errors.push(`${at}.${end}: unknown node '${e?.[end]}'`);
     }
-    if ((e?.type === 'deny' || e?.type === 'denied') && !e.data?.capability) {
-      errors.push(`${at}: deny edges require data.capability (what is being refused)`);
+    if (e?.type === 'denied' && !e.data?.capability) {
+      errors.push(`${at}: denied edges require data.capability (what is being refused)`);
     }
     if (e?.type === 'login_as') {
       const target = (g.nodes ?? []).find((n) => n.id === e.to);

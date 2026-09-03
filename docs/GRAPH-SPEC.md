@@ -35,9 +35,10 @@ graph names, evaluates every expectation, and **repaints the same graph**
 | Thing | Where | Rule |
 |---|---|---|
 | Graph | `projects/<project>/graphs/<id>.graph.json` (legacy: `journeys/graphs/<id>.graph.json`) | `id` = lower_snake_case, equals the file stem; the planner's *save ▾ → save to project* writes it (validated, atomic) |
-| Reference | `<project>/<id>`; bare `<id>` resolves in the legacy folder | used by every CLI (`GRAPH_SPEC`, `GRILLME`, `COMPOSE`…) |
+| Reference | `<project>/<id>`; bare `<id>` resolves in the legacy folder | used by every CLI (`SUITE=graph:<ref>`, `GRILLME`, `COMPOSE`…) |
 | Project | `projects/<project>/project.json` (+ `graphs/ imports/ journeys/ steps/ specs/ recordings/ evidence/ docs/`) | `npm run project:new`, or from the planner |
 | Personas | `personas.json` (root) | the roster graphs bind roles to — **never invent a persona id** |
+| Suites | `suites.json` (root) | named selections — `{ "<suite>": { "graphs"?, "tags"?, "project"? } }`, the union of the three; `SUITE=<suite\|graph:<ref>\|tag:<t>\|project:<p>> npm run suite` |
 | Imports | `projects/<project>/imports/<stamp>-<name>.<xlsx|csv>` + `.json` manifest | the ADO file, verbatim, and which case became which graph |
 
 All ids (graph, node, edge, expectation, actor alias, system key) match
@@ -55,12 +56,21 @@ that looks like a URL with credentials, or an inline secret, is rejected.
   "actors":  { "<alias>": "<personaId>", ... },       // alias → personas.json id
   "nodes":   [ PNode, ... ],
   "edges":   [ PEdge, ... ],
+  "tags":    ["sod", "smoke"],                        // optional suite labels
   "composedFrom": [ { "ref", "graphId", "at" } ]      // optional provenance (compose)
 }
 ```
 
-`process-graph/1` (action nodes + `next` edges) still loads and is
-auto-upgraded; **write v2 only.**
+`tags` are lower_snake_case labels with no duplicates and no fixed
+vocabulary: `suites.json` decides which of them mean anything
+(`{ "sod": { "tags": ["sod"] } }`), and `SUITE=tag:sod npm run suite` runs
+every graph carrying one. Tagging is how a graph joins a standing suite —
+nothing is generated per graph.
+
+`process-graph/1` (the retired activity-node form) still loads and is
+auto-upgraded at the load door (`src/graph/upgrade.ts`, called by
+`resolve.loadGraphFile` and the planner's *load*); **v2 is the only form you
+can author** — the validator, the walker and the planner know no other.
 
 ### 3.1 Systems
 
@@ -106,8 +116,9 @@ Rules: the alias must exist in `actors`; every id must be in
 `personas.json` (else `role_unbound` at `alias:persona`); no duplicates; the
 default is not repeated. `expandVariants()` yields the bindings — default
 first, then each alternative; several aliases with alternatives combine as
-a product, capped at 24 — and the emitted spec runs **one test per
-binding** (`… · as client_associate → client_lead`). The run walks the
+a product, capped at 24 — and the suite runner (`tests/e2e/graphs.spec.ts`)
+registers **one test per binding**
+(`<ref> · as client_associate → client_lead`). The run walks the
 variant binding but paints and saves the original graph, so the matrix
 never leaks into `actors`.
 
@@ -122,7 +133,6 @@ PNode {
   steps?:    { status: 'planned'|'captured', journeyId?, stepIndexes? },
   snapshot?: { status, ref?, capturedAt? },
   timing?:   { plannedMs?, capturedMeanMs?, capturedP95Ms? },
-  catalog?,                            // v1 only
   expects?:  Expectation[],            // §6
   queryable?: boolean,                 // db only
   searchable?: boolean,                // logger only
@@ -143,7 +153,6 @@ PNode {
 | `db` | a database as evidence source | `label` | `queryable` (default false: most prod DBs are unreachable — verify via API/logs instead) |
 | `logger` | a log system as evidence source | `label` | `searchable` |
 | `api` | an integration endpoint / hop | `label` | `endpoint { method, path }` |
-| `action` `decision` `snapshot` | **v1 only** — do not author | | |
 
 Validator rules on nodes: unique ids; `system`/`actor` must exist in
 `systems`/`actors`; `session` requires `system`; `endpoint` only on `api`;
@@ -157,9 +166,9 @@ handle (`ref`, default = node id); `sobject` is an SObject API name
 PEdge { id, from, to, type, label?, data?: {
   catalog?,                 // does: the step-catalog name  (<noun>.<verb>)
   auth?,                    // login_as: frontdoor | singleaccess | ui
-  capability?,              // denied/deny: REQUIRED — what must be refused
+  capability?,              // denied: REQUIRED — what must be refused
   io?, bind?, ioDraft?,     // ports onto data nodes — §7
-  recordRef?, deltaMs?, meanMs?, frequency?   // captured timing / v1
+  recordRef?, deltaMs?, meanMs?, frequency?   // captured timing / record joint
 } }
 ```
 
@@ -173,10 +182,9 @@ PEdge { id, from, to, type, label?, data?: {
 | `handoff` | `data`/`api` → `api`/`data` | an integration hop (SF → Siebel replication) | none (a `produces` port here = ambient definition) |
 | `requires` | any → any | prerequisite (seed, permission, another flow) | reported as metadata |
 | `next` | `checkpoint`/`session` → `end` | closes the flow | none |
-| `navigates` `deny` | **v1 only** | | |
 
 Validator rules on edges: endpoints must exist; `login_as` must land on a
-`session`; `denied`/`deny` need `data.capability`; `does` needs
+`session`; `denied` needs `data.capability`; `does` needs
 `data.catalog` or at least a `label`; `data.io` only on edges landing on a
 `data` node; `bind` only with `consumes`/`updates`, values must contain
 `{ref:<handle>.<prop>}`; `auth` must not contradict the persona.
@@ -372,3 +380,77 @@ default 10 s) is what closes `api_no_timeout`.
    hand-overs (one session each, the default) or a matrix (`alternatives`)
    — decided with the human; every persona in the roster.
 10. `GRILLME=<ref> npm run grillme` reports only `not_captured`.
+
+## 13. Script form (`src/graph/script.ts`)
+
+A valid graph has a canonical linear shape (§5.1) — one `login_as` chain,
+`does`/`denied` edges in declaration order inside each session, checks on the
+state the step lands in — and that shape is a **script**. `parseScript(text)`
+compiles the script to a `process-graph/2` document, `printScript(graph)`
+writes one back out. Both are lossless for everything below and NAME what
+they cannot carry, so the JSON above stays the normative model and the script
+is a second door onto it — the one an AI or a keyboard-first author uses.
+
+```
+create_customer  Create a customer
+systems: sf = Salesforce UAT (url:SF_INSTANCE_URL), siebel = Siebel (siebel url:SIEBEL_URL max:1)
+tags: smoke, sod
+
+as client_associate (admin) on sf at /lightning/o/Account/list via frontdoor
+  create Customer record (Account) -> produces as customer
+    ✓ api.record_exists Account within 10000ms
+    ? ui.toast was created
+  must not delete Customer record
+  open screen Credit Disclosure [credit_profile.open]
+    ✓ ui.visible button:Accept
+
+as billing_collections on siebel via ui
+  verify Customer record -> consumes
+  verify Customer exists in Siebel
+    ✓ api.record_exists Customer within 120000ms every 5000ms
+```
+
+**Lines.** Blank lines and whole-line `#` comments are ignored; indentation is
+cosmetic (the leading token decides the kind).
+
+| Line | Meaning |
+|---|---|
+| `<id>  <title>` | first line; `id` lower_snake_case, then 2+ spaces (or a tab), then the title |
+| `systems: <key> = <Label> (<kind> url:<ENV> max:<n>)` | one or more comma-separated entries; the parenthesised attributes are optional. Default (no line): `sf = Salesforce`, kind `salesforce`. Kind defaults to `salesforce` for `sf`, to the key when the key IS a system kind (`siebel`, `web`, `api`, `other`), else `web` |
+| `tags: smoke, sod` | suite labels |
+| `as <role> [(<persona>)] [on <system>] [at <url>] [via <auth>]` | a session. Alias = `slug(role)`; `(persona)` binds `actors[alias]` (default: the alias itself); `<system>` is a declared key or label; `<auth>` is `frontdoor`, `singleaccess` or `ui` and lands on the `login_as` edge |
+| `<verb> <Record> [(<SObject>)] [-> <port>[?]] [as <handle>] [[<catalog>]]` | a `does` step onto a **data** node. Records merge BY NAME across sessions — one node, many steps |
+| `<verb> screen <Screen name> [[<catalog>]]` | a `does` step onto a `screen` node |
+| `verify <Checkpoint name>` | an `asserts` step onto a `checkpoint` node |
+| `must not <verb> <Record>` | a `denied` edge; `capability` = the same `<catalog>` rule |
+| `✓ <kind> [<target>] [<value…>] [within <n>ms [every <n>ms]]` | an expectation on the step's target, `after` = that step's catalog |
+| `? <kind> …` | the same, `draft: true` |
+
+**Derived, not typed.** `catalog` (and a refusal's `capability`) is
+`<first word of slug(record)>.<slug(verb)>` — `create Customer record` →
+`customer.create`. When the real catalog cannot be derived that way it is
+written explicitly in square brackets and the verb comes from the edge label.
+Expectation ids are `<slug(catalog)>_<n>`; node ids are `slug(<record>)` and
+`sess_<system>_<alias>`; edge ids are `e<n>` in emission order.
+
+**`verify` is ambiguous on purpose, resolved deterministically.** A
+`verify <name>` line is a step onto a RECORD when `<name>` is a record any
+other line introduces, or when the line carries an annotation
+(`(SObject)`, `-> port`, `as handle`, `[catalog]`); otherwise it is a
+CHECKPOINT (`asserts`), and its checks carry no `after`. So a checkpoint may
+not be named after a record. `(-)` in the SObject slot means "no SObject" —
+it exists for labels that themselves end in `)`.
+
+**Ports are NOT inferred here.** A step states its port or has none; a
+portless `does` edge is left portless for `inferPorts()` to draft later. One
+inference engine, not two.
+
+**What the script cannot say.** `pos`, `steps`, `snapshot`, `timing`,
+`account`, `notes`, `lastResult`, expectation `note`, `composedFrom`,
+`alternatives`, `db`/`logger`/`api` nodes and the `touches`/`requires`/
+`handoff` edges into them, `db.query` and `log.traffic` oracles (they name an
+infra node), `bind`, `ref` on non-data nodes, and free-text edge labels.
+`printScript` returns `{ text, dropped }` where `dropped` names every one of
+these it found, so an editor warns instead of deleting silently.
+`parseScript` never throws: it returns `{ graph, problems }` with 1-based line
+numbers, and the graph it returns always passes `validateGraph`.

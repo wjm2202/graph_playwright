@@ -12,7 +12,7 @@
     "record": "playwright test --project=record tests/record/record.spec.ts --headed",
     "pipeline": "playwright test --project=record tests/record/pipeline.spec.ts",
     "sweep": "SWEEP=1 playwright test --project=record tests/record/sweep.spec.ts",
-    "graph:spec": "playwright test --project=record tests/record/make-graph-spec.spec.ts",
+    "suite": "playwright test --project=e2e",
     "graph:compose": "playwright test --project=record tests/record/compose.spec.ts",
     "simulate": "playwright test --project=record tests/record/simulate.spec.ts",
     "doctor": "playwright test --project=record tests/record/doctor.spec.ts",
@@ -25,7 +25,8 @@
     "lint": "eslint .",
     "validate:encoding": "node L2/encoding/validate.mjs",
     "build:planner": "node tools/build-planner.mjs",
-    "planner": "node tools/serve-planner.mjs"
+    "planner": "node tools/serve-planner.mjs",
+    "planner:v2": "PLANNER_V2=1 node tools/serve-planner.mjs"
   },
   "devDependencies": {
     "@faker-js/faker": "^10.6.0",

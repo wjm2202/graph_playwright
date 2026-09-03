@@ -389,7 +389,9 @@ function cleanAdoHtml(s: string): string {
     .trim();
 }
 
-function slug(s: string | undefined): string {
+/** lower_snake_case id from free text (≤40 chars) — the ONE slug the graph
+ *  codecs share (script.ts reuses it so ids match what ado:import produces). */
+export function slug(s: string | undefined): string {
   return (s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
 }
 

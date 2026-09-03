@@ -1,16 +1,20 @@
 /**
- * Close-the-loop pure parts: merge-back painting, spec emission, walker
- * edge-id mapping, and the JourneyRunError contract.
+ * Close-the-loop pure parts: merge-back painting, the baselines the file
+ * runner feeds the grader, walker edge-id mapping, and the JourneyRunError
+ * contract. (Which graphs a run covers is `tests/unit/suites.spec.ts`; the
+ * spec that runs them is `tests/e2e/graphs.spec.ts`.)
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import type { Page } from '@playwright/test';
 import { mergeRunIntoGraph } from '../../src/graph/mergeRun';
-import { toSpec } from '../../src/graph/toSpec';
 import { toJourney } from '../../src/graph/toJourney';
-import { JourneyRunError, runJourney, type JourneyReport } from '../../src/journeys/runner';
+import { runGraphFile } from '../../src/graph/run';
+import { JourneyRunError, runJourney, baselineKey, type JourneyReport, type CastLike } from '../../src/journeys/runner';
 import { StepCatalog } from '../../src/journeys/catalog';
+import { emptyBaselines, saveBaselinesFile, loadBaselinesFile, type StoredBaselines } from '../../src/journeys/baselines';
 import { goodGraphV2 } from '../helpers/sampleGraph';
 
 const PERSONAS = ['admin', 'sales_user', 'portal_user', 'guest', 'siebel_admin'];
@@ -134,34 +138,73 @@ test.describe('JourneyRunError', () => {
   });
 });
 
-test.describe('toSpec', () => {
-  test('emits a runnable, self-updating spec bound to the graph file', () => {
-    const src = toSpec(goodGraphV2());
-    expect(src).toContain("journeys/graphs/expense_to_siebel.graph.json");
-    expect(src).toContain("require('../../src/journeys/generated/expense_to_siebel.steps')");
-    expect(src).toContain('registerSteps_expense_to_siebel');
-    expect(src).toContain('runGraphFile(GRAPH');
-    // One test() per persona-matrix binding; the default keeps the plain title.
-    expect(src).toContain("test(variant.id === 'default' ? 'Expense flows into Siebel' : 'Expense flows into Siebel · as ' + variant.label");
-    expect(src).toContain('GRAPH_SPEC=expense_to_siebel npm run graph:spec');
-    expect(src).not.toContain('networkidle');
+test.describe('runGraphFile ↔ baselines', () => {
+  // The timing grade (soft ×1.5 / hard ×3) was dead code until the file
+  // runner fed it: baselines live in journeys/baselines/<id>.baselines.json,
+  // are READ when present and folded back in after a fully green run.
+  const runDeps = (msPerCall: number) => {
+    let t = 0;
+    const cast: CastLike = {
+      as: async () => ({ url: () => 'about:blank' }) as unknown as Page,
+      deny: async () => {},
+    };
+    const catalog = new StepCatalog()
+      .register('expense.submit', async ({ produce }) => { produce('expense', { id: 'a03000000000001AAA', sobject: 'Expense__c' }); })
+      .register('expense.approve', async () => {})
+      .register('siebel.verify_expense', async () => {})
+      .registerDeny('expense.approve', () => ({ ui: async () => { /* control absent → refusal proven */ } }));
+    return { cast, catalog, personaIds: PERSONAS, clock: () => (t += msPerCall) };
+  };
+
+  /** A scratch repo corner: the graph to run + the baselines folder. */
+  function scratch(): { dir: string; graphFile: string; baselinesDir: string; baselinesFile: string } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runfile-'));
+    const graphFile = path.join(dir, 'expense_to_siebel.graph.json');
+    fs.writeFileSync(graphFile, JSON.stringify(goodGraphV2(), null, 2));
+    const baselinesDir = path.join(dir, 'baselines');
+    process.env.TELEMETRY_FILE = path.join(dir, 'telemetry.jsonl');
+    return { dir, graphFile, baselinesDir, baselinesFile: path.join(baselinesDir, 'expense_to_siebel.baselines.json') };
+  }
+
+  test.afterEach(() => { delete process.env.TELEMETRY_FILE; });
+
+  test('no baselines file → no grading, and none is invented', async () => {
+    const s = scratch();
+    const r = await runGraphFile(s.graphFile, runDeps(10_000), { baselinesDir: s.baselinesDir });
+    expect(r.error).toBeUndefined();
+    expect(r.report.steps.every((x) => x.status === 'ok')).toBe(true);
+    // Baselines start with the capture pipeline; a run never creates one.
+    expect(fs.existsSync(s.baselinesFile)).toBe(false);
+    fs.rmSync(s.dir, { recursive: true, force: true });
   });
 
-  test('wires the SalesforceApi oracle so backend checks assert persistence', () => {
-    const src = toSpec(goodGraphV2());
-    // Bound only when a REST token exists; otherwise checks skip, never pass.
-    expect(src).toContain('const env = loadEnv();');
-    expect(src).toContain('env?.accessToken');
-    expect(src).toContain('salesforceApiOracle(new SalesforceApi(request, env.instanceUrl, env.accessToken, env.apiVersion), {');
-    // Default scope = THIS run's records; ORACLE_SCOPE=suite widens it.
-    expect(src).toContain("scope: process.env.ORACLE_SCOPE === 'suite' ? 'suite' : 'run'");
-    expect(src).toContain('...(apiOracle ? { apiOracle } : {})');
-    expect(src).toContain("async ({ cast, request }, testInfo)");
+  test('an existing baselines file grades the run — a blown hard budget fails it', async () => {
+    const s = scratch();
+    const doc: StoredBaselines = emptyBaselines('expense_to_siebel');
+    doc.steps[baselineKey(0, 'submitter', 'expense.submit')] = { n: 3, meanMs: 100, p95Ms: 100, samples: [100, 100, 100] };
+    saveBaselinesFile(s.baselinesFile, doc);
+
+    const r = await runGraphFile(s.graphFile, runDeps(5_000), { baselinesDir: s.baselinesDir });
+    expect(r.error).toBeInstanceOf(JourneyRunError);
+    expect(r.error!.message).toMatch(/blew the timing budget: 5000ms vs baseline p95 100ms × 3/);
+    // A red run never moves the bar it just failed against.
+    expect(loadBaselinesFile(s.baselinesFile, 'expense_to_siebel').steps[baselineKey(0, 'submitter', 'expense.submit')]!.n).toBe(3);
+    fs.rmSync(s.dir, { recursive: true, force: true });
   });
 
-  test('refuses invalid graphs', () => {
-    const bad = goodGraphV2();
-    bad.edges.push({ id: 'x', from: 'start', to: 'ghost', type: 'next' });
-    expect(() => toSpec(bad)).toThrow(/cannot emit a spec for an invalid graph/);
+  test('a green run folds its durations back into the window', async () => {
+    const s = scratch();
+    const key = baselineKey(0, 'submitter', 'expense.submit');
+    const doc: StoredBaselines = emptyBaselines('expense_to_siebel');
+    doc.steps[key] = { n: 1, meanMs: 400, p95Ms: 400, samples: [400] };
+    saveBaselinesFile(s.baselinesFile, doc);
+
+    const r = await runGraphFile(s.graphFile, runDeps(500), { baselinesDir: s.baselinesDir });
+    expect(r.error).toBeUndefined();
+    const after = loadBaselinesFile(s.baselinesFile, 'expense_to_siebel');
+    expect(after.steps[key]).toMatchObject({ n: 2, samples: [400, 500], p95Ms: 500 });
+    // Every graded step of the walk is in the window now, not just the seeded one.
+    expect(Object.keys(after.steps).length).toBe(r.report.steps.filter((x) => x.kind === 'do').length);
+    fs.rmSync(s.dir, { recursive: true, force: true });
   });
 });

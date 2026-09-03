@@ -1,13 +1,18 @@
 /** Shared sample process graphs (Salesforce → Siebel SoD flow) for specs.
- *  goodGraph() = the v1 activity-node form (converter + compat tests).
- *  goodGraphV2() = the v2 state-node/relation-edge form — matches the shipped
- *  seed journeys/graphs/expense_to_siebel.graph.json (drift-guarded). */
+ *  goodGraphV2() = the ONE authoring form — matches the shipped seed
+ *  journeys/graphs/expense_to_siebel.graph.json (drift-guarded).
+ *  legacyGraphV1() = a v1 file as it still exists on disk: an upgrade
+ *  FIXTURE only (nothing authors v1 any more). */
 import type { ProcessGraph } from '../../src/graph/schema';
+import type { V1Graph } from '../../src/graph/upgrade';
 
 export const goodGraphV2 = (): ProcessGraph => ({
   schema: 'process-graph/2',
   id: 'expense_to_siebel',
   title: 'Expense flows into Siebel',
+  // Suite labels (suites.json): the shipped graph carries these, and the
+  // drift guard in graph-v2.spec keeps this helper identical to it.
+  tags: ['smoke', 'sod', 'siebel'],
   systems: {
     sf: { label: 'Salesforce UAT', kind: 'salesforce', urlEnv: 'SF_INSTANCE_URL' },
     siebel: { label: 'Siebel', kind: 'siebel', urlEnv: 'SIEBEL_URL', sessionPolicy: { maxConcurrent: 1 } },
@@ -53,7 +58,7 @@ export const goodGraphV2 = (): ProcessGraph => ({
   ],
 });
 
-export const goodGraph = (): ProcessGraph => ({
+export const legacyGraphV1 = (): V1Graph => ({
   schema: 'process-graph/1',
   id: 'expense_to_siebel',
   title: 'Expense flows into Siebel',

@@ -118,9 +118,10 @@ Several roles may share one login. A graph never invents accounts.
     gives you the file to place by hand.
 12. **Capture and run.** Double-click each session to copy its record
     command (`RECORD_PERSONA=… RECORD_JOURNEY=… npm run record`), record it
-    once as that human; then `GRAPH_SPEC=crm/create_customer npm run
-    graph:spec` writes the standing Playwright spec and every run repaints
-    the graph.
+    once as that human; then `SUITE=graph:crm/create_customer npm run suite`
+    runs it — one generic spec walks whatever the suite selects, and every
+    run repaints the graph. Put the graph in `suites.json` (or give it a
+    `tags` entry) to make it part of a standing suite.
 
 Extending a flow: FILE → **insert ▾** brings another graph in as a
 selected island parked to the right; drag it where you want, draw one
@@ -184,12 +185,17 @@ CLI equivalent of steps 2–6: `ADO_FILE=export.xlsx npm run ado:import`
   infers where the imported flow must splice in, and the recorder derives
   the ports itself (the save that created a record defines it; every later
   mention becomes `{ref:}`). Study + science: `docs/STUDY-DATA-FLOW.md`.
-- **Versioned schema.** `process-graph/2` with a superset validator (v1 graphs
-  keep loading) and an `upgradeGraph()` v1→v2 converter.
+- **One authoring form.** `process-graph/2` is the only shape the validator,
+  the walker and the planner know; a legacy `process-graph/1` file still
+  opens because `upgradeGraph()` converts it at the load door.
 - **Merge-back.** A run's results are merged onto the graph it came from —
   every node paints pass/fail with its duration and the screenshot the run
   captured.
-- **Mermaid export** for embedding a process in any doc.
+- **Suites, not generated specs.** `suites.json` names selections — explicit
+  `graphs`, a graph `tags` list, or a whole `project` — and ONE spec
+  (`tests/e2e/graphs.spec.ts`) runs whatever `SUITE=` selects, one test per
+  graph × persona-matrix binding. `SUITE=smoke npm run suite`; nothing is
+  code-generated, so a graph joins a suite by being tagged.
 
 ### Authoring — the visual planner
 
@@ -219,6 +225,15 @@ auto-rebuild and live reload.
 - **Self-explaining canvas** — every node and edge type describes itself on
   hover, plus a dismissible legend and a typed `add ▾` palette with readable
   ids (`db_1`, `api_1`, `sess_1`).
+
+**Planner v2 (preview): `npm run planner:v2`.** The same graph, read as a
+numbered *script* — `as <role> on <system> at <url>`, then one line per step
+with its record, port and checks — beside a lane canvas that draws the same
+document. The library rail lists every project's graphs with a readiness dot
+and a record ledger you can click to filter by record; the check strip at the
+top replaces the badge and the issues panel. It builds to the same
+`tools/journey-planner.html` and keeps the whole `window.planner` API, so both
+planners drive one model. It replaces `npm run planner` in sprint 4.
 
 ### Getting a graph without drawing one
 
@@ -294,7 +309,10 @@ auto-rebuild and live reload.
 - **Unbound backend oracles report *skipped*, never *passed*** — a check with
   no adapter behind it can't quietly go green.
 - **Performance baselines** — p95 × 1.5 soft-flags, p95 × 3 fails fast, plus
-  hard `maxDurationMs` ceilings.
+  hard `maxDurationMs` ceilings. The runner reads
+  `journeys/baselines/<id>.baselines.json` when the capture pipeline has
+  written one, and a fully green run folds its durations back into the
+  window — the bar tracks the process instead of ageing out.
 
 ### Test data
 
@@ -354,11 +372,12 @@ Honest about where the line is:
 |---|---|
 | `npm test` | unit + harness suites (no org needed) |
 | `npm run planner` | visual graph planner, live-reload, env-status dots, editable env wiring |
+| `npm run planner:v2` | the Journey Script Planner (preview): the same graph as a numbered script — sessions, steps, ports, checks (`tools/journey-planner.html`) |
 | `npm run project:new` | `-- <name> [--team "…"]` — scaffold a team-named project under `projects/` (also in the planner: project ▾ → new) |
 | `npm run doctor` | `GRAPH_DOCTOR=<id\|project/id\|project:<name>\|all>` — exact `.env` lines between you and a runnable graph |
 | `npm run record` | `RECORD_PERSONA=x RECORD_JOURNEY=y` — capture a flow by driving it once |
 | `npm run pipeline` | `PIPELINE_JOURNEY=y` — trace → journey + steps (+`PIPELINE_GRAPH=1` for a capture-first graph) |
-| `npm run graph:spec` | `GRAPH_SPEC=<id>` — emit a standing spec that runs + repaints the graph |
+| `npm run suite` | `SUITE=<suite\|graph:<ref>\|tag:<t>\|project:<p>>` (default `smoke`) — run every graph the selection names, repainting each; suites live in `suites.json` |
 | `npm run graph:compose` | `COMPOSE=<host> COMPOSE_WITH=<sub>` — extend one graph with another (sessions merge, chain splices; also planner insert ▾) |
 | `npm run simulate` | `SIMULATE=<id>` — no-org dry run: fabricated green report through the real merge-back (`sim_` runId, throwing step placeholders) |
 | `npm run ado:import` | `ADO_FILE=<xlsx|csv>` or `ADO_PASTE=<text>` — Azure DevOps test cases → draft graphs (the planner's **import cases** button does this into a project) |

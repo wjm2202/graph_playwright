@@ -26,7 +26,39 @@ Playwright-based CLIs print their result on stdout; parse the marked lines
 |---|---|---|
 | An ADO export (.xlsx / .csv) | **import cases** | Planner (`npm run planner` → **import cases** button): choose/create the project, upload, tick cases → graphs in `projects/<p>/graphs/`, file kept in `projects/<p>/imports/`. Or CLI: `ADO_FILE=<file> npm run ado:import` (writes to `journeys/graphs/`). |
 | A process in their head | **planner** | `npm run planner`, draw sessions → does → data; or write the JSON from the spec's §11 example. |
+| A test case as prose, or nothing but a description | **write the script** | Write the SCRIPT form (`docs/GRAPH-SPEC.md` §13) and compile it with `parseScript()` from `src/graph/script.ts` — no schema knowledge needed. |
 | A recording | **capture-first** | `PIPELINE_GRAPH=1 npm run pipeline` |
+
+### The script form — prefer it over hand-written JSON
+
+When you are drafting a graph yourself, write §13's script and compile it,
+rather than emitting `process-graph/2` JSON by hand. One session per `as`
+line, one step per indented line, checks under the step they belong to:
+
+```
+create_customer  Create a customer
+
+as client_associate at /lightning/o/Account/list
+  create Customer record (Account) -> produces
+    ✓ api.record_exists Account within 10000ms
+    ? ui.toast was created
+  must not delete Customer record
+
+as billing_collections
+  verify Customer record -> consumes
+```
+
+`parseScript(text)` returns `{ graph, problems }` — it never throws, every
+complaint carries a 1-based line number, and the graph it returns always
+passes `validateGraph`. `printScript(graph)` is the inverse and returns
+`{ text, dropped }`: `dropped` names what the script form cannot carry
+(positions, capture state, timing, infra nodes, notes), so **never round-trip
+a captured graph through the script to edit it** — you would drop the
+evidence. Use the script to CREATE; use the planner or the gap ops to edit.
+
+Rules that still apply: leave a port off when you do not know it (`inferPorts`
+drafts it later — do not guess `-> produces` to look complete), mark every
+guessed check with `?`, and never invent a persona for the `(persona)` slot.
 
 After any door, every graph is a DRAFT: machine guesses are `draft: true`
 (checks), `ioDraft: true` (ports), or `role_unbound` (personas). Your job is
@@ -94,7 +126,9 @@ to clear them with the human.
 6. **Close**: print the capture queue — for each uncaptured session
    `RECORD_PERSONA=<persona> RECORD_JOURNEY=<graph_id> npm run record` — plus
    `GRAPH_DOCTOR=<ref> npm run doctor` (env readiness) and
-   `GRAPH_SPEC=<ref> npm run graph:spec` (emit the standing Playwright spec).
+   `SUITE=graph:<ref> npm run suite` (run it — one generic spec walks every
+   graph a suite selects; add the graph to `suites.json` or give it a `tags`
+   entry to make it part of a standing suite).
    Tell the human: captures are the only remaining human work.
 
 ## Reviewing a graph someone else made

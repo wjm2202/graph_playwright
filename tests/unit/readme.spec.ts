@@ -20,7 +20,9 @@ test.describe('README', () => {
     const scripts = new Set(Object.keys(pkg.scripts));
 
     const referenced = new Set(
-      [...README.matchAll(/npm run ([a-z][a-z:]*)/g)].map((m) => m[1]!),
+      // Script names may carry digits (`planner:v2`) — without them the regex
+      // truncates the name and reports a script package.json "lacks".
+      [...README.matchAll(/npm run ([a-z][a-z0-9:]*)/g)].map((m) => m[1]!),
     );
     expect(referenced.size).toBeGreaterThan(0);
 

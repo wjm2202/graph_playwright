@@ -2,13 +2,14 @@
  * Chain health + run-order preview — the referee for hand-wired seams.
  * chainHealth catches what validateGraph deliberately tolerates (drafts must
  * stay saveable): branched/cyclic/disconnected chains red, stranded sessions
- * amber. runOrder is pinned 1:1 against toJourneyV2 — the preview IS the
- * word the walker executes, or the test fails.
+ * amber. runOrder IS the walk (toJourney consumes it), so what remains to
+ * pin is that the exporter really goes through it — checked on the shipped
+ * graphs, the only place drift could hide.
  */
 import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { chainHealth, runOrder } from '../../src/graph/compose';
+import { chainHealth, loginChain, runOrder } from '../../src/graph/compose';
 import { toJourney } from '../../src/graph/toJourney';
 import { isDenyStep } from '../../src/journeys/schema';
 import type { ProcessGraph } from '../../src/graph/schema';
@@ -40,10 +41,9 @@ function twoSessionGraph(): ProcessGraph {
 }
 
 test.describe('chainHealth', () => {
-  test('a wired chain is clean; sessionless and v1 graphs are silent', () => {
+  test('a wired chain is clean; a sessionless graph is silent', () => {
     expect(chainHealth(twoSessionGraph())).toEqual({ errors: [], stranded: [] });
     expect(chainHealth({ ...twoSessionGraph(), nodes: [{ id: 'start', type: 'start', label: '' }], edges: [] })).toEqual({ errors: [], stranded: [] });
-    expect(chainHealth({ ...twoSessionGraph(), schema: 'process-graph/1' })).toEqual({ errors: [], stranded: [] });
   });
 
   test('a branch is a red error naming the node', () => {
@@ -75,36 +75,36 @@ test.describe('chainHealth', () => {
   });
 });
 
-test.describe('runOrder', () => {
-  test('matches the v2 walker 1:1 — names, actors, kinds, count', () => {
-    const g = twoSessionGraph();
-    const preview = runOrder(g);
-    const walked = toJourney(g, { personaIds: ['admin', 'sales_user'] });
+test.describe('runOrder is the walk', () => {
+  const dir = path.resolve('journeys', 'graphs');
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.graph.json')).sort()) {
+    test(`toJourney exports ${file} in exactly runOrder's session and step order`, () => {
+      const g = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as ProcessGraph;
+      const order = runOrder(g);
+      const walked = toJourney(g);
 
-    expect(preview.problem).toBeUndefined();
-    expect(preview.steps.length).toBe(walked.journey.steps.length);
-    walked.journey.steps.forEach((s, i) => {
-      const p = preview.steps[i]!;
-      if (isDenyStep(s)) {
-        expect(p.kind).toBe('denied');
-        expect(p.name).toBe(s.deny.capability);
-        expect(p.actor).toBe(s.deny.actor);
-      } else {
-        expect(p.name).toBe(s.do);
-        expect(p.actor).toBe(s.actor);
-      }
-      expect(p.edgeId).toBe(walked.stepEdgeIds[i]);
+      expect(order.problem).toBeUndefined();
+      // Sessions: the chain the walk visits is every session node, in login order.
+      expect(order.chain).toEqual(loginChain(g, file));
+      expect([...order.chain].sort()).toEqual(g.nodes.filter((n) => n.type === 'session').map((n) => n.id).sort());
+      // Steps: same count, same names, same actors, same source edges.
+      expect(order.steps.length).toBe(walked.journey.steps.length);
+      walked.journey.steps.forEach((s, i) => {
+        const p = order.steps[i]!;
+        if (isDenyStep(s)) {
+          expect(p.kind).toBe('denied');
+          expect(p.name).toBe(s.deny.capability);
+          expect(p.actor).toBe(s.deny.actor);
+        } else {
+          expect(p.name).toBe(s.do);
+          expect(p.actor).toBe(s.actor);
+        }
+        expect(p.edgeId).toBe(walked.stepEdgeIds[i]);
+        // …and each step belongs to the session the chain says it does.
+        expect(order.chain).toContain(p.sessionId);
+      });
     });
-  });
-
-  test('matches the walker on the real lead_to_customer graph too', () => {
-    const g = JSON.parse(fs.readFileSync(path.resolve('journeys', 'graphs', 'lead_to_customer.graph.json'), 'utf8')) as ProcessGraph;
-    const preview = runOrder(g);
-    const walked = toJourney(g);
-    expect(preview.steps.map((s) => s.name)).toEqual(
-      walked.journey.steps.map((s) => (isDenyStep(s) ? s.deny.capability : s.do)),
-    );
-  });
+  }
 
   test('an unwalkable chain reports the problem instead of a wrong order', () => {
     const g = twoSessionGraph();

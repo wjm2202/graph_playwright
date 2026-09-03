@@ -7,10 +7,17 @@
  * folder: a unique match proceeds, ambiguity errors listing every candidate
  * ref, absence errors listing everything available. Projects are discovered
  * by scanning the filesystem — nothing enumerates project names in code.
+ *
+ * This is also the LOAD DOOR: every graph read here goes through
+ * `upgradeGraph` first, so a `process-graph/1` file on disk still opens — as
+ * v2 — and nothing downstream ever sees the v1 vocabulary.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { ProcessGraph } from './schema';
+import { validateGraph } from './schema';
+import { upgradeGraph, type V1Graph } from './upgrade';
 
 export interface ResolvedGraph {
   /** Absolute path to the .graph.json file. */
@@ -62,6 +69,19 @@ export function listGraphRefs(rootDir = path.resolve('.')): ResolvedGraph[] {
     }
   }
   return out;
+}
+
+/**
+ * Read a graph file: a v1 document is upgraded to v2 on the way in, then the
+ * result is validated. Throws with every problem at once — a graph that
+ * cannot be trusted never reaches a runner or the planner.
+ */
+export function loadGraphFile(file: string): ProcessGraph {
+  const doc = JSON.parse(fs.readFileSync(file, 'utf8')) as V1Graph | ProcessGraph;
+  const graph = doc.schema === 'process-graph/1' ? upgradeGraph(doc).graph : doc;
+  const v = validateGraph(graph);
+  if (!v.ok) throw new Error(`graph '${file}' is invalid:\n - ${v.errors.join('\n - ')}`);
+  return graph;
 }
 
 /** Resolve a ref or bare id; throws with the available refs on any miss. */

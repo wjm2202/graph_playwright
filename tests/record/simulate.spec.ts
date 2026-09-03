@@ -77,5 +77,5 @@ test('simulate a green run for a graph', async ({ page }, testInfo) => {
   for (const c of result.changes) console.log(`  · ${c}`);
   for (const w of result.warnings) console.log(`  ⚠ ${w}`);
   console.log(`✔ steps module written: ${moduleFile} (throwing placeholders)`);
-  console.log(`next:  GRAPH_SPEC=${id} npm run graph:spec   ·   GRILLME=${id} npm run grillme`);
+  console.log(`next:  SUITE=graph:${id} npm run suite   ·   GRILLME=${id} npm run grillme`);
 });

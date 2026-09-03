@@ -55,29 +55,57 @@ export interface ComposeResult {
   summary: string[];
 }
 
-/** The login_as chain from start: [sessionId…]; throws on branch/cycle. */
-export function loginChain(g: ProcessGraph, label: string): string[] {
+/**
+ * Why the login chain cannot be walked. REPORTED rather than phrased: this
+ * file words the three refusals for the planner's check panel and toJourney
+ * words them for the export, and both wordings are pinned by tests — so the
+ * walk itself stays one implementation and the sentence stays the caller's.
+ */
+export type ChainProblem =
+  | { kind: 'no_start' }
+  | { kind: 'branch'; at: string; count: number }
+  | { kind: 'cycle'; at: string };
+
+/** The walk. Order of refusals is load-bearing: a branch is reported before
+ *  a missing start, because a branched chain has no single answer to walk. */
+function walkLoginChain(g: ProcessGraph): { chain: string[]; problem?: never } | { chain?: never; problem: ChainProblem } {
   const out = new Map<string, string[]>();
   for (const e of g.edges) {
     if (e.type !== 'login_as') continue;
-    if (!out.has(e.from)) out.set(e.from, []);
-    out.get(e.from)!.push(e.to);
+    const tos = out.get(e.from);
+    if (tos) tos.push(e.to);
+    else out.set(e.from, [e.to]);
   }
   for (const [from, tos] of out) {
-    if (tos.length > 1) throw new Error(`${label}: '${from}' has ${tos.length} outgoing login_as edges — one linear chain required`);
+    if (tos.length > 1) return { problem: { kind: 'branch', at: from, count: tos.length } };
   }
   const start = g.nodes.find((n) => n.type === 'start');
-  if (!start) throw new Error(`${label}: no start node`);
+  if (!start) return { problem: { kind: 'no_start' } };
   const chain: string[] = [];
   const seen = new Set<string>();
   let cursor = out.get(start.id)?.[0];
   while (cursor) {
-    if (seen.has(cursor)) throw new Error(`${label}: login_as cycle at '${cursor}'`);
+    if (seen.has(cursor)) return { problem: { kind: 'cycle', at: cursor } };
     seen.add(cursor);
     chain.push(cursor);
     cursor = out.get(cursor)?.[0];
   }
-  return chain;
+  return { chain };
+}
+
+function chainProblemText(p: ChainProblem): string {
+  switch (p.kind) {
+    case 'branch': return `'${p.at}' has ${p.count} outgoing login_as edges — one linear chain required`;
+    case 'cycle': return `login_as cycle at '${p.at}'`;
+    case 'no_start': return 'no start node';
+  }
+}
+
+/** The login_as chain from start: [sessionId…]; throws on branch/cycle. */
+export function loginChain(g: ProcessGraph, label: string): string[] {
+  const walked = walkLoginChain(g);
+  if (walked.problem) throw new Error(`${label}: ${chainProblemText(walked.problem)}`);
+  return walked.chain;
 }
 
 /**
@@ -95,7 +123,6 @@ export interface ChainHealth {
 }
 
 export function chainHealth(g: ProcessGraph): ChainHealth {
-  if (g.schema !== 'process-graph/2') return { errors: [], stranded: [] };
   const sessions = g.nodes.filter((n) => n.type === 'session').map((n) => n.id);
   if (!sessions.length) return { errors: [], stranded: [] };
   let chain: string[];
@@ -115,10 +142,11 @@ export function chainHealth(g: ProcessGraph): ChainHealth {
 }
 
 /**
- * Run-order preview — the exact word the v2 walker will execute: chain
- * sessions in login order, each session's does/asserts/denied edges in
- * DECLARATION order (drawing order in the planner). Pure and schema-only so
- * the planner inlines it; parity with toJourneyV2 is pinned by a unit test.
+ * THE WALK — chain sessions in login order, each session's does/asserts/denied
+ * edges in DECLARATION order (drawing order in the planner). Pure and
+ * schema-only so the planner inlines it, and `toJourney` consumes it, so the
+ * run-order preview and the exported journey are the same sequence by
+ * construction rather than by a parity test.
  */
 export interface RunStep {
   index: number;
@@ -133,18 +161,24 @@ export interface RunStep {
 
 export interface RunOrder {
   steps: RunStep[];
+  /**
+   * Session ids in login order — the sessions the walk visits, including any
+   * that schedule no steps (toJourney needs those: an actor-less session is a
+   * refusal even when it does nothing). [] when the chain is unwalkable.
+   */
+  chain: string[];
   /** Set when the chain cannot be walked at all (see chainHealth). */
   problem?: string;
+  /** The same refusal, structured, for callers that word their own error. */
+  cause?: ChainProblem;
 }
 
 export function runOrder(g: ProcessGraph): RunOrder {
-  if (g.schema !== 'process-graph/2') return { steps: [], problem: 'run-order preview needs a process-graph/2 graph' };
-  let chain: string[];
-  try {
-    chain = loginChain(g, 'login chain');
-  } catch (e) {
-    return { steps: [], problem: (e as Error).message };
+  const walked = walkLoginChain(g);
+  if (walked.problem) {
+    return { steps: [], chain: [], problem: `login chain: ${chainProblemText(walked.problem)}`, cause: walked.problem };
   }
+  const chain = walked.chain;
   const nodeById = new Map(g.nodes.map((n) => [n.id, n]));
   const steps: RunStep[] = [];
   for (const sessId of chain) {
@@ -175,7 +209,7 @@ export function runOrder(g: ProcessGraph): RunOrder {
       }
     }
   }
-  return { steps };
+  return { steps, chain };
 }
 
 /**
@@ -205,7 +239,6 @@ const PORTED = new Set(['does', 'touches', 'handoff']);
 
 export function dataflowHealth(g: ProcessGraph): DataflowHealth {
   const out: DataflowHealth = { errors: [], warnings: [], unused: [], definedBy: {} };
-  if (g.schema !== 'process-graph/2') return out;
   const nodeById = new Map(g.nodes.map((n) => [n.id, n]));
   const dataNodes = g.nodes.filter((n) => n.type === 'data');
   if (!dataNodes.length) return out;
@@ -313,7 +346,6 @@ export function composeGraphs(host: ProcessGraph, sub: ProcessGraph, opts: Compo
   for (const [name, doc] of [['host', host], ['sub', sub]] as const) {
     const v = validateGraph(doc);
     if (!v.ok) throw new Error(`${name} graph invalid:\n - ${v.errors.join('\n - ')}`);
-    if (doc.schema !== 'process-graph/2') throw new Error(`${name} graph is ${doc.schema} — compose needs process-graph/2 (open + re-save to upgrade)`);
   }
   if (host.id === sub.id) throw new Error(`cannot import '${sub.id}' into itself`);
 

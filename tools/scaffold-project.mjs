@@ -62,7 +62,7 @@ export function scaffoldProject(rootDir, { project, team = '', description = '' 
       `- Graphs: \`graphs/*.graph.json\` — open them in the planner (\`npm run planner\`).\n` +
       `- Gaps: \`GRILLME=${project}/<graph_id> npm run grillme\`\n` +
       `- Readiness: \`GRAPH_DOCTOR=project:${project} npm run doctor\`\n` +
-      `- Spec: \`GRAPH_SPEC=${project}/<graph_id> npm run graph:spec\`\n`,
+      `- Run: \`SUITE=graph:${project}/<graph_id> npm run suite\` (whole project: \`SUITE=project:${project}\`)\n`,
   );
   return { dir, manifest };
 }

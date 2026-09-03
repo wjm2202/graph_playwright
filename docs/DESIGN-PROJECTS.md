@@ -146,7 +146,7 @@ Every CLI keeps its env-var interface; the value gains a project segment:
 
 ```
 GRILLME=salesforce/lead_intake        npm run grillme
-GRAPH_SPEC=e2e-journeys/lead_to_customer  npm run graph:spec
+SUITE=graph:e2e-journeys/lead_to_customer npm run suite
 SIMULATE=digital-frontend/checkout    npm run simulate
 GRAPH_DOCTOR=project:siebel           npm run doctor     (whole project)
 ```
@@ -323,8 +323,8 @@ generated artifacts* (graphs, steps, specs, evidence) plus docs.
   `GRAPH_DOCTOR=project:<p>`, planner PLANNER_ROOT recipe documented,
   `/__projects` + dropdown.
 - **M2 — output relocation**: pipeline `outDirs` → project folders
-  (journeys, steps, baselines, recordings); `toSpec` emits into
-  `projects/<p>/specs/` and widened `testMatch`.
+  (journeys, steps, baselines, recordings); one generic suite runner
+  (`tests/e2e/graphs.spec.ts`) covers every project graph (`SUITE=project:<p>`).
 - **M3 — team fencing**: `namePrefix` wired through uniqueName / sweeper /
   oracle scope; telemetry `project` field; CI matrix; CODEOWNERS.
 - **M4 — deferred decisions** (§7).

@@ -1,0 +1,843 @@
+<title>Journey Script Planner</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --ground:#F2F3F6; --panel:#FFFFFF; --panel2:#F7F8FA; --ink:#171C24; --ink2:#4B5563; --muted:#7B8494; --line:#D8DCE3; --line2:#E9EBF0;
+  --accent:#1D4ED8; --accent-ink:#FFFFFF; --accent-soft:#E4ECFF;
+  --record:#A8712A; --record-soft:#F7ECDC; --session:#3C6E9E; --session-soft:#E3EDF7;
+  --ok:#2F855A; --ok-soft:#E3F3EA; --warn:#B7791F; --warn-soft:#FBF0D9; --bad:#C53030; --bad-soft:#FBE4E4;
+  --shadow:0 1px 2px rgba(23,28,36,.06), 0 8px 24px rgba(23,28,36,.06);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --ground:#12151B; --panel:#1A1E26; --panel2:#20252E; --ink:#E7EAEF; --ink2:#B8BFCA; --muted:#7F8896; --line:#2E343F; --line2:#262B34;
+  --accent:#7AA2FF; --accent-ink:#0E1424; --accent-soft:#1F2A44;
+  --record:#D8A24F; --record-soft:#3A2E1B; --session:#7FB0DD; --session-soft:#1D2D3E;
+  --ok:#5CBF86; --ok-soft:#173225; --warn:#E0A840; --warn-soft:#3A2E14; --bad:#F07373; --bad-soft:#3E1C1C;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+}}
+:root[data-theme="dark"]{
+  --ground:#12151B; --panel:#1A1E26; --panel2:#20252E; --ink:#E7EAEF; --ink2:#B8BFCA; --muted:#7F8896; --line:#2E343F; --line2:#262B34;
+  --accent:#7AA2FF; --accent-ink:#0E1424; --accent-soft:#1F2A44;
+  --record:#D8A24F; --record-soft:#3A2E1B; --session:#7FB0DD; --session-soft:#1D2D3E;
+  --ok:#5CBF86; --ok-soft:#173225; --warn:#E0A840; --warn-soft:#3A2E14; --bad:#F07373; --bad-soft:#3E1C1C;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font:13px/1.45 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover{border-color:var(--ink2)}
+button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
+button.ghost{background:transparent;border-color:transparent;color:var(--ink2)}
+button.ghost:hover{background:var(--panel2);border-color:transparent}
+button.small{padding:2px 8px;font-size:12px;border-radius:5px}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+input.inline{background:transparent;border-color:transparent;padding:2px 4px;border-radius:4px}
+input.inline:hover{border-color:var(--line)} input.inline:focus{background:var(--panel);border-color:var(--accent)}
+.app{height:100vh;display:grid;grid-template-rows:auto auto 1fr;overflow:hidden}
+/* top bar */
+.top{display:flex;align-items:center;gap:14px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{font-weight:600;letter-spacing:.01em}
+.brand small{color:var(--muted);font-weight:400;margin-left:8px}
+.top .grow{flex:1}
+.menu{position:relative}
+.menu .pop{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:220px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);padding:4px;z-index:20}
+.menu.open .pop{display:block}
+.pop button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 10px;border-radius:5px}
+.pop button:hover{background:var(--panel2)}
+.pop button small{display:block;color:var(--muted);font-size:11px}
+/* check strip */
+.strip{display:flex;align-items:center;gap:10px;padding:6px 14px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-variant-numeric:tabular-nums}
+.chip b{font-weight:600}
+.chip.bad{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+.chip.warn{border-color:var(--warn);color:var(--warn);background:var(--warn-soft)}
+.chip.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-soft)}
+.chip.muted{color:var(--muted)}
+.strip .grow{flex:1}
+/* panes */
+.panes{display:grid;grid-template-columns:260px 1fr;min-height:0}
+.panes.no-left{grid-template-columns:30px 1fr}
+.pane.lib{grid-column:1}.center{grid-column:2}
+.panes.no-left .pane.lib>*:not(.rail){display:none}
+.pane .phead{display:flex;align-items:center;gap:6px;padding:8px 8px 0 14px}
+.pane .phead h2{padding:0;flex:1}
+.pane .phead .tog{border:1px solid var(--line);background:var(--panel);border-radius:5px;padding:1px 6px;color:var(--muted);font-size:12px;line-height:1.4}
+.pane .phead .tog:hover{color:var(--ink)}
+.rail{display:none;flex-direction:column;align-items:center;gap:10px;padding:8px 0;height:100%;cursor:pointer}
+.rail:hover{background:var(--panel2)}
+.rail .tog{border:1px solid var(--line);background:var(--panel);border-radius:5px;padding:1px 5px;color:var(--muted);font-size:12px}
+.rail .vlabel{writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.panes.no-left .pane.lib .rail{display:flex}
+.panes.no-left .pane.lib{overflow:hidden;padding:0}
+#canvaswrap{height:100%;min-height:0}
+.canvas{height:100%;display:flex;flex-direction:column;min-height:0}
+.canvas .stage{flex:1;min-height:0;overflow:auto;display:flex;align-items:flex-start;justify-content:flex-start}
+.canvas .stage svg{flex:none}
+.tabs .tog{border:1px solid var(--line);border-radius:5px;padding:2px 7px;color:var(--muted);font-size:12px;margin-bottom:4px}.tabs .tog[aria-pressed="true"]{color:var(--ink);background:var(--panel2)}
+.canvas svg .drag{cursor:grab}.canvas svg .drag:active{cursor:grabbing}.canvas svg [data-step]{cursor:pointer}
+.pane{min-height:0;overflow:auto;background:var(--panel);border-right:1px solid var(--line)}
+.pane:last-child{border-right:0}
+.pane h2{margin:0;padding:12px 14px 6px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.pane section{padding:0 0 10px}
+.center{background:var(--ground);display:grid;grid-template-rows:auto 1fr;min-height:0;min-width:0}
+.tabs{display:flex;gap:2px;padding:8px 14px 0;background:var(--panel);border-bottom:1px solid var(--line)}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;padding:6px 10px;color:var(--ink2)}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+.tabs .grow{flex:1}
+.tabs .meta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;padding-bottom:4px}
+.view{min-height:0;min-width:0;overflow:auto;padding:14px}
+.view.fill{overflow:hidden}
+.view.fill>#canvaswrap,.view.fill>.split{height:100%}
+.split{display:grid;grid-template-columns:minmax(460px,1fr) minmax(0,1fr);gap:14px;min-height:0;height:100%}
+.split>div{min-height:0;overflow:auto}
+/* library */
+.lib .item{display:flex;align-items:center;gap:8px;padding:5px 14px;cursor:pointer;border-left:2px solid transparent}
+.lib .item:hover{background:var(--panel2)}
+.lib .item.active{background:var(--accent-soft);border-left-color:var(--accent)}
+.lib .item .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib .proj{padding:4px 14px;color:var(--muted);font-size:11px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+.dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)} .dot.muted{background:var(--line)}
+.ledger .row{display:grid;grid-template-columns:1fr auto;gap:6px;padding:4px 14px;font-size:12px;align-items:baseline}
+.ledger .row .rec{color:var(--record);font-weight:500}
+.ledger .row .who{color:var(--muted);font-size:11px;text-align:right}
+.suite{padding:5px 14px;display:flex;align-items:center;gap:8px}
+.suite input{margin:0}
+.suite .n{color:var(--muted);font-variant-numeric:tabular-nums;margin-left:auto;font-size:11px}
+.runbox{margin:6px 14px 0;padding:8px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;font-size:11px;color:var(--ink2)}
+.runbox code{display:block;margin-top:4px;color:var(--ink);word-break:break-all}
+/* script */
+.script{background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+.script .head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line2)}
+.script .head input.title{font-size:15px;font-weight:600;flex:1}
+.script .head .sys{color:var(--muted);font-size:12px}
+.line{display:grid;grid-template-columns:34px 1fr;border-bottom:1px solid var(--line2);cursor:pointer}
+.line:hover{background:var(--panel2)}
+.line.sel{background:var(--accent-soft)}
+.line .num{color:var(--muted);font-size:11px;padding:9px 0 0 12px;font-variant-numeric:tabular-nums}
+.line .body{padding:7px 12px 7px 0;min-width:0}
+.line.session .body{padding-top:9px}
+.line.session .who{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.line.session .who .as{color:var(--session);font-weight:600}
+.line.step{padding-left:22px}
+.line.step .what{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.line.step .what .verb{width:78px;min-width:0}
+.line.step .what .rec{color:var(--record);font-weight:500;width:130px;min-width:0}
+.line.denied .what .verb{color:var(--bad)}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;font-size:11px;border:1px solid var(--line);background:var(--panel);white-space:nowrap;cursor:pointer}
+.pill.produces{color:var(--ok);border-color:var(--ok);background:var(--ok-soft)}
+.pill.consumes{color:var(--session);border-color:var(--session);background:var(--session-soft)}
+.pill.updates{color:var(--record);border-color:var(--record);background:var(--record-soft)}
+.pill.draft{border-style:dashed}
+.pill.gap{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
+.pill.bad{color:var(--bad);border-color:var(--bad);background:var(--bad-soft)}
+.pill.ok{color:var(--ok)}
+.pill.persona{color:var(--ink2)}
+.checks{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.checks .pill.check{color:var(--ink2)} .checks .pill.check.draft{color:var(--warn);border-color:var(--warn)}
+.line .tools{display:none;gap:4px;margin-top:6px}
+.line.sel .tools{display:flex}
+.addrow{padding:8px 14px 8px 46px;display:flex;gap:6px}
+.addrow.session-add{padding-left:14px;border-top:1px dashed var(--line);background:var(--panel2)}
+.hint{color:var(--muted);font-size:11px}
+/* canvas */
+.canvas{background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);padding:10px;overflow:hidden}
+.canvas svg{display:block;min-width:100%}
+.canvas text{font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:12px;fill:var(--ink)}
+.canvas .lane-title{font-weight:600;fill:var(--session)}
+.canvas .rec-t{font-weight:500}
+.canvas .edge-l{font-size:10.5px;fill:var(--ink2)}
+.canvas .muted{fill:var(--muted);font-size:10.5px}
+/* inspector */
+#insp{padding:0 14px 4px}
+#insp .kv{display:grid;grid-template-columns:90px 1fr;gap:6px 10px;align-items:center;margin-top:8px}
+#insp .kv label{color:var(--muted);font-size:11px}
+#insp .kv input,.insp .kv select{width:100%}
+#insp h3{margin:14px 0 4px;font-size:12px;font-weight:600}
+.creds{display:flex;flex-direction:column;gap:4px}.credrow{display:grid;grid-template-columns:10px 1fr auto;gap:8px;align-items:center}.credrow input{width:100%;font-size:11px;padding:3px 6px}
+#insp .env{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;font-size:11px;color:var(--ink2);white-space:pre-wrap}
+#insp .gaplist{margin:0;padding:0;list-style:none}
+#insp .gaplist li{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-top:6px;font-size:12px}
+#insp .gaplist li.bad{border-color:var(--bad);background:var(--bad-soft)}
+#insp .gaplist li.warn{border-color:var(--warn);background:var(--warn-soft)}
+#insp .gaplist li .fix{margin-left:auto;white-space:nowrap}
+.checkrow{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;margin-top:6px}
+.checkrow .fields{display:grid;grid-template-columns:110px 1fr 1fr;gap:6px}
+.checkrow .fields input,.checkrow .fields select{width:100%;font-size:12px;padding:4px 6px}
+.stub{padding:10px 14px;color:var(--muted);font-size:12px}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+/* node card — glued beside the selected node / line, like today's planner */
+.ncard{position:fixed;z-index:25;width:320px;max-height:78vh;overflow:auto;background:var(--panel);border:1px solid var(--accent);border-radius:10px;box-shadow:var(--shadow);padding:0 0 10px}
+.ncard.hide{display:none}
+.ncard .chead{display:flex;align-items:center;gap:8px;padding:8px 10px 0 14px;position:sticky;top:0;background:var(--panel)}
+.ncard .chead h2{padding:0;flex:1}
+.ncard .chead button{padding:1px 7px}
+#insp h2{display:none}
+/* sheet (join / paste) */
+.sheet{position:fixed;inset:0;background:rgba(10,12,16,.35);display:none;align-items:flex-start;justify-content:center;padding-top:80px;z-index:30}
+.sheet.open{display:flex}
+.sheet .card{width:560px;max-width:92vw;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:16px}
+.sheet h3{margin:0 0 10px;font-size:14px}
+.sheet textarea{width:100%;min-height:200px}
+.sheet .row{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.pick{border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.pick button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line2);border-radius:0;padding:8px 10px}
+.pick button:last-child{border-bottom:0}
+.pick button small{display:block;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--ground);padding:7px 14px;border-radius:999px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40}
+.toast.show{opacity:1}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.recording{animation:pulse 1.2s ease-in-out infinite}
+.pill.rec{color:var(--bad);border-color:var(--bad);background:var(--bad-soft);font-weight:500}
+.pill.rec.live{color:var(--panel);background:var(--bad)}
+.canvas svg .recbtn{cursor:pointer}
+@media (prefers-reduced-motion: reduce){.toast{transition:none}.recording{animation:none}}
+@media (max-width:1100px){.panes{grid-template-columns:220px 1fr 280px}.split{grid-template-columns:1fr}}
+</style>
+
+<div class="app">
+  <div class="top">
+    <span class="brand">Journey Script Planner <small>process-graph/2 · prototype</small></span>
+    <div class="menu" id="m_new">
+      <button class="primary" id="b_new">New ▾</button>
+      <div class="pop">
+        <button data-new="blank">Blank graph<small>start + one session line</small></button>
+        <button data-new="paste">Paste a script<small>the grammar an AI or a test case can write</small></button>
+        <button data-new="ado">From an ADO export<small>.xlsx / .csv → one draft per test case</small></button>
+        <button data-new="rec">From a recording<small>capture-first: sessions, steps and records inferred</small></button>
+      </div>
+    </div>
+    <button id="b_join">Join another graph…</button>
+    <span class="grow"></span>
+    <span class="hint" id="proj_label">project · salesforce</span>
+    <button id="b_save">Save to project</button>
+    <button class="ghost" id="b_export">Export JSON</button>
+  </div>
+
+  <div class="strip" id="strip"></div>
+
+  <div class="panes">
+    <!-- LEFT -->
+    <div class="pane lib">
+      <div class="rail" id="rail_left" title="show the library (⌘[)"><button class="tog">▸</button><span class="vlabel">library · records · suites</span></div>
+      <div class="phead"><h2>Graphs</h2><button class="tog" id="t_left" title="hide the library (⌘[)">◂</button></div>
+      <section id="library"></section>
+      <h2>Records across the project</h2>
+      <section class="ledger" id="ledger"></section>
+      <h2>Suites</h2>
+      <section id="suites"></section>
+      <div class="runbox" id="runbox"></div>
+    </div>
+
+    <!-- CENTER -->
+    <div class="center">
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="split">Script + canvas</button>
+        <button role="tab" aria-selected="false" data-tab="script">Script</button>
+        <button role="tab" aria-selected="false" data-tab="canvas">Canvas</button>
+        <span class="grow"></span>
+        <span class="meta" id="doc_meta"></span>
+      </div>
+      <div class="view" id="view"></div>
+    </div>
+
+    <!-- RIGHT -->
+    
+  </div>
+</div>
+
+<div class="ncard hide" id="ncard"><div class="chead"><h2 id="ncard_title">node</h2><button class="ghost" id="ncard_close" title="close (Esc)">✕</button></div><div id="insp"></div></div>
+<div class="sheet" id="sheet"><div class="card" id="sheet_card"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ---------- roster (personas.json, names only) ---------- */
+const ROSTER = {
+  admin:{account:'admin'}, client_associate:{account:'sales_user'}, client_lead:{account:'sales_user'},
+  billing_collections:{account:'billing'}, business_admin:{account:'admin'}, credit_approver:{account:'credit'},
+  submitter:{account:'sales_user'}, approver:{account:'manager'}, siebel_approver:{account:'siebel_admin'},
+};
+const ENV_PRESENT = new Set(['SF_SALES_USER_USERNAME','SF_SALES_USER_PASSWORD','SF_ADMIN_USERNAME','SF_ADMIN_PASSWORD','SF_INSTANCE_URL']);
+const ACCOUNT_ENV = {};  // accounts.<id>.{usernameEnv,passwordEnv,tokenEnv,totpEnv} overrides in personas.json — rename here, every role on the login follows
+const ENV_SLOTS = [['usernameEnv','USERNAME',true],['passwordEnv','PASSWORD',true],['tokenEnv','TOKEN',false],['totpEnv','TOTP_SECRET',false]];
+const accountOf = (s) => { const persona = slug(s.role||''); return ROSTER[persona]?.account ?? persona; };
+const envNames = (acct) => ENV_SLOTS.map(([k,suffix,req]) => ({ key:k, required:req, name: ACCOUNT_ENV[acct]?.[k] ?? `SF_${acct.toUpperCase()}_${suffix}` }));
+const slug = (s) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,48);
+const UPD = /^(update|edit|approve|reject|add|delete|remove|close|convert|assign)$/;
+const uid = (p) => p + '_' + Math.random().toString(36).slice(2,7);
+
+/* ---------- library (projects/<p>/graphs) ---------- */
+const LIB = {
+  'salesforce/create_customer': {
+    id:'create_customer', title:'Create a customer', systems:{sf:'Salesforce'}, tags:['smoke'],
+    sessions:[
+      { id:'s1', role:'Client Associate', system:'sf', url:'/lightning/o/Account/list', captured:false,
+        steps:[
+          { id:'t1', kind:'does', verb:'create', record:'Customer', sobject:'Account', confirmed:true,
+            checks:[{kind:'api.record_exists',target:'Account',value:'',draft:false},{kind:'ui.toast',target:'',value:'was created',draft:false}] },
+          { id:'t2', kind:'denied', verb:'delete', record:'Customer', checks:[] },
+        ] },
+    ] },
+  'salesforce/add_address': {
+    id:'add_address', title:'Add a billing address', systems:{sf:'Salesforce'}, tags:['smoke','billing'],
+    sessions:[
+      { id:'s1', role:'Billing Collections', system:'sf', url:'', captured:false,
+        steps:[
+          { id:'t1', kind:'does', verb:'open', record:'Customer', sobject:'Account', confirmed:false, checks:[{kind:'ui.url',target:'',value:'/lightning/r/Account/',draft:true}] },
+          { id:'t2', kind:'does', verb:'add', record:'Address', sobject:'Address__c', confirmed:false, checks:[{kind:'api.record_exists',target:'Address__c',value:'',draft:true}] },
+        ] },
+    ] },
+  'salesforce/lead_to_customer': {
+    id:'lead_to_customer', title:'Lead → customer, replicated to Siebel', systems:{sf:'Salesforce',siebel:'Siebel'}, tags:['regression','sod'],
+    sessions:[
+      { id:'s1', role:'Client Associate', system:'sf', url:'/lightning/o/Lead/list', captured:true,
+        steps:[{ id:'t1', kind:'does', verb:'create', record:'Lead', sobject:'Lead', confirmed:true, checks:[{kind:'api.record_exists',target:'Lead',value:'',draft:false}] }] },
+      { id:'s2', role:'Credit Approver', system:'sf', url:'', captured:true,
+        steps:[{ id:'t2', kind:'does', verb:'approve', record:'Lead', sobject:'Lead', confirmed:true, checks:[{kind:'api.field_equals',target:'Lead',value:'Status=Approved',draft:false}] },
+               { id:'t3', kind:'does', verb:'convert', record:'Customer', sobject:'Account', confirmed:true, checks:[{kind:'api.record_exists',target:'Account',value:'',draft:false}] },
+               { id:'t4', kind:'denied', verb:'delete', record:'Lead', checks:[] }] },
+      { id:'s3', role:'Siebel Approver', system:'siebel', url:'', captured:false,
+        steps:[{ id:'t5', kind:'does', verb:'verify', record:'Customer', sobject:'Account', confirmed:true, checks:[{kind:'log.traffic',target:'siebel_log',value:'create_customer_v2',draft:false}] }] },
+    ] },
+  'salesforce/expense_to_siebel': {
+    id:'expense_to_siebel', title:'Expense approval, replicated to Siebel', systems:{sf:'Salesforce',siebel:'Siebel'}, tags:['regression','sod'],
+    sessions:[
+      { id:'s1', role:'Submitter', system:'sf', url:'/lightning/o/Expense__c/list', captured:true,
+        steps:[{ id:'t1', kind:'does', verb:'submit', record:'Expense', sobject:'Expense__c', confirmed:true, checks:[{kind:'ui.toast',target:'',value:'submitted',draft:false}] },
+               { id:'t2', kind:'denied', verb:'approve', record:'Expense', checks:[] }] },
+      { id:'s2', role:'Approver', system:'sf', url:'', captured:true,
+        steps:[{ id:'t3', kind:'does', verb:'approve', record:'Expense', sobject:'Expense__c', confirmed:true, checks:[{kind:'api.field_equals',target:'Expense__c',value:'Status__c=Approved',draft:false}] }] },
+      { id:'s3', role:'Siebel Approver', system:'siebel', url:'', captured:false,
+        steps:[{ id:'t4', kind:'does', verb:'verify', record:'Expense', sobject:'Expense__c', confirmed:false, checks:[{kind:'log.traffic',target:'siebel_log',value:'expense_sync',draft:true}] }] },
+    ] },
+  'salesforce/o2a_tc01_prospect_to_customer': {
+    id:'o2a_tc01_prospect_to_customer', title:'TC01 Prospect to customer (ADO draft)', systems:{sf:'Salesforce'}, tags:['ado'],
+    sessions:[
+      { id:'s1', role:'Client Associate', system:'sf', url:'', captured:false,
+        steps:[{ id:'t1', kind:'does', verb:'create', record:'Prospect Account', sobject:'Account', confirmed:false, checks:[{kind:'ui.text',target:'',value:'Prospect Account is Created',draft:true}] },
+               { id:'t2', kind:'does', verb:'submit', record:'Prospect Account', sobject:'Account', confirmed:false, checks:[{kind:'ui.toast',target:'',value:'submitted for approval',draft:true}] }] },
+      { id:'s2', role:'Billing Collections', system:'sf', url:'', captured:false,
+        steps:[{ id:'t3', kind:'does', verb:'approve', record:'Prospect Account', sobject:'Account', confirmed:false, checks:[{kind:'api.field_equals',target:'Account',value:'Status__c=Customer',draft:true}] }] },
+    ] },
+};
+const SUITES = { smoke:{tags:['smoke']}, sod:{tags:['sod']}, regression:{tags:['regression']}, all:{project:'salesforce'} };
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
+/* ---------- state ---------- */
+let doc = clone(LIB['salesforce/create_customer']);
+let docRef = 'salesforce/create_customer';
+let sel = { kind:'session', id:'s1' };
+let tab = 'split';
+let dirty = false;
+let cardOpen = false;   // the node card shows on click of a node body / script line, closes on ✕, Esc or empty canvas
+const suiteSel = new Set(['smoke']);
+
+/* ---------- inference (the part the old planner asked the human for) ---------- */
+function analyse(d){
+  // first-touch ports: walking the login chain, the first `does` onto a record produces it
+  const defined = new Map(); // record -> step that produced it
+  const ports = new Map();   // step.id -> {io, draft}
+  const records = new Map(); // record -> {sobject, producers:[], consumers:[]}
+  for(const s of d.sessions) for(const t of s.steps){
+    if(t.kind!=='does') continue;
+    const r = records.get(t.record) ?? {sobject:t.sobject||'', producers:[], consumers:[]};
+    if(!r.sobject && t.sobject) r.sobject = t.sobject;
+    let io;
+    if(!defined.has(t.record)){ io = 'produces'; defined.set(t.record, t.id); r.producers.push(s.role); }
+    else { io = UPD.test(t.verb) ? 'updates' : 'consumes'; r.consumers.push(s.role); }
+    ports.set(t.id, { io, draft: !t.confirmed });
+    records.set(t.record, r);
+  }
+  const gaps = [];
+  const push = (sev, at, kind, text, fix) => gaps.push({sev, at, kind, text, fix});
+  d.sessions.forEach((s, i) => {
+    if(!s.system) push('bad', {kind:'session',id:s.id}, 'no_system', `line ${i+1}: which system does ${s.role||'this role'} log into?`, 'pick');
+    if(!s.role) push('bad', {kind:'session',id:s.id}, 'no_role', `line ${i+1}: who acts here?`, 'type');
+    else if(!ROSTER[slug(s.role)]) push('warn', {kind:'session',id:s.id}, 'role_unbound', `${s.role} is not in personas.json — create it as a new login, or map it to an existing one`, 'bind');
+    if(!s.url) push('hint', {kind:'session',id:s.id}, 'session_no_url', `${s.role||'session'}: no landing URL — the capture will start at the home page`, 'url');
+    if(!s.captured) push('todo', {kind:'session',id:s.id}, 'not_captured', `${s.role||'session'}: not recorded yet`, 'record');
+    if(!s.steps.length) push('bad', {kind:'session',id:s.id}, 'no_steps', `line ${i+1}: ${s.role||'this role'} does nothing — add a step`, 'add');
+    s.steps.forEach((t) => {
+      if(!t.record) push('bad', {kind:'step',id:t.id}, 'no_record', `${t.verb||'step'}: which record does it act on?`, 'type');
+      if(!t.verb) push('bad', {kind:'step',id:t.id}, 'no_verb', `step on ${t.record}: what does the role do?`, 'type');
+      if(t.kind==='does'){
+        const p = ports.get(t.id);
+        if(p?.draft) push('warn', {kind:'step',id:t.id}, 'data_io_draft', `${t.verb} ${t.record}: confirm it ${p.io} the record`, 'confirm');
+        if(!t.checks.length) push('warn', {kind:'step',id:t.id}, 'no_oracles', `${t.verb} ${t.record}: what proves it worked?`, 'check');
+        t.checks.forEach((c,ci) => { if(c.draft) push('warn', {kind:'step',id:t.id,check:ci}, 'draft_oracle', `${t.verb} ${t.record}: guessed check “${c.kind} ${c.value||c.target}” — keep it?`, 'confirm'); });
+      }
+    });
+  });
+  const roles = new Set(d.sessions.map((s)=>s.role).filter(Boolean));
+  if(roles.size>1 && !d.sessions.some((s)=>s.steps.some((t)=>t.kind==='denied')))
+    push('hint', {kind:'graph'}, 'no_deny_coverage', 'several roles, no “must not” line — is there something a role must be refused?', 'deny');
+  return { ports, records, gaps,
+    counts:{ bad:gaps.filter(g=>g.sev==='bad').length, warn:gaps.filter(g=>g.sev==='warn').length, hint:gaps.filter(g=>g.sev==='hint').length, todo:gaps.filter(g=>g.sev==='todo').length } };
+}
+function catalogOf(t){ return t.record ? `${slug(t.record).split('_')[0]}.${slug(t.verb||'')||'step'}` : ''; }
+function projectLedger(){
+  const led = new Map();
+  for(const [ref,g] of Object.entries(LIB)){
+    const a = analyse(ref===docRef ? doc : g);
+    for(const [rec,r] of a.records){
+      const e = led.get(rec) ?? {sobject:r.sobject, produced:[], consumed:[]};
+      if(!e.sobject) e.sobject = r.sobject;
+      if(r.producers.length) e.produced.push(g.id);
+      if(r.consumers.length) e.consumed.push(g.id);
+      led.set(rec,e);
+    }
+  }
+  return led;
+}
+
+/* ---------- capture (record button on the node) ----------
+   real build: POST /__record {persona, journey} → serve-planner spawns `npm run record` headed as that persona,
+   streams progress, and re-reads steps.status when the browser closes. Prototype simulates the round trip. */
+function envFor(s){ return envNames(accountOf(s)).filter((e)=>e.required).map((e)=>e.name); }
+function startCapture(s){
+  if(s.recording) return;
+  if(!s.role || !s.system){ toast('name the role and system first'); sel={kind:'session',id:s.id}; renderAll(); return; }
+  const missing = envFor(s).filter((n)=>!ENV_PRESENT.has(n));
+  if(missing.length){
+    sheet(`<h3>Can't record as ${esc(s.role)} yet</h3><div class="hint">The login <span class="mono">${esc(ROSTER[slug(s.role)]?.account ?? slug(s.role))}</span> has no credentials in <span class="mono">.env</span>. Paste these lines, fill the values, and click ● again — the names are already in <span class="mono">.env.example</span>.</div>
+      <textarea class="mono" readonly style="min-height:70px;margin-top:8px">${missing.map((n)=>n+'=').join('\n')}</textarea>
+      <div class="row"><button id="s_cancel">Close</button><button class="primary" id="s_copy">Copy lines</button></div>`);
+    $('#s_cancel').addEventListener('click',closeSheet); $('#s_copy').addEventListener('click',()=>{ toast('copied to clipboard'); closeSheet(); });
+    return;
+  }
+  s.recording = true; s.captured = false; renderAll();
+  toast(`recording as ${slug(s.role)} — a headed browser opened; do the steps once, then close it`);
+  setTimeout(()=>{ s.recording = false; s.captured = true; dirty = true; renderAll(); toast(`recorded · ${s.steps.length||1} step${s.steps.length===1?'':'s'} captured for ${s.role}`); }, 2600);
+}
+
+function anchorEl(){
+  if(sel.kind==='session') return document.querySelector(`.canvas [data-drag="${CSS.escape(sel.id)}"] rect`) ?? document.querySelector('.line.session.sel');
+  if(sel.kind==='step') return document.querySelector(`.canvas [data-step="${CSS.escape(sel.id)}"] rect`) ?? document.querySelector('.line.step.sel');
+  return document.querySelector('.script .head') ?? document.querySelector('.tabs');
+}
+function placeCard(){
+  const c = $('#ncard'); if(!c || !cardOpen) { c?.classList.add('hide'); return; }
+  c.classList.remove('hide');
+  const a = anchorEl(); const r = a ? a.getBoundingClientRect() : {left:innerWidth/2, right:innerWidth/2, top:120, bottom:160};
+  const w = 320, gap = 12, h = Math.min(c.offsetHeight || 400, innerHeight*0.78);
+  let x = r.right + gap; if(x + w > innerWidth - 8) x = r.left - w - gap; if(x < 8) x = Math.max(8, innerWidth - w - 8);
+  let y = r.top; if(y + h > innerHeight - 8) y = Math.max(8, innerHeight - h - 8);
+  c.style.left = x + 'px'; c.style.top = y + 'px';
+  $('#ncard_title').textContent = sel.kind==='session' ? 'session' : sel.kind==='step' ? (docStep(sel.id)?.kind==='denied' ? 'must not' : 'step') : 'graph';
+}
+function docStep(id){ for(const x of doc.sessions){ const t = x.steps.find((z)=>z.id===id); if(t) return t; } return null; }
+
+/* ---------- render ---------- */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function renderAll(){ const a = analyse(doc);  renderStrip(a); renderLibrary(); renderLedger(); renderSuites(); renderView(a); renderInspector(a); placeCard(); $('#doc_meta').textContent = `${doc.id}.graph.json · ${doc.sessions.length} sessions · ${doc.sessions.reduce((n,s)=>n+s.steps.length,0)} steps${dirty?' · unsaved':''}`; }
+
+function renderStrip(a){
+  const c = a.counts;
+  const ready = c.bad===0 && c.warn===0;
+  $('#strip').innerHTML =
+    `<span class="chip ${c.bad?'bad':'ok'}"><b>${c.bad}</b> must fix</span>` +
+    `<span class="chip ${c.warn?'warn':'ok'}"><b>${c.warn}</b> to finish</span>` +
+    `<span class="chip muted"><b>${c.hint}</b> hints</span>` +
+    `<span class="chip ${ready?'ok':'muted'}"><b>${doc.sessions.filter(s=>s.captured).length}/${doc.sessions.length}</b> captured</span>` +
+    `<span class="hint">${ready ? 'complete — only recording is left' : 'a graph is complete when only recording is left'}</span>` +
+    `<span class="grow"></span>` +
+    (c.bad||c.warn ? `<button class="small" id="b_fixnext">Fix next →</button>` : `<button class="small primary" id="b_run1">Run this graph</button>`);
+  $('#b_fixnext')?.addEventListener('click', () => { const g = a.gaps.find(g=>g.sev==='bad') ?? a.gaps.find(g=>g.sev==='warn'); if(g?.at.kind!=='graph'){ sel = g.at; cardOpen = true; } renderAll(); });
+  $('#b_run1')?.addEventListener('click', () => toast(`copied: SUITE=graph:${docRef} npx playwright test --project=e2e`));
+}
+
+function renderLibrary(){
+  const el = $('#library'); el.innerHTML = '<div class="proj">projects / salesforce</div>';
+  for(const [ref,g] of Object.entries(LIB)){
+    const a = analyse(ref===docRef ? doc : g); const c = a.counts;
+    const cls = c.bad ? 'bad' : c.warn ? 'warn' : (g.sessions.every(s=>s.captured) ? '' : 'muted');
+    const d = document.createElement('div'); d.className = 'item' + (ref===docRef?' active':'');
+    d.innerHTML = `<span class="dot ${cls}"></span><span class="name">${esc(g.id)}</span><span class="hint mono">${c.bad+c.warn||'✓'}</span>`;
+    d.title = `${g.title}\n${c.bad} must fix · ${c.warn} to finish · tags: ${g.tags.join(', ')}`;
+    d.addEventListener('click', () => open(ref));
+    el.appendChild(d);
+  }
+}
+function renderLedger(){
+  const el = $('#ledger'); el.innerHTML='';
+  for(const [rec,e] of projectLedger()){
+    const d = document.createElement('div'); d.className='row';
+    d.innerHTML = `<span><span class="rec">${esc(rec)}</span> <span class="hint mono">${esc(e.sobject)}</span></span><span class="who">↑ ${e.produced.join(', ')||'—'}<br>↓ ${e.consumed.join(', ')||'—'}</span>`;
+    d.title = `produced by: ${e.produced.join(', ')||'nobody'}\nconsumed by: ${e.consumed.join(', ')||'nobody'}`;
+    el.appendChild(d);
+  }
+}
+function renderSuites(){
+  const el = $('#suites'); el.innerHTML='';
+  const members = (name) => { const s = SUITES[name]; return Object.entries(LIB).filter(([,g]) => s.project ? true : g.tags.some(t=>s.tags.includes(t))).map(([r])=>r); };
+  for(const name of Object.keys(SUITES)){
+    const m = members(name);
+    const d = document.createElement('label'); d.className='suite';
+    d.innerHTML = `<input type="checkbox" ${suiteSel.has(name)?'checked':''}> <span>${esc(name)}</span><span class="n">${m.length} graphs</span>`;
+    d.querySelector('input').addEventListener('change', (ev) => { ev.target.checked ? suiteSel.add(name) : suiteSel.delete(name); renderSuites(); });
+    d.title = m.join('\n'); el.appendChild(d);
+  }
+  const names = [...suiteSel].join(',');
+  $('#runbox').innerHTML = names
+    ? `run locally, or paste into CI (same line, secrets from <span class="mono">SF_ENV_JSON</span>):<code class="mono">SUITE=${esc(names)} npx playwright test --project=e2e</code><div style="margin-top:6px"><button class="small primary" id="b_runsuite">Run ${esc(names)}</button></div>`
+    : 'tick a suite to run a group of graphs';
+  $('#b_runsuite')?.addEventListener('click', () => toast(`copied: SUITE=${names} npx playwright test --project=e2e`));
+}
+
+function renderView(a){
+  const v = $('#view'); v.classList.toggle('fill', tab!=='script');
+  if(tab==='split') v.innerHTML = `<div class="split"><div id="scriptwrap"></div><div id="canvaswrap"></div></div>`;
+  else if(tab==='script') v.innerHTML = `<div id="scriptwrap" style="max-width:820px"></div>`;
+  else v.innerHTML = `<div id="canvaswrap"></div>`;
+  if($('#scriptwrap')) renderScript(a, $('#scriptwrap'));
+  if($('#canvaswrap')) renderCanvas(a, $('#canvaswrap'));
+}
+
+function renderScript(a, host){
+  const box = document.createElement('div'); box.className='script';
+  box.innerHTML = `<div class="head"><input class="inline title" id="f_title" value="${esc(doc.title)}" placeholder="what this process is called"><span class="sys mono">${Object.values(doc.systems).join(' · ')}</span><button class="small ghost" id="b_graphcard" title="graph settings — id, title, systems, tags">⚙</button></div>`;
+  $('#f_title', box)?.addEventListener('change', (ev)=>{ doc.title = ev.target.value; touch(); });
+  $('#b_graphcard', box)?.addEventListener('click', ()=>{ sel={kind:'graph'}; cardOpen = true; renderAll(); });
+  let n = 0;
+  doc.sessions.forEach((s, si) => {
+    n++;
+    const line = document.createElement('div'); line.className='line session'+(sel.kind==='session'&&sel.id===s.id?' sel':'');
+    const persona = s.role ? slug(s.role) : '';
+    const bound = persona && ROSTER[persona];
+    line.innerHTML = `<div class="num">${n}</div><div class="body">
+      <div class="who"><span class="as">as</span>
+        <input class="inline" data-f="role" value="${esc(s.role)}" placeholder="role, as the test case names it" style="width:180px;font-weight:500">
+        <span class="hint">on</span>
+        <select data-f="system" class="small">${Object.entries(doc.systems).map(([k,l])=>`<option value="${k}" ${s.system===k?'selected':''}>${esc(l)}</option>`).join('')}<option value="" ${!s.system?'selected':''}>—</option></select>
+        <span class="hint">at</span>
+        <input class="inline mono" data-f="url" value="${esc(s.url)}" placeholder="/lightning/o/…/list" style="width:150px;font-size:12px">
+        ${persona ? `<span class="pill ${bound?'persona':'gap'}" title="${bound?`persona ${persona} → login ${ROSTER[persona].account}`:'not in personas.json yet — created on save as a new login'}">${bound?'👤 '+ROSTER[persona].account:'new login: '+persona}</span>` : ''}
+        <span class="pill ${s.recording?'rec live recording':s.captured?'ok':'rec'}" data-act="record" title="${s.recording?'recording — close the browser to finish':s.captured?'recorded — click to record again':'record this role now (opens a headed browser as this persona)'}">${s.recording?'● recording…':s.captured?'✓ recorded':'● record'}</span>
+      </div>
+      <div class="tools"><button class="small" data-act="addstep">+ step</button><button class="small" data-act="adddeny">+ must not</button><button class="small" data-act="join">insert graph after…</button><button class="small ghost" data-act="up" ${si===0?'disabled':''}>↑</button><button class="small ghost" data-act="down" ${si===doc.sessions.length-1?'disabled':''}>↓</button><button class="small ghost" data-act="del">delete</button></div>
+    </div>`;
+    line.addEventListener('click', (ev) => { if(ev.target.closest('input,select,button')) return; sel={kind:'session',id:s.id}; cardOpen = true; renderAll(); });
+    line.querySelectorAll('[data-f]').forEach((i) => i.addEventListener('change', (ev) => { s[ev.target.dataset.f] = ev.target.value; touch(); }));
+    line.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => sessionAct(s, si, b.dataset.act)));
+    box.appendChild(line);
+    s.steps.forEach((t, ti) => {
+      const p = a.ports.get(t.id);
+      const sl = document.createElement('div'); sl.className = 'line step '+t.kind+(sel.kind==='step'&&sel.id===t.id?' sel':'');
+      sl.innerHTML = `<div class="num">${n}.${ti+1}</div><div class="body">
+        <div class="what">
+          ${t.kind==='denied' ? `<span class="verb" style="color:var(--bad);font-weight:600">must not</span>` : ''}
+          <input class="inline verb" data-f="verb" value="${esc(t.verb)}" placeholder="verb">
+          <input class="inline rec" data-f="record" value="${esc(t.record)}" placeholder="record" list="records">
+          ${t.kind==='does' && p ? `<span class="pill ${p.io}${p.draft?' draft':''}" data-act="confirmio" title="${p.draft?'inferred from first-touch — click to confirm':'confirmed'}">${p.io==='produces'?'⇒':p.io==='updates'?'⇄':'⇐'} ${p.io}${p.draft?' ?':''}</span>` : ''}
+          ${t.kind==='does' ? `<span class="hint mono">${esc(catalogOf(t))}</span>` : `<span class="hint mono">${esc(catalogOf(t))} · security half</span>`}
+        </div>
+        ${t.kind==='does' ? `<div class="checks">${t.checks.map((c,ci)=>`<span class="pill check${c.draft?' draft':''}" data-check="${ci}" title="${c.draft?'guessed — click to keep':'click to edit'}">${c.draft?'?':'✓'} ${esc(c.kind)} ${esc(c.value||c.target)}</span>`).join('')}<span class="pill" data-act="addcheck">+ check</span></div>` : ''}
+        <div class="tools"><button class="small ghost" data-act="up" ${ti===0?'disabled':''}>↑</button><button class="small ghost" data-act="down" ${ti===s.steps.length-1?'disabled':''}>↓</button><button class="small ghost" data-act="del">delete</button></div>
+      </div>`;
+      sl.addEventListener('click', (ev) => { if(ev.target.closest('input,select,button')) return; sel={kind:'step',id:t.id}; cardOpen = true; renderAll(); });
+      sl.querySelectorAll('[data-f]').forEach((i) => i.addEventListener('change', (ev) => { t[ev.target.dataset.f] = ev.target.value; if(ev.target.dataset.f==='record' && !t.sobject) t.sobject = guessSobject(t.record); touch(); }));
+      sl.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', (ev) => { ev.stopPropagation(); stepAct(s, t, ti, b.dataset.act); }));
+      sl.querySelectorAll('[data-check]').forEach((b) => b.addEventListener('click', (ev) => { ev.stopPropagation(); const c = t.checks[+b.dataset.check]; if(c.draft){ c.draft=false; touch(); } else { sel={kind:'step',id:t.id}; renderAll(); } }));
+      box.appendChild(sl);
+    });
+    const add = document.createElement('div'); add.className='addrow';
+    add.innerHTML = `<button class="small ghost" data-act="addstep">+ step</button><button class="small ghost" data-act="adddeny">+ must not</button><span class="hint" style="align-self:center">verb + record → port, catalog and checks are inferred</span>`;
+    add.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => sessionAct(s, si, b.dataset.act)));
+    box.appendChild(add);
+  });
+  const addS = document.createElement('div'); addS.className='addrow session-add';
+  addS.innerHTML = `<button class="small" id="b_addsession">+ session (next role in the chain)</button><span class="hint" style="align-self:center">the login chain is the line order — reorder with ↑ ↓</span>`;
+  addS.querySelector('button').addEventListener('click', () => { const s = {id:uid('s'), role:'', system:Object.keys(doc.systems)[0]||'', url:'', captured:false, steps:[]}; doc.sessions.push(s); sel={kind:'session',id:s.id}; touch(); setTimeout(()=>document.querySelector('.line.sel input[data-f="role"]')?.focus(),0); });
+  box.appendChild(addS);
+  const dl = document.createElement('datalist'); dl.id='records';
+  for(const rec of projectLedger().keys()) dl.appendChild(new Option(rec));
+  box.appendChild(dl);
+  host.innerHTML=''; host.appendChild(box);
+}
+function guessSobject(rec){ const m = {customer:'Account',account:'Account',lead:'Lead',contact:'Contact',opportunity:'Opportunity',expense:'Expense__c',address:'Address__c',case:'Case'}; const k = slug(rec).split('_').pop(); return m[k] ?? ''; }
+function sessionAct(s, si, act){
+  if(act==='addstep'||act==='adddeny'){ const t = {id:uid('t'), kind:act==='addstep'?'does':'denied', verb:'', record:'', sobject:'', confirmed:false, checks:[]}; s.steps.push(t); sel={kind:'step',id:t.id}; touch(); setTimeout(()=>document.querySelector('.line.sel input[data-f="verb"]')?.focus(),0); }
+  else if(act==='join') openJoin(si);
+  else if(act==='record') startCapture(s);
+  else if(act==='up'){ doc.sessions.splice(si-1,0,doc.sessions.splice(si,1)[0]); touch(); }
+  else if(act==='down'){ doc.sessions.splice(si+1,0,doc.sessions.splice(si,1)[0]); touch(); }
+  else if(act==='del'){ doc.sessions.splice(si,1); sel={kind:'graph'}; touch(); }
+}
+function stepAct(s, t, ti, act){
+  if(act==='confirmio'){ t.confirmed = true; touch(); }
+  else if(act==='addcheck'){ t.checks.push({kind: t.record ? 'api.record_exists' : 'ui.text', target: t.sobject||'', value:'', draft:false}); sel={kind:'step',id:t.id}; touch(); }
+  else if(act==='up'){ s.steps.splice(ti-1,0,s.steps.splice(ti,1)[0]); touch(); }
+  else if(act==='down'){ s.steps.splice(ti+1,0,s.steps.splice(ti,1)[0]); touch(); }
+  else if(act==='del'){ s.steps.splice(ti,1); sel={kind:'session',id:s.id}; touch(); }
+}
+
+function fitCanvas(){
+  // scale the drawing to the space it has (never below 1:1 downwards past 0.5, never above 1.6×) — pointer maths use the CTM so drag keeps working
+  const stage = document.querySelector('.canvas .stage'); const svg = stage?.querySelector('svg'); if(!svg) return;
+  const [,,W,H] = svg.getAttribute('viewBox').split(' ').map(Number);
+  const sw = stage.clientWidth-2, sh = stage.clientHeight-2;
+  const k = Math.max(0.5, Math.min(sw/W, sh/H, 1.6));
+  svg.setAttribute('width', Math.round(W*k)); svg.setAttribute('height', Math.round(H*k));
+}
+/* canvas: login chain as the spine, one lane per session, records shared between lanes */
+function fitCanvas(){
+  // scale the drawing to the space it has (never below 1:1 downwards past 0.5, never above 1.6×) — pointer maths use the CTM so drag keeps working
+  const stage = document.querySelector('.canvas .stage'); const svg = stage?.querySelector('svg'); if(!svg) return;
+  const [,,W,H] = svg.getAttribute('viewBox').split(' ').map(Number);
+  const sw = stage.clientWidth-2, sh = stage.clientHeight-2;
+  const k = Math.max(0.5, Math.min(sw/W, sh/H, 1.6));
+  svg.setAttribute('width', Math.round(W*k)); svg.setAttribute('height', Math.round(H*k));
+}
+/* canvas: login chain as the spine, one lane per session, records shared between lanes.
+   Nodes drag (offsets kept in doc.layout, i.e. node.pos in the schema); a rubber band on empty canvas selects a group; dragging any selected node moves the group. */
+const msel = new Set();
+function renderCanvas(a, host){
+  const S = doc.sessions, laneW = 200, laneGap = 70, top = 46, rowH = 58, left = 90;
+  const L = (doc.layout ??= {}); const off = (id) => L[id] ?? {dx:0,dy:0};
+  const recs = [...a.records.keys()];
+  const maxSteps = Math.max(1, S.reduce((n,s)=>Math.max(n,s.steps.length),0));
+  const laneH = 62 + maxSteps*rowH + 12;              // header + step rows
+  const recBaseY = top + laneH + 70;                   // records row sits under the lanes
+  const lanes = S.map((s,i)=>({ x: left+i*(laneW+laneGap)+off(s.id).dx, y: top+off(s.id).dy, s }));
+  const span = Math.max(1, S.length*(laneW+laneGap)-laneGap);
+  const recPos = new Map(); recs.forEach((r,i)=>{ const o = off('rec:'+r); recPos.set(r, { x: left + (i+0.5)*(span/recs.length) + o.dx, y: recBaseY + o.dy }); });
+  // bounds from the content that is actually drawn (moved nodes included), with a margin
+  let minX = 0, minY = 0, maxX = left + span + 80, maxY = recBaseY + 40;
+  lanes.forEach((l)=>{ minX = Math.min(minX, l.x-70); minY = Math.min(minY, l.y-30); maxX = Math.max(maxX, l.x+laneW+60); maxY = Math.max(maxY, l.y+laneH+20); });
+  recPos.forEach((r)=>{ minX = Math.min(minX, r.x-80); minY = Math.min(minY, r.y-40); maxX = Math.max(maxX, r.x+80); maxY = Math.max(maxY, r.y+40); });
+  const W = maxX - minX, H = maxY - minY;
+  const stepPos = new Map(); // step id -> bottom-centre anchor
+  let out = `<svg viewBox="${minX} ${minY} ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="canvas rendering of the script" tabindex="0">`;
+  out += `<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--ink2)"/></marker><marker id="arrbad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--bad)"/></marker></defs>`;
+  out += `<rect class="bg" x="${minX}" y="${minY}" width="${W}" height="${H}" fill="transparent"/>`;
+  // edges first (under the nodes)
+  let edges = '';
+  lanes.forEach((l,i)=>{
+    const px = i===0 ? 48 : lanes[i-1].x+laneW, py = i===0 ? top+20 : lanes[i-1].y+20;
+    edges += `<path d="M${px} ${py} C ${px+30} ${py}, ${l.x-30} ${l.y+20}, ${l.x} ${l.y+20}" fill="none" stroke="var(--session)" stroke-width="2" marker-end="url(#arr)"/><text x="${(px+l.x)/2}" y="${(py+l.y+20)/2-6}" text-anchor="middle" class="edge-l">login as</text>`;
+    l.s.steps.forEach((t,ti)=>{
+      const y = l.y+62+ti*rowH; const p = a.ports.get(t.id);
+      if(t.record && recPos.has(t.record)){
+        const x1 = l.x+laneW/2, y1 = y+40, r = recPos.get(t.record), x2 = r.x, y2 = r.y-18;
+        const bad = t.kind==='denied';
+        edges += `<path d="M${x1} ${y1} C ${x1} ${y1+40}, ${x2} ${y2-40}, ${x2} ${y2}" fill="none" stroke="${bad?'var(--bad)':p?.io==='produces'?'var(--ok)':'var(--ink2)'}" stroke-width="${p?.io==='produces'?2:1.4}" ${bad||p?.draft?'stroke-dasharray="4 3"':''} marker-end="url(#${bad?'arrbad':'arr'})" opacity=".85"/>`;
+      }
+    });
+  });
+  out += edges;
+  out += `<circle cx="34" cy="${top+20}" r="14" fill="var(--panel2)" stroke="var(--line)"/><text x="34" y="${top+24}" text-anchor="middle" class="muted">start</text>`;
+  lanes.forEach((l)=>{
+    const selL = (sel.kind==='session'&&sel.id===l.s.id) || msel.has(l.s.id);
+    out += `<g class="drag" data-drag="${l.s.id}" data-kind="session"><rect class="${l.s.recording?'recording':''}" x="${l.x}" y="${l.y}" width="${laneW}" height="${laneH}" rx="8" fill="var(--session-soft)" stroke="${l.s.recording?'var(--bad)':selL?'var(--accent)':'var(--line)'}" stroke-width="${selL||l.s.recording?2:1}"/>`;
+    out += `<text x="${l.x+12}" y="${l.y+22}" class="lane-title">${esc(l.s.role||'?')}</text><text x="${l.x+12}" y="${l.y+38}" class="muted">${esc(doc.systems[l.s.system]||'no system')}${l.s.recording?' · recording…':l.s.captured?' · ✓ recorded':''}</text>`;
+    const rc = l.s.recording ? 'var(--bad)' : l.s.captured ? 'var(--ok)' : 'var(--bad)';
+    out += `<g class="recbtn ${l.s.recording?'recording':''}" data-rec="${l.s.id}"><title>${l.s.recording?'recording — close the browser to finish':l.s.captured?'recorded — click to record again':'record this role now'}</title><circle cx="${l.x+laneW-18}" cy="${l.y+20}" r="11" fill="var(--panel)" stroke="${rc}" stroke-width="1.5"/>${l.s.captured&&!l.s.recording?`<text x="${l.x+laneW-18}" y="${l.y+24}" text-anchor="middle" style="font-size:11px;font-weight:600" fill="${rc}">✓</text>`:`<circle cx="${l.x+laneW-18}" cy="${l.y+20}" r="5" fill="${rc}"/>`}</g>`;
+    l.s.steps.forEach((t,ti)=>{
+      const y = l.y+62+ti*rowH; const selT = sel.kind==='step'&&sel.id===t.id; const p = a.ports.get(t.id);
+      out += `<g data-step="${t.id}"><rect x="${l.x+10}" y="${y}" width="${laneW-20}" height="40" rx="6" fill="var(--panel)" stroke="${selT?'var(--accent)':t.kind==='denied'?'var(--bad)':'var(--line)'}" stroke-width="${selT?2:1}" ${t.kind==='denied'?'stroke-dasharray="4 3"':''}/>`;
+      out += `<text x="${l.x+20}" y="${y+17}" class="rec-t">${t.kind==='denied'?'✕ must not ':''}${esc(t.verb||'?')} <tspan fill="var(--record)">${esc(t.record||'?')}</tspan></text>`;
+      out += `<text x="${l.x+20}" y="${y+32}" class="muted">${t.kind==='does' ? esc(catalogOf(t)) + (p?` · ${p.io}${p.draft?'?':''}`:'') + (t.checks.length?` · ${t.checks.length} check${t.checks.length>1?'s':''}`:'') : esc(catalogOf(t))}</text></g>`;
+    });
+    out += `</g>`;
+  });
+  recs.forEach((r)=>{ const {x,y} = recPos.get(r), e = a.records.get(r); const selR = msel.has('rec:'+r);
+    out += `<g class="drag" data-drag="rec:${esc(r)}" data-kind="record"><rect x="${x-64}" y="${y-18}" width="128" height="36" rx="18" fill="var(--record-soft)" stroke="${selR?'var(--accent)':'var(--record)'}" stroke-width="${selR?2:1}"/><text x="${x}" y="${y-1}" text-anchor="middle" class="rec-t" fill="var(--record)">${esc(r)}</text><text x="${x}" y="${y+12}" text-anchor="middle" class="muted">${esc(e.sobject||'SObject?')}</text></g>`; });
+  const last = lanes[lanes.length-1]; const ex = last ? last.x+laneW+26 : 74, ey = last ? last.y+20 : top+20;
+  out += `<circle cx="${ex}" cy="${ey}" r="14" fill="var(--panel2)" stroke="var(--line)"/><text x="${ex}" y="${ey+4}" text-anchor="middle" class="muted">end</text>`;
+  out += `<rect class="band" x="0" y="0" width="0" height="0" fill="var(--accent-soft)" stroke="var(--accent)" stroke-dasharray="4 3" opacity="0" pointer-events="none"/>`;
+  out += `</svg>`;
+  host.innerHTML = `<div class="canvas"><div class="stage">${out}</div><div class="hint" style="display:flex;gap:10px;align-items:center;padding:6px 4px 0"><span style="flex:1">drag a lane or record to move it · drag on empty canvas = rubber band, then drag any selected item to move the group · click to select${msel.size?` · <b>${msel.size} selected</b>`:''}</span><button class="small ghost" id="b_graphcard2" title="graph settings">⚙ graph</button><button class="small ghost" id="b_layout">auto layout</button></div></div>`;
+  $('#b_layout').addEventListener('click',()=>{ doc.layout = {}; msel.clear(); touch(); });
+  $('#b_graphcard2').addEventListener('click',()=>{ sel={kind:'graph'}; cardOpen = true; renderAll(); });
+  fitCanvas();
+  const svg = host.querySelector('svg'); const band = svg.querySelector('.band');
+  const pt = (ev) => { const p = svg.createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); };
+  let drag = null; // {ids, x0, y0, moved}
+  svg.addEventListener('pointerdown',(ev)=>{
+    const rb = ev.target.closest('[data-rec]'); if(rb){ ev.stopPropagation(); startCapture(doc.sessions.find((x)=>x.id===rb.dataset.rec)); return; }
+    const g = ev.target.closest('[data-drag]'); const p = pt(ev);
+    if(g){ const id = g.dataset.drag; const ids = msel.has(id) ? [...msel] : [id]; drag = {kind:'move', ids, x0:p.x, y0:p.y, moved:false, step: ev.target.closest('[data-step]')?.dataset.step}; }
+    else if(ev.target.classList.contains('bg') || ev.target===svg){ drag = {kind:'band', x0:p.x, y0:p.y, moved:false}; band.setAttribute('opacity','.5'); }
+    if(drag) { svg.setPointerCapture(ev.pointerId); if(drag.kind==='move') $('#ncard').classList.add('hide'); }
+  });
+  svg.addEventListener('pointermove',(ev)=>{
+    if(!drag) return; const p = pt(ev); const dx = p.x-drag.x0, dy = p.y-drag.y0;
+    if(Math.abs(dx)+Math.abs(dy) > 3) drag.moved = true;
+    if(drag.kind==='move'){ for(const id of drag.ids) svg.querySelector(`[data-drag="${CSS.escape(id)}"]`).setAttribute('transform',`translate(${dx} ${dy})`); }
+    else { band.setAttribute('x', Math.min(p.x,drag.x0)); band.setAttribute('y', Math.min(p.y,drag.y0)); band.setAttribute('width', Math.abs(dx)); band.setAttribute('height', Math.abs(dy)); }
+  });
+  svg.addEventListener('pointerup',(ev)=>{
+    if(!drag) return; const p = pt(ev); const dx = p.x-drag.x0, dy = p.y-drag.y0; const d = drag; drag = null;
+    if(d.kind==='move'){
+      if(d.moved){ for(const id of d.ids){ const o = L[id] ?? {dx:0,dy:0}; L[id] = {dx:o.dx+dx, dy:o.dy+dy}; } dirty = true; renderAll(); }
+      else { const id = d.ids.length===1 ? d.ids[0] : null; msel.clear();
+        if(d.step){ sel = {kind:'step', id:d.step}; cardOpen = true; } else if(id && !id.startsWith('rec:')){ sel = {kind:'session', id}; cardOpen = true; } renderAll(); }
+    } else {
+      band.setAttribute('opacity','0');
+      if(d.moved){ const bx = Math.min(p.x,d.x0), by = Math.min(p.y,d.y0), bw = Math.abs(dx), bh = Math.abs(dy); msel.clear();
+        svg.querySelectorAll('[data-drag]').forEach((g)=>{ const b = g.getBBox(); if(b.x < bx+bw && b.x+b.width > bx && b.y < by+bh && b.y+b.height > by) msel.add(g.dataset.drag); });
+      } else { msel.clear(); cardOpen = false; }
+      renderAll();
+    }
+  });
+}
+
+function renderInspector(a){
+  const el = $('#insp'); const gapsFor = (pred) => a.gaps.filter(pred);
+  const gapList = (list) => list.length ? `<ul class="gaplist">${list.map((g)=>`<li class="${g.sev}"><span>${esc(g.text)}</span>${g.fix==='confirm'?`<button class="small fix" data-fixgap="${esc(g.kind)}">keep</button>`:''}</li>`).join('')}</ul>` : `<div class="hint">nothing open here</div>`;
+  if(sel.kind==='session'){
+    const s = doc.sessions.find((x)=>x.id===sel.id); if(!s){ sel={kind:'graph'}; return renderInspector(a); }
+    const persona = slug(s.role||''); const acct = accountOf(s);
+    const shares = Object.entries(ROSTER).filter(([k,v])=>v.account===acct && k!==persona).map(([k])=>k);
+    const credRows = envNames(acct).map((e)=>`<div class="credrow"><span class="dot ${ENV_PRESENT.has(e.name)?'':e.required?'bad':'muted'}" title="${ENV_PRESENT.has(e.name)?'set in .env':e.required?'missing in .env':'optional, not set'}"></span><input class="mono" data-env="${e.key}" value="${esc(e.name)}" spellcheck="false" title="the .env variable NAME this login reads — rename it here and personas.json is rewritten for every role on ${esc(acct)}"><span class="hint">${e.required?'':'optional'}</span></div>`).join('');
+    el.innerHTML = `<h2>Session</h2>
+      <div class="kv"><label>role</label><input value="${esc(s.role)}" data-f="role"><label>persona</label><span class="mono">${esc(persona||'—')} ${ROSTER[persona]?'':'<span class="pill gap">new</span>'}</span>
+      <label>logs in as</label><span class="mono">${esc(acct||'—')}${shares.length?` <span class="hint">shared with ${shares.join(', ')}</span>`:''}</span>
+      <label>auth</label><select><option>frontdoor (from persona)</option><option>ui login</option><option>singleaccess</option></select>
+      <label>landing URL</label><input class="mono" value="${esc(s.url)}" data-f="url" placeholder="/lightning/o/Account/list"></div>
+      <h3>credentials — login <span class="mono">${esc(acct)}</span></h3><div class="creds">${credRows}</div>
+      <div class="hint" style="margin-top:4px">variable <b>names</b> only — values live in <span class="mono">.env</span> and never leave your machine. Rename a name to match your <span class="mono">.env</span> (e.g. <span class="mono">SFDC_UAT_USERNAME</span>); every role on this login follows.${envFor(s).some((n)=>!ENV_PRESENT.has(n))?` <button class="small" id="b_envlines" style="margin-top:4px">Copy missing lines</button>`:''}</div>
+      <h3>capture</h3><div style="display:flex;gap:6px;align-items:center"><button class="small ${s.captured?'':'primary'}" id="b_rec">${s.recording?'● recording…':s.captured?'● record again':'● record now'}</button><span class="hint">${s.captured?'recorded':'opens a headed browser as this persona'}</span></div>
+      <details style="margin-top:6px"><summary class="hint" style="cursor:pointer">terminal equivalent</summary><div class="env mono" style="margin-top:4px">RECORD_PERSONA=${esc(persona||'?')} RECORD_JOURNEY=${esc(doc.id)} npm run record</div></details>
+      <h3>open on this line</h3>${gapList(gapsFor((g)=>g.at.kind==='session'&&g.at.id===s.id))}`;
+    el.querySelectorAll('[data-f]').forEach((i)=>i.addEventListener('change',(ev)=>{ s[ev.target.dataset.f]=ev.target.value; touch(); }));
+    $('#b_rec').addEventListener('click',()=>startCapture(s));
+    $('#b_envlines')?.addEventListener('click',()=>toast('copied: '+envFor(s).filter((n)=>!ENV_PRESENT.has(n)).map((n)=>n+'=').join(' ')));
+    el.querySelectorAll('[data-env]').forEach((i)=>i.addEventListener('change',(ev)=>{ const v = ev.target.value.trim(); if(!/^[A-Z][A-Z0-9_]*$/.test(v)){ toast('an env NAME: A-Z, digits, _ — never a value'); ev.target.value = envNames(acct).find((e)=>e.key===ev.target.dataset.env).name; return; }
+      (ACCOUNT_ENV[acct] ??= {})[ev.target.dataset.env] = v; renderAll(); toast(`personas.json: ${acct}.${ev.target.dataset.env} = ${v} — ${1+shares.length} role${shares.length?'s':''} follow`); }));
+  } else if(sel.kind==='step'){
+    let s, t; for(const x of doc.sessions){ const y = x.steps.find((z)=>z.id===sel.id); if(y){ s=x; t=y; } }
+    if(!t){ sel={kind:'graph'}; return renderInspector(a); }
+    const p = a.ports.get(t.id); const led = projectLedger().get(t.record);
+    const KINDS = ['ui.visible','ui.text','ui.toast','ui.url','api.record_exists','api.field_equals','db.query','log.traffic'];
+    el.innerHTML = `<h2>${t.kind==='denied'?'Must not':'Step'}</h2>
+      <div class="kv"><label>role</label><span>${esc(s.role)}</span><label>verb</label><input value="${esc(t.verb)}" data-f="verb"><label>record</label><input value="${esc(t.record)}" data-f="record">
+      <label>SObject</label><input class="mono" value="${esc(t.sobject||'')}" data-f="sobject" placeholder="Account"><label>catalog</label><span class="mono">${esc(catalogOf(t))} <span class="hint">(override in JSON only if the vocabulary differs)</span></span>
+      ${t.kind==='does'&&p?`<label>port</label><span><span class="pill ${p.io}${p.draft?' draft':''}">${p.io}${p.draft?' ?':''}</span> <select data-f="io_override" class="small" style="margin-left:6px"><option value="">inferred</option><option>produces</option><option>consumes</option><option>updates</option></select></span>`:''}
+      ${t.kind==='denied'?`<label>capability</label><span class="mono">${esc(catalogOf(t))}</span>`:''}</div>
+      ${t.record ? `<h3>${esc(t.record)} across the project</h3><div class="hint">produced by ${led?.produced.join(', ')||'nobody yet'} · consumed by ${led?.consumed.join(', ')||'nobody yet'}${p?.io!=='produces' && !(led?.produced.length) ? '<br><span style="color:var(--bad)">nothing produces this record before it is used — add a producing step earlier, or join the graph that creates it</span>':''}</div>` : ''}
+      ${t.kind==='does' ? `<h3>what proves it worked</h3><div id="checks"></div><button class="small" id="b_addcheck" style="margin-top:6px">+ check</button><div class="hint" style="margin-top:4px">backend checks (api / db / log) poll; set a budget only for async integrations.</div>` : ''}
+      <h3>open on this line</h3>${gapList(gapsFor((g)=>g.at.kind==='step'&&g.at.id===t.id))}`;
+    el.querySelectorAll('[data-f]').forEach((i)=>i.addEventListener('change',(ev)=>{ const f=ev.target.dataset.f; if(f==='io_override'){ t.confirmed=true; if(ev.target.value) t.ioOverride=ev.target.value; } else t[f]=ev.target.value; touch(); }));
+    if(t.kind==='does'){
+      const ch = $('#checks');
+      t.checks.forEach((c,ci)=>{ const row = document.createElement('div'); row.className='checkrow';
+        row.innerHTML = `<div class="fields"><select>${KINDS.map((k)=>`<option ${c.kind===k?'selected':''}>${k}</option>`).join('')}</select><input placeholder="${/^api|^db|^log/.test(c.kind)?'SObject / node':'locator (optional)'}" value="${esc(c.target)}"><input placeholder="${c.kind==='api.field_equals'?'Field=Value':'expected text / url'}" value="${esc(c.value)}"></div><button class="small ghost" title="remove">✕</button>`;
+        const [k,tg,vl] = row.querySelectorAll('select,input'); k.addEventListener('change',()=>{c.kind=k.value;c.draft=false;touch();}); tg.addEventListener('change',()=>{c.target=tg.value;c.draft=false;touch();}); vl.addEventListener('change',()=>{c.value=vl.value;c.draft=false;touch();});
+        row.querySelector('button').addEventListener('click',()=>{ t.checks.splice(ci,1); touch(); }); ch.appendChild(row); });
+      $('#b_addcheck').addEventListener('click',()=>stepAct(s,t,0,'addcheck'));
+    }
+    el.querySelectorAll('[data-fixgap]').forEach((b)=>b.addEventListener('click',()=>{ if(b.dataset.fixgap==='data_io_draft') t.confirmed=true; else t.checks.forEach((c)=>c.draft=false); touch(); }));
+  } else {
+    el.innerHTML = `<h2>Graph</h2><div class="kv"><label>id</label><input class="mono" value="${esc(doc.id)}" data-f="id"><label>title</label><input value="${esc(doc.title)}" data-f="title"><label>systems</label><span>${Object.entries(doc.systems).map(([k,l])=>`<span class="pill">${esc(l)} <span class="hint mono">${k}</span></span>`).join(' ')} <button class="small ghost">+ system</button></span><label>tags</label><input value="${esc((doc.tags||[]).join(', '))}" data-f="tags" placeholder="smoke, sod"></div>
+      <div class="hint" style="margin-top:8px">systems carry their session policy once per project (Siebel: one session at a time) — the graph never repeats it.</div>
+      <h3>everything open</h3>${gapList(a.gaps.filter((g)=>g.sev!=='todo'))}`;
+    el.querySelectorAll('[data-f]').forEach((i)=>i.addEventListener('change',(ev)=>{ const f=ev.target.dataset.f; if(f==='tags') doc.tags = ev.target.value.split(',').map((x)=>x.trim()).filter(Boolean); else doc[f]=ev.target.value; touch(); }));
+  }
+}
+
+/* ---------- actions ---------- */
+function touch(){ dirty = true; renderAll(); }
+function open(ref){ if(dirty && !confirm('Discard unsaved changes to '+doc.id+'?')) return; doc = clone(LIB[ref]); docRef = ref; dirty=false; cardOpen=false; sel={kind:'session',id:doc.sessions[0]?.id}; if(!doc.sessions[0]) sel={kind:'graph'}; renderAll(); }
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),1800); }
+function sheet(html){ $('#sheet_card').innerHTML = html; $('#sheet').classList.add('open'); }
+function closeSheet(){ $('#sheet').classList.remove('open'); }
+$('#sheet').addEventListener('click',(ev)=>{ if(ev.target===$('#sheet')) closeSheet(); });
+document.addEventListener('keydown',(ev)=>{ if(ev.key==='Escape') closeSheet(); });
+
+function openJoin(afterIdx){
+  const opts = Object.entries(LIB).filter(([r])=>r!==docRef);
+  const after = afterIdx==null ? doc.sessions.length-1 : afterIdx;
+  const afterLabel = doc.sessions[after] ? `after ${doc.sessions[after].role}` : 'at the start';
+  sheet(`<h3>Join another graph ${esc(afterLabel)}</h3><div class="hint" style="margin-bottom:8px">Its sessions splice into the chain here; records with the same name become one record, so the joined flow uses what this one created. Same role + system merge into one session.</div>
+    <div class="pick">${opts.map(([r,g])=>{ const a=analyse(g); const cons=[...a.records.entries()].filter(([,e])=>e.consumers.length&&!e.producers.length).map(([k])=>k); return `<button data-ref="${r}">${esc(g.id)}<small>${esc(g.title)} · ${g.sessions.length} sessions · produces ${[...a.records.entries()].filter(([,e])=>e.producers.length).map(([k])=>k).join(', ')||'—'}${cons.length?` · needs ${cons.join(', ')}`:''}</small></button>`; }).join('')}</div>
+    <div class="row"><button id="s_cancel">Cancel</button></div>`);
+  $('#s_cancel').addEventListener('click',closeSheet);
+  document.querySelectorAll('#sheet [data-ref]').forEach((b)=>b.addEventListener('click',()=>{ joinGraph(b.dataset.ref, after); closeSheet(); }));
+}
+function joinGraph(ref, after){
+  const sub = clone(LIB[ref]);
+  for(const [k,l] of Object.entries(sub.systems)) if(!doc.systems[k]) doc.systems[k]=l;
+  const incoming = sub.sessions.map((s)=>{ s.id=uid('s'); s.steps.forEach((t)=>{ t.id=uid('t'); t.confirmed=false; }); return s; });
+  // merge same role+system into the existing session, else splice
+  const spliced = [];
+  for(const s of incoming){ const ex = doc.sessions.find((x)=>slug(x.role)===slug(s.role)&&x.system===s.system); if(ex){ ex.steps.push(...s.steps); } else spliced.push(s); }
+  doc.sessions.splice(after+1, 0, ...spliced);
+  (doc.composedFrom ??= []).push({ref, at:new Date().toISOString()});
+  const a = analyse(doc); const unmet = [...a.records.entries()].filter(([,e])=>e.consumers.length&&!e.producers.length).map(([k])=>k);
+  toast(unmet.length ? `joined ${sub.id} — ${unmet.join(', ')} still has no producer` : `joined ${sub.id} — records merged, ports re-inferred`);
+  sel = spliced[0] ? {kind:'session',id:spliced[0].id} : {kind:'graph'}; touch();
+}
+$('#b_join').addEventListener('click',()=>openJoin());
+
+$('#b_new').addEventListener('click',(ev)=>{ ev.stopPropagation(); $('#m_new').classList.toggle('open'); });
+document.addEventListener('click',()=>$('#m_new').classList.remove('open'));
+document.querySelectorAll('[data-new]').forEach((b)=>b.addEventListener('click',()=>{
+  const k = b.dataset.new;
+  if(k==='blank'){ if(dirty && !confirm('Discard unsaved changes?')) return; doc = {id:'new_process', title:'', systems:{sf:'Salesforce'}, tags:[], sessions:[{id:uid('s'), role:'', system:'sf', url:'', captured:false, steps:[]}]}; docRef='salesforce/new_process'; dirty=false; sel={kind:'session',id:doc.sessions[0].id}; renderAll(); setTimeout(()=>document.querySelector('.line.sel input[data-f="role"]')?.focus(),0); }
+  else if(k==='paste'){ sheet(`<h3>Paste a script</h3><div class="hint" style="margin-bottom:6px">One session per <span class="mono">as</span> line, one step per indented line. This is the same grammar the ADO importer reads and the graph-author skill writes.</div>
+      <textarea class="mono" id="s_txt">create_customer  Create a customer
+as Client Associate on Salesforce at /lightning/o/Account/list
+  create Customer (Account)
+    ✓ api.record_exists Account
+    ✓ ui.toast was created
+  must not delete Customer
+as Billing Collections on Salesforce
+  verify Customer
+    ✓ ui.url /lightning/r/Account/</textarea>
+      <div class="row"><button id="s_cancel">Cancel</button><button class="primary" id="s_ok">Draft the graph</button></div>`);
+    $('#s_cancel').addEventListener('click',closeSheet);
+    $('#s_ok').addEventListener('click',()=>{ doc = parseScript($('#s_txt').value); docRef='salesforce/'+doc.id; dirty=true; sel={kind:'session',id:doc.sessions[0]?.id}; closeSheet(); renderAll(); toast('drafted — every guess is a dashed pill; click to confirm'); });
+  }
+  else if(k==='ado'){ sheet(`<h3>From an ADO export</h3><div class="kv" style="display:grid;grid-template-columns:90px 1fr;gap:8px"><label class="hint">project</label><select><option>salesforce</option><option>＋ new…</option></select><label class="hint">file</label><input type="file" accept=".xlsx,.csv"><label class="hint">or previous</label><select><option>— upload a new file —</option><option>2026-09-02 O2A_regression.xlsx (34 cases, 33 imported)</option></select></div><div class="hint" style="margin-top:8px">each ticked test case becomes a draft graph in the project; roles, records, ports and checks are inferred and flagged. Unchanged from today's importer — only the door moved.</div><div class="row"><button id="s_cancel">Cancel</button><button class="primary" disabled>Read test cases</button></div>`); $('#s_cancel').addEventListener('click',closeSheet); }
+  else { sheet(`<h3>From a recording</h3><div class="hint">Pick a recording under <span class="mono">recordings/</span>; capture-first builds sessions per actor, one step per save-bounded group, records per SObject with ports from def-use. Unchanged from <span class="mono">PIPELINE_GRAPH=1</span> — only the door moved.</div><div class="row"><button id="s_cancel">Close</button></div>`); $('#s_cancel').addEventListener('click',closeSheet); }
+}));
+function parseScript(txt){
+  const lines = txt.split('\n'); const d = {id:'new_process', title:'', systems:{}, tags:[], sessions:[]};
+  const sysKey = (label) => { const k = slug(label).split('_')[0]==='salesforce'?'sf':slug(label); d.systems[k] ??= label.trim(); return k; };
+  let s=null, t=null;
+  for(const raw of lines){
+    if(!raw.trim()) continue;
+    const ind = raw.match(/^\s*/)[0].length; const l = raw.trim();
+    let m;
+    if(ind===0 && (m = l.match(/^as\s+(.+?)(?:\s+on\s+([^@]+?))?(?:\s+at\s+(\S+))?$/i))){ s={id:uid('s'), role:m[1].trim(), system:m[2]?sysKey(m[2]):Object.keys(d.systems)[0]||sysKey('Salesforce'), url:m[3]||'', captured:false, steps:[]}; d.sessions.push(s); t=null; }
+    else if(ind===0 && !d.sessions.length){ const [id,...rest]=l.split(/\s{2,}|\t/); d.id=slug(id); d.title=rest.join(' ').trim(); }
+    else if(s && (m = l.match(/^(✓|check)\s+(\S+)\s*(.*)$/)) && t){ const kind=m[2], rest=m[3]; const backend=/^(api|db|log)\./.test(kind); t.checks.push({kind, target: backend? rest.split(/\s+/)[0] : '', value: backend ? rest.split(/\s+/).slice(1).join(' ') : rest, draft:false}); }
+    else if(s && (m = l.match(/^must\s+not\s+(\S+)\s+(.+)$/i))){ t={id:uid('t'), kind:'denied', verb:m[1], record:m[2].replace(/\s*\(.*\)$/,''), checks:[]}; s.steps.push(t); }
+    else if(s && (m = l.match(/^(\S+)\s+(.+?)(?:\s*\(([^)]+)\))?$/))){ t={id:uid('t'), kind:'does', verb:m[1], record:m[2], sobject:m[3]||guessSobject(m[2]), confirmed:false, checks:[]}; s.steps.push(t); }
+  }
+  if(!Object.keys(d.systems).length) d.systems.sf='Salesforce';
+  return d;
+}
+$('#b_save').addEventListener('click',()=>{ const a = analyse(doc); if(a.counts.bad){ toast(`can't save: ${a.counts.bad} must-fix — use Fix next`); return; } LIB[docRef] = clone(doc); dirty=false; renderAll(); toast(`saved projects/salesforce/graphs/${doc.id}.graph.json · new roles written to personas.json`); });
+$('#b_export').addEventListener('click',()=>{ sheet(`<h3>process-graph/2 JSON</h3><div class="hint">what the script compiles to — the validator, walker and runner are unchanged.</div><textarea class="mono" readonly style="min-height:320px;font-size:11px">${esc(JSON.stringify(toGraph(doc),null,2))}</textarea><div class="row"><button id="s_cancel">Close</button></div>`); $('#s_cancel').addEventListener('click',closeSheet); });
+function toGraph(d){
+  const a = analyse(d); const g = {schema:'process-graph/2', id:d.id, title:d.title, systems:{}, actors:{}, nodes:[{id:'start',type:'start',label:''}], edges:[]};
+  for(const [k,l] of Object.entries(d.systems)) g.systems[k] = {label:l, kind: k==='sf'?'salesforce':k, urlEnv: k==='sf'?'SF_INSTANCE_URL':k.toUpperCase()+'_URL', ...(k==='siebel'?{sessionPolicy:{maxConcurrent:1}}:{})};
+  const recId = (r) => slug(r);
+  for(const [r,e] of a.records) g.nodes.push({id:recId(r), type:'data', label:r, sobject:e.sobject||undefined, expects:[]});
+  let prev='start', ei=0;
+  for(const s of d.sessions){ const alias = slug(s.role); g.actors[alias]=alias; const sid='sess_'+s.system+'_'+alias;
+    g.nodes.push({id:sid,type:'session',label:`${d.systems[s.system]} · ${alias}`,system:s.system,actor:alias,url:s.url||undefined, steps:s.captured?{status:'captured'}:undefined, ...(d.layout?.[s.id]?{pos:{x:Math.round(d.layout[s.id].dx),y:Math.round(d.layout[s.id].dy)}}:{})});
+    g.edges.push({id:'e'+(++ei),from:prev,to:sid,type:'login_as'}); prev=sid;
+    for(const t of s.steps){ const cat = catalogOf(t); const to = recId(t.record);
+      if(t.kind==='denied') g.edges.push({id:'e'+(++ei),from:sid,to,type:'denied',label:`must NOT ${t.verb}`,data:{capability:cat}});
+      else { const p=a.ports.get(t.id); g.edges.push({id:'e'+(++ei),from:sid,to,type:'does',label:`${t.verb} ${t.record}`.toLowerCase(),data:{catalog:cat, io:t.ioOverride||p.io, ...(p.draft?{ioDraft:true}:{})}});
+        const node = g.nodes.find((n)=>n.id===to); t.checks.forEach((c,ci)=>node.expects.push({id:`${slug(cat)}_${ci+1}`, kind:c.kind, target:c.target||undefined, value:c.value||undefined, after:cat, ...(c.draft?{draft:true}:{})})); } } }
+  g.nodes.push({id:'end',type:'end',label:''}); g.edges.push({id:'e'+(++ei),from:prev,to:'end',type:'next'});
+  return g;
+}
+document.querySelectorAll('[role=tab]').forEach((b)=>b.addEventListener('click',()=>{ tab=b.dataset.tab; document.querySelectorAll('[role=tab]').forEach((x)=>x.setAttribute('aria-selected', x===b)); renderAll(); }));
+const togglePane = () => { document.querySelector('.panes').classList.toggle('no-left'); requestAnimationFrame(()=>{ fitCanvas(); placeCard(); }); };
+$('#t_left').addEventListener('click',()=>togglePane('left'));
+$('#rail_left').addEventListener('click',()=>togglePane('left'));
+window.addEventListener('resize',()=>{ fitCanvas(); placeCard(); });
+$('#ncard_close').addEventListener('click',()=>{ cardOpen=false; renderAll(); });
+document.addEventListener('keydown',(ev)=>{ if(ev.key==='Escape' && cardOpen){ cardOpen=false; renderAll(); } });
+document.addEventListener('keydown',(ev)=>{ if((ev.metaKey||ev.ctrlKey) && ev.key==='[') { ev.preventDefault(); togglePane('left'); } });
+renderAll();
+</script>

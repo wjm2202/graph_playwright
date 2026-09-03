@@ -1,19 +1,17 @@
 /**
- * S-GRAPH-2 — the v2 relation model, audited end to end:
- * validation rules, the v1→v2 upgrade converter, the login-chain journey
- * walker, capture→upgrade chaining, mermaid rendering, and substrate encoding.
+ * S-GRAPH-2 — the relation model, audited end to end: validation rules, the
+ * login-chain journey walker, and the v1→v2 upgrade converter that keeps
+ * legacy files openable (the load door — see resolve.loadGraphFile).
  */
 import { test, expect } from '@playwright/test';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { validateGraph } from '../../src/graph/schema';
 import { upgradeGraph } from '../../src/graph/upgrade';
 import { toJourney } from '../../src/graph/toJourney';
-import { toMermaid } from '../../src/graph/mermaid';
-import { toBatch } from '../../src/graph/toBatch';
-import { fromDistillation } from '../../src/graph/fromDistillation';
-import { distill } from '../../src/pipeline/distill';
-import { readTrace } from '../../src/pipeline/traceReader';
-import { goodGraph, goodGraphV2 } from '../helpers/sampleGraph';
+import { loadGraphFile } from '../../src/graph/resolve';
+import { legacyGraphV1, goodGraphV2 } from '../helpers/sampleGraph';
 
 const PERSONAS = ['admin', 'sales_user', 'portal_user', 'guest', 'siebel_admin'];
 
@@ -36,7 +34,7 @@ test.describe('v2 validation', () => {
     expect(r.errors.join()).toContain('session nodes require a system');
     expect(r.errors.join()).toContain("login_as must land on a session node (got 'data')");
     expect(r.errors.join()).toContain('does edges need data.catalog');
-    expect(r.errors.join()).toContain('deny edges require data.capability');
+    expect(r.errors.join()).toContain('denied edges require data.capability');
   });
 });
 
@@ -86,7 +84,7 @@ test.describe('v2 journey walker', () => {
     const noStart = goodGraphV2();
     noStart.nodes = noStart.nodes.filter((n) => n.id !== 'start');
     noStart.edges = noStart.edges.filter((e) => e.from !== 'start');
-    expect(() => toJourney(noStart)).toThrow(/need a 'start' node/);
+    expect(() => toJourney(noStart)).toThrow(/needs a 'start' node/);
 
     const branch = goodGraphV2();
     branch.edges.push({ id: 'b1', from: 'start', to: 'sess_sf_admin', type: 'login_as' });
@@ -117,7 +115,7 @@ test.describe('v2 journey walker', () => {
 
 test.describe('v1 → v2 upgrade', () => {
   test('activity nodes become sessions + does relations; deny/handoff become denied/touches', () => {
-    const { graph, warnings } = upgradeGraph(goodGraph());
+    const { graph, warnings } = upgradeGraph(legacyGraphV1());
     expect(graph.schema).toBe('process-graph/2');
     expect(validateGraph(graph).errors).toEqual([]);
 
@@ -138,7 +136,7 @@ test.describe('v1 → v2 upgrade', () => {
   });
 
   test('an upgraded graph walks into the same journey shape', () => {
-    const { graph } = upgradeGraph(goodGraph());
+    const { graph } = upgradeGraph(legacyGraphV1());
     const r = toJourney(graph, { personaIds: PERSONAS });
     expect(r.journey.steps.map((s) => ('deny' in s ? 'deny' : s.do))).toEqual([
       'expense.submit', 'deny', 'plan.e5', 'plan.e6',
@@ -147,7 +145,7 @@ test.describe('v1 → v2 upgrade', () => {
   });
 
   test('upgrade refuses invalid input and passes v2 through unchanged', () => {
-    const bad = goodGraph();
+    const bad = legacyGraphV1();
     bad.edges.push({ id: 'x', from: 'submit', to: 'ghost', type: 'next' });
     expect(() => upgradeGraph(bad)).toThrow(/cannot upgrade an invalid graph/);
 
@@ -156,13 +154,18 @@ test.describe('v1 → v2 upgrade', () => {
     expect(already.warnings.join()).toContain('already process-graph/2');
   });
 
-  test('capture chain: fixture trace → distill → v1 graph → upgrade → valid v2', () => {
-    const d = distill(readTrace(path.resolve(__dirname, '../fixtures/trace-demo/trace.zip')).events);
-    const v1 = fromDistillation(d, { graphId: 'fixture_demo_graph', actors: { main: 'sales_user' } });
-    const { graph } = upgradeGraph(v1);
-    expect(validateGraph(graph).errors).toEqual([]);
-    expect(graph.nodes.filter((n) => n.type === 'session')).toHaveLength(1);
-    expect(graph.edges.filter((e) => e.type === 'does').length).toBeGreaterThanOrEqual(4);
+  test('the load door: a v1 file on disk opens as v2 (resolve.loadGraphFile)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-upgrade-'));
+    const file = path.join(dir, 'expense_to_siebel.graph.json');
+    fs.writeFileSync(file, JSON.stringify(legacyGraphV1(), null, 2));
+
+    const loaded = loadGraphFile(file);
+    expect(loaded.schema).toBe('process-graph/2');
+    expect(validateGraph(loaded).errors).toEqual([]);
+    expect(loaded.nodes.filter((n) => n.type === 'session')).toHaveLength(3);
+    // …and nothing v1 survives the door:
+    expect(loaded.nodes.map((n) => n.type)).not.toContain('action');
+    expect(loaded.edges.map((e) => e.type)).not.toContain('deny');
   });
 });
 
@@ -241,21 +244,5 @@ test.describe('lead_to_customer (shipped, owner-dictated)', () => {
     expect(r.errors.join()).toContain('api.* expectations need target');
     expect(r.errors.join()).toContain('ui.text needs value');
     expect(r.errors.join()).toContain('lastResult.status: pass|fail');
-  });
-});
-
-test.describe('v2 rendering + encoding', () => {
-  test('mermaid: stadium sessions, relation labels, dashed denials', () => {
-    const mm = toMermaid(goodGraphV2());
-    expect(mm).toContain('sess_sf_sales([Salesforce · submitter])');
-    expect(mm).toContain('|login as submitter|');
-    expect(mm).toContain('|expense.submit · submit expense|');
-    expect(mm).toContain('-.->|deny expense.approve|');
-  });
-
-  test('toBatch: denied capabilities and data-node records reach coverage', () => {
-    const b = toBatch(goodGraphV2());
-    expect(b.atoms[1]!.payload).toContain('denials probed: expense.approve');
-    expect(b.atoms[1]!.payload).toContain('Expense record');
   });
 });

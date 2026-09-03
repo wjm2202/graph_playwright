@@ -8,7 +8,7 @@
 import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
-import { goodGraph, goodGraphV2 } from '../helpers/sampleGraph';
+import { legacyGraphV1, goodGraphV2 } from '../helpers/sampleGraph';
 
 const PLANNER = pathToFileURL(path.resolve('tools/process-planner.html')).href;
 const PNG_1PX = Buffer.from(
@@ -109,15 +109,24 @@ test('loads the v2 relation seed: rendered counts and validity reported', async 
   await expect(page.locator('#status')).toContainText('valid · 6 nodes · 8 edges');
 });
 
-test('v1 graphs still load through the same door (backward compatibility)', async ({ page }) => {
-  const r = await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
+test('v1 files still open through the same door — as v2 (upgraded on load)', async ({ page }) => {
+  const r = await page.evaluate((g) => window.planner.load(g), legacyGraphV1() as unknown as Record<string, unknown>);
   expect(r.ok).toBe(true);
-  await expect(page.locator('#status')).toContainText('valid · 5 nodes · 5 edges');
+  // The v1 activity nodes came back as sessions + relations, not as themselves:
+  await expect(page.locator('#status')).toContainText('valid · 6 nodes · 10 edges');
+  const doc = await page.evaluate(() => window.planner.get() as unknown as {
+    schema: string; nodes: { id: string; type: string }[]; edges: { type: string }[];
+  });
+  expect(doc.schema).toBe('process-graph/2');
+  expect(doc.nodes.filter((n) => n.type === 'session').map((n) => n.id)).toEqual([
+    'sess_sf_submitter', 'sess_sf_approver', 'sess_siebel_approver',
+  ]);
+  expect(doc.edges.map((e) => e.type)).not.toContain('deny');
 });
 
 test('load REFUSES an invalid graph, naming the problems', async ({ page }) => {
-  const bad = goodGraph();
-  bad.edges.push({ id: 'x1', from: 'submit', to: 'ghost', type: 'next' });
+  const bad = goodGraphV2();
+  bad.edges.push({ id: 'x1', from: 'sess_sf_sales', to: 'ghost', type: 'next' });
   const r = await page.evaluate((g) => window.planner.load(g), bad as unknown as Record<string, unknown>);
   expect(r.ok).toBe(false);
   await expect(page.locator('#status')).toContainText("unknown node 'ghost'");
@@ -125,20 +134,23 @@ test('load REFUSES an invalid graph, naming the problems', async ({ page }) => {
 });
 
 test('selecting a node binds the four data points into the form', async ({ page }) => {
-  await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
-  await page.evaluate(() => { window.planner.select('submit'); });
-  await expect(page.locator('#nf_label')).toHaveValue('Submit expense');
+  const g = goodGraphV2();
+  const sess = g.nodes.find((n) => n.id === 'sess_sf_sales')!;
+  sess.steps = { status: 'planned' };
+  sess.timing = { plannedMs: 30_000 };
+  await page.evaluate((doc) => window.planner.load(doc), g as unknown as Record<string, unknown>);
+  await page.evaluate(() => { window.planner.select('sess_sf_sales'); });
+  await expect(page.locator('#nf_label')).toHaveValue('Salesforce · submitter');
   await expect(page.locator('#nf_system')).toHaveValue('sf');
   await expect(page.locator('#nf_actor')).toHaveValue('submitter');
   await expect(page.locator('#nf_account')).toHaveValue('SF_SALES_USERNAME');
-  await expect(page.locator('#nf_catalog')).toHaveValue('expense.submit');
   await expect(page.locator('#nf_steps_status')).toHaveValue('planned');
   await expect(page.locator('#nf_planned')).toHaveValue('30000');
 });
 
 test('panel v1.1: capture cockpit up front, secondary fields collapsed', async ({ page }) => {
-  await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
-  await page.evaluate(() => { window.planner.select('submit'); });
+  await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
+  await page.evaluate(() => { window.planner.select('sess_sf_sales'); });
 
   // Primary strip: url, role/user, account, start-capture with the exact command.
   await expect(page.locator('#nf_capture')).toBeEnabled();
@@ -148,7 +160,7 @@ test('panel v1.1: capture cockpit up front, secondary fields collapsed', async (
   // Secondary fields live inside a collapsed details section.
   const details = page.locator('#nf_details');
   await expect(details).not.toHaveAttribute('open', '');
-  expect(await page.locator('#nf_details #nf_catalog').count()).toBe(1);
+  expect(await page.locator('#nf_details #nf_steps_status').count()).toBe(1);
   expect(await page.locator('#nf_details #nf_notes').count()).toBe(1);
 
   // A node without a role can't capture — button disabled with guidance.
@@ -158,36 +170,36 @@ test('panel v1.1: capture cockpit up front, secondary fields collapsed', async (
 });
 
 test('form edits write back into the graph and the export', async ({ page }) => {
-  await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
-  await page.evaluate(() => { window.planner.select('submit'); });
-  await page.locator('#nf_label').fill('Submit expense v2');
+  await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
+  await page.evaluate(() => { window.planner.select('sess_sf_sales'); });
+  await page.locator('#nf_label').fill('Salesforce · submitter (renamed)');
   await page.locator('#nf_label').dispatchEvent('change');
   const out = await page.evaluate(() => window.planner.export());
   expect(out.ok).toBe(true);
-  expect(out.json).toContain('Submit expense v2');
+  expect(out.json).toContain('Salesforce · submitter (renamed)');
 });
 
-test('add + connect grow the graph; a deny edge without capability is caught', async ({ page }) => {
-  await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
+test('add + connect grow the graph; a denied edge without capability is caught', async ({ page }) => {
+  await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
   const ids = await page.evaluate(() => {
-    const a = window.planner.addNode({ label: 'Siebel check', type: 'action' });
-    const e = window.planner.connect('verify', a, 'next');
+    const a = window.planner.addNode({ label: 'Siebel check', type: 'checkpoint' });
+    const e = window.planner.connect('sess_siebel_admin', a, 'asserts');
     return { a, e };
   });
   expect(ids.a).toBeTruthy();
   let out = await page.evaluate(() => window.planner.export());
   expect(out.ok).toBe(true);
-  expect(await page.evaluate(() => window.planner.get().nodes.length)).toBe(6);
+  expect(await page.evaluate(() => window.planner.get().nodes.length)).toBe(7);
 
-  await page.evaluate(() => window.planner.connect('submit', 'approve', 'deny'));
+  await page.evaluate(() => window.planner.connect('sess_sf_admin', 'expense', 'denied'));
   out = await page.evaluate(() => window.planner.export());
   expect(out.ok).toBe(false);
-  expect(out.errors.join()).toContain('deny edges require data.capability');
+  expect(out.errors.join()).toContain('denied edges require data.capability');
   await expect(page.locator('#status')).toHaveClass('bad');
 });
 
 test('dagre lays out un-positioned graphs; export persists positions', async ({ page }) => {
-  await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
+  await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
   const out = await page.evaluate(() => window.planner.export());
   const doc = JSON.parse(out.json) as { nodes: { id: string; pos?: { x: number; y: number } }[] };
   expect(doc.nodes.every((n) => n.pos && Number.isFinite(n.pos.x))).toBe(true);
@@ -204,28 +216,21 @@ test('view mode disables editing controls', async ({ page }) => {
 });
 
 test('snapshot slot: an image attaches as a data URL on the selected node', async ({ page }) => {
-  await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
-  await page.evaluate(() => { window.planner.select('approve'); });
+  await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
+  await page.evaluate(() => { window.planner.select('sess_siebel_admin'); });
   await page.locator('#nf_snapshot').setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: PNG_1PX });
   await expect(page.locator('#status')).toContainText('snapshot attached');
   const out = await page.evaluate(() => window.planner.export());
   const doc = JSON.parse(out.json) as { nodes: { id: string; snapshot?: { status: string; ref?: string } }[] };
-  const approve = doc.nodes.find((n) => n.id === 'approve')!;
-  expect(approve.snapshot?.status).toBe('captured');
-  expect(approve.snapshot?.ref).toMatch(/^data:image\/png;base64,/);
+  const siebel = doc.nodes.find((n) => n.id === 'sess_siebel_admin')!;
+  expect(siebel.snapshot?.status).toBe('captured');
+  expect(siebel.snapshot?.ref).toMatch(/^data:image\/png;base64,/);
   await expect(page.locator('#nf_snapshot_img')).toBeVisible();
 });
 
-test('lane labels: v1 nodes get [system · actor]; v2 sessions ARE the lane', async ({ page }) => {
-  await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
-  const v1 = await page.evaluate(() => {
-    const cy = (window as unknown as { cy: { $id(id: string): { data(k: string): string } } }).cy;
-    return cy.$id('submit').data('label');
-  });
-  expect(v1).toBe('Submit expense\n[sf · submitter]');
-
+test('lane labels: sessions ARE the lane; relations name what they do', async ({ page }) => {
   await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
-  const v2 = await page.evaluate(() => {
+  const labels = await page.evaluate(() => {
     const cy = (window as unknown as { cy: { $id(id: string): { data(k: string): string } } }).cy;
     return {
       sales: cy.$id('sess_sf_sales').data('label'),
@@ -235,11 +240,11 @@ test('lane labels: v1 nodes get [system · actor]; v2 sessions ARE the lane', as
       denied: cy.$id('e3').data('label'),
     };
   });
-  expect(v2.sales).toBe('Salesforce · submitter  ▶'); // ▶ = double-click copies the capture command
-  expect(v2.data).toBe('Expense record\n✓ 2 checks'); // oracle badge from expects
-  expect(v2.login).toBe('login as submitter'); // the arrow names WHO, never the mechanism
-  expect(v2.does).toBe('expense.submit · ⇒ out · submit expense'); // the port rides the label (produces = ⇒ out)
-  expect(v2.denied).toBe('deny expense.approve');
+  expect(labels.sales).toBe('Salesforce · submitter  ▶'); // ▶ = double-click copies the capture command
+  expect(labels.data).toBe('Expense record\n✓ 2 checks'); // oracle badge from expects
+  expect(labels.login).toBe('login as submitter'); // the arrow names WHO, never the mechanism
+  expect(labels.does).toBe('expense.submit · ⇒ out · submit expense'); // the port rides the label (produces = ⇒ out)
+  expect(labels.denied).toBe('deny expense.approve');
 });
 
 test('what-to-test editor: rows bind, add/remove works, results paint the node', async ({ page }) => {
@@ -369,7 +374,7 @@ test('v2 session node drives the capture cockpit', async ({ page }) => {
 });
 
 test('connect mode: click source then target draws the edge, with guidance shown', async ({ page }) => {
-  await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
+  await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
   await page.locator('#b_connect').click();
   await expect(page.locator('#b_connect')).toHaveClass(/\bon\b/);
   await expect(page.locator('#status')).toContainText('CONNECT MODE: click a source node then a target node');
@@ -379,13 +384,13 @@ test('connect mode: click source then target draws the edge, with guidance shown
       (window as unknown as { cy: { $id(id: string): { emit(e: string): void } } }).cy.$id(nodeId).emit('tap');
     }, id);
 
-  await tap('submit');
-  await expect(page.locator('#status')).toContainText('source: submit — now click the target node');
-  await tap('verify');
-  await expect(page.locator('#status')).toContainText('connected submit → verify');
+  await tap('sess_siebel_admin');
+  await expect(page.locator('#status')).toContainText('source: sess_siebel_admin — now click the target node');
+  await tap('end');
+  await expect(page.locator('#status')).toContainText('connected sess_siebel_admin → end');
 
   const edges = await page.evaluate(() => window.planner.get().edges);
-  expect(edges.some((e) => e.from === 'submit' && e.to === 'verify' && e.type === 'next')).toBe(true);
+  expect(edges.some((e) => e.from === 'sess_siebel_admin' && e.to === 'end' && e.type === 'next')).toBe(true);
   // Still in connect mode for the next pair; Esc leaves it:
   await expect(page.locator('#b_connect')).toHaveClass(/\bon\b/);
   await page.keyboard.press('Escape');
@@ -409,7 +414,7 @@ test('library dropdown: built-in repo graphs are listed and load on selection', 
 });
 
 test('save menu: new id saves; existing id offers overwrite; save-as renames', async ({ page }) => {
-  const g = goodGraph();
+  const g = goodGraphV2();
   g.id = 'my_local_process';
   await page.evaluate((doc) => window.planner.load(doc), g as unknown as Record<string, unknown>);
 
@@ -424,8 +429,8 @@ test('save menu: new id saves; existing id offers overwrite; save-as renames', a
   expect(lib.saved).toContain('my_local_process');
 
   // Same id again → the menu now offers overwrite, and it updates the copy.
-  await page.evaluate(() => { window.planner.select('submit'); });
-  await page.locator('#nf_label').fill('Submit expense OVERWRITTEN');
+  await page.evaluate(() => { window.planner.select('sess_sf_sales'); });
+  await page.locator('#nf_label').fill('Salesforce · submitter OVERWRITTEN');
   await page.locator('#nf_label').dispatchEvent('change');
   await page.locator('#f_save').dispatchEvent('mousedown');
   await expect(page.locator('#f_save option[value="overwrite"]')).toHaveText('overwrite "my_local_process" in this browser');
@@ -433,9 +438,9 @@ test('save menu: new id saves; existing id offers overwrite; save-as renames', a
   await expect(page.locator('#status')).toContainText('overwrote "my_local_process" in this browser');
   const storedLabel = await page.evaluate(() => {
     const all = JSON.parse(localStorage.getItem('planner.graphs.v1') ?? '{}');
-    return all.my_local_process.nodes.find((n: { id: string }) => n.id === 'submit').label;
+    return all.my_local_process.nodes.find((n: { id: string }) => n.id === 'sess_sf_sales').label;
   });
-  expect(storedLabel).toBe('Submit expense OVERWRITTEN');
+  expect(storedLabel).toBe('Salesforce · submitter OVERWRITTEN');
 
   // Save as… prompts for a new id, renames the working graph, keeps both copies.
   page.once('dialog', (d) => d.accept('my_local_process_v2'));
@@ -449,25 +454,25 @@ test('save menu: new id saves; existing id offers overwrite; save-as renames', a
   await page.reload();
   await page.waitForFunction(() => !!window.planner);
   await page.locator('#f_library').selectOption('ls:my_local_process_v2');
-  await expect(page.locator('#status')).toContainText('valid · 5 nodes · 5 edges');
+  await expect(page.locator('#status')).toContainText('valid · 6 nodes · 8 edges');
 });
 
 test('export no longer auto-saves; invalid graphs refuse to save', async ({ page }) => {
-  const g = goodGraph();
+  const g = goodGraphV2();
   g.id = 'never_saved';
   await page.evaluate((doc) => window.planner.load(doc), g as unknown as Record<string, unknown>);
   await page.evaluate(() => window.planner.export());
   const lib = await page.evaluate(() => window.planner.library());
   expect(lib.saved).not.toContain('never_saved');
 
-  await page.evaluate(() => window.planner.connect('submit', 'approve', 'denied')); // missing capability
+  await page.evaluate(() => window.planner.connect('sess_sf_admin', 'expense', 'denied')); // missing capability
   const r = await page.evaluate(() => window.planner.save('save'));
   expect(r.ok).toBe(false);
   await expect(page.locator('#status')).toContainText('cannot save an invalid graph');
 });
 
 test('export → load round-trip is lossless (positions included)', async ({ page }) => {
-  await page.evaluate((g) => window.planner.load(g), goodGraph() as unknown as Record<string, unknown>);
+  await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
   const first = await page.evaluate(() => window.planner.export());
   const r = await page.evaluate((json) => window.planner.load(json), first.json);
   expect(r.ok).toBe(true);
@@ -1012,13 +1017,14 @@ test('draft oracles: badge shows, confirm clears it; api timeout edits write tim
   expect(ms).toBe(120000);
 });
 
-test('▶ test menu: spec + run commands derive from the graph id and copy with guidance', async ({ page }) => {
+test('▶ test menu: the run command derives from the graph id and copies with guidance', async ({ page }) => {
   await page.evaluate((g) => window.planner.load(g), goodGraphV2() as unknown as Record<string, unknown>);
 
-  // API surface first — the exact commands, no clipboard needed to read them:
+  // API surface first — the exact command, no clipboard needed to read it.
+  // One generic spec runs whatever SUITE selects, so "run this graph" is a
+  // selector, not a generated spec file.
   expect(await page.evaluate(() => window.planner.testCommands())).toEqual({
-    spec: 'GRAPH_SPEC=expense_to_siebel npm run graph:spec',
-    run: 'npm run test:e2e -- tests/e2e/expense_to_siebel.journey.spec.ts',
+    run: 'SUITE=graph:expense_to_siebel npm run suite',
   });
 
   // The UI path: picking an entry resets the select and surfaces the full command.
@@ -1029,18 +1035,14 @@ test('▶ test menu: spec + run commands derive from the graph id and copy with 
       el.dispatchEvent(new Event('change'));
     }, v);
 
-  await pick('spec');
-  await expect(page.locator('#status')).toContainText('GRAPH_SPEC=expense_to_siebel npm run graph:spec');
-  await expect(page.locator('#status')).toContainText('writes tests/e2e/expense_to_siebel.journey.spec.ts');
-
   await pick('run');
-  await expect(page.locator('#status')).toContainText('npm run test:e2e -- tests/e2e/expense_to_siebel.journey.spec.ts');
+  await expect(page.locator('#status')).toContainText('SUITE=graph:expense_to_siebel npm run suite');
   await expect(page.locator('#status')).toContainText('repaints this graph');
   expect(await page.evaluate(() => (document.getElementById('f_test') as HTMLSelectElement).value)).toBe('');
 
   // No id yet → guidance, not a broken command (G is live via get()):
   await page.evaluate(() => { (window.planner.get() as { id?: string }).id = ''; });
   expect(await page.evaluate(() => window.planner.testCommands())).toBeNull();
-  await pick('spec');
+  await pick('run');
   await expect(page.locator('#status')).toContainText('give the graph an id first');
 });

@@ -1,0 +1,15 @@
+[
+  "state.js",
+  "view.js",
+  "ops.js",
+  "net.js",
+  "strip.js",
+  "library.js",
+  "script.js",
+  "cards.js",
+  "canvas.js",
+  "sheets.js",
+  "sheets-server.js",
+  "api.js",
+  "main.js"
+]

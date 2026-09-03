@@ -2,6 +2,11 @@
   "schema": "process-graph/2",
   "id": "expense_to_siebel",
   "title": "Expense flows into Siebel",
+  "tags": [
+    "smoke",
+    "sod",
+    "siebel"
+  ],
   "systems": {
     "sf": {
       "label": "Salesforce UAT",

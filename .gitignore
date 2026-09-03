@@ -30,3 +30,6 @@ projects/*
 **/imports/
 # uploads dropped into the repo by mistake
 uploads/
+
+# review screenshots — regenerable (tools/review/drive-planner.mjs, drive-v2.mjs); never tracked
+docs/review-shots/

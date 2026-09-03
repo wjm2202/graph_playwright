@@ -83,8 +83,6 @@
       <option value="api">api endpoint</option>
       <option value="db">database</option>
       <option value="logger">log system</option>
-      <option value="decision">decision</option>
-      <option value="action">plain step</option>
     </select>
     <button id="b_connect" class="editonly" title="draw a relation: click this, then a source node, then a target node — or just drag from a node's edge">connect</button>
     <button id="b_delete" class="editonly" title="remove the selected node/edge (Del key works too) — a group delete needs a SPACE+drag selection box">delete</button>
@@ -99,11 +97,10 @@
   <span class="tbg" id="tbg_test">
     <span class="tbl">test</span>
     <button id="b_check" title="is this graph runnable? lists every problem and unfinished part, with hints — click an item to jump to it">check ✓</button>
-    <select id="f_test" title="turn this graph into a runnable Playwright spec — commands copy to your clipboard" style="background:var(--panel); color:var(--text); border:1px solid #5aa9e6; border-radius:5px; padding:4px; color:#5aa9e6; font-weight:600;">
+    <select id="f_test" title="run this graph — the command copies to your clipboard" style="background:var(--panel); color:var(--text); border:1px solid #5aa9e6; border-radius:5px; padding:4px; color:#5aa9e6; font-weight:600;">
       <option value="">▶ test ▾</option>
       <option value="order">run order…</option>
-      <option value="spec">copy: make spec</option>
-      <option value="run">copy: run spec</option>
+      <option value="run">copy: run this graph</option>
     </select>
   </span>
   <span style="margin-left:auto"></span>
@@ -274,9 +271,8 @@
         <button id="xf_add" class="editonly" style="margin-top:4px; width:100%;">+ add check</button>
       </div>
       <div class="field" id="row_type"><label>type</label><select id="nf_type">
-        <option>start</option><option>session</option><option>screen</option><option>data</option><option>action</option><option>decision</option><option>checkpoint</option><option>snapshot</option><option>db</option><option>logger</option><option>api</option><option>end</option></select></div>
+        <option>start</option><option>session</option><option>screen</option><option>data</option><option>checkpoint</option><option>db</option><option>logger</option><option>api</option><option>end</option></select></div>
       <div class="field" id="row_system"><label>system</label><select id="nf_system"></select></div>
-      <div class="field" id="row_catalog"><label>step catalog name</label><input id="nf_catalog" class="mono" placeholder="expense.submit" /></div>
       <div class="field" id="row_steps"><label>steps status</label><select id="nf_steps_status"><option value="">—</option><option>planned</option><option>captured</option></select></div>
       <div class="field" id="row_journey"><label>journey id</label><input id="nf_journey" class="mono" /></div>
       <div class="field" id="row_planned"><label>planned ms</label><input id="nf_planned" type="number" min="1" /></div>
@@ -286,7 +282,7 @@
   <!-- Edge card — glued to the relation's midpoint. -->
   <div id="p_edge" class="hide" style="position:fixed; z-index:25; width:280px; background:var(--panel); border:1px solid #5aa9e6; border-radius:10px; padding:10px 12px; box-shadow:0 10px 30px rgba(0,0,0,.55);">
     <h3 style="margin-top:0;">edge <span id="ef_id" class="mono"></span></h3>
-    <div class="field"><label>relation</label><select id="ef_type"><option>login_as</option><option>does</option><option>denied</option><option>touches</option><option>requires</option><option>asserts</option><option>next</option><option>navigates</option><option>handoff</option><option>deny</option></select></div>
+    <div class="field"><label>relation</label><select id="ef_type"><option>login_as</option><option>does</option><option>denied</option><option>touches</option><option>requires</option><option>asserts</option><option>next</option><option>handoff</option></select></div>
     <div class="field"><label>label</label><input id="ef_label" /></div>
     <div class="field"><label>step catalog (does)</label><input id="ef_catalog" class="mono" placeholder="expense.submit" /></div>
     <div class="field"><label>auth (login_as)</label><select id="ef_auth"><option value=""></option><option>frontdoor</option><option>singleaccess</option><option>ui</option></select></div>
@@ -306,6 +302,7 @@
 <!--INLINE:lodash-->
 <!--INLINE:cytoscape-edgehandles-->
 <!--INLINE:schema-->
+<!--INLINE:upgrade-->
 <!--INLINE:compose-->
 <!--INLINE:gaps-->
 <!--INLINE:graphs-->
@@ -315,6 +312,7 @@
 if (typeof cytoscapeDagre !== 'undefined') cytoscape.use(cytoscapeDagre);
 if (typeof cytoscapeEdgehandles !== 'undefined') cytoscape.use(cytoscapeEdgehandles);
 var validateGraph = window.ProcessGraphSchema.validateGraph;
+var upgradeGraph = window.ProcessGraphUpgrade.upgradeGraph;
 var computeGaps = (window.ProcessGraphGaps && window.ProcessGraphGaps.computeGaps) || function () { return []; };
 var PERSONA_IDS = window.PERSONA_IDS || [];
 // persona → auth method, from personas.json. Lets the check panel catch a
@@ -331,7 +329,7 @@ var selected = null;
 var seq = 0;
 
 function emptyGraph() {
-  return { schema: 'process-graph/1', id: 'new_process', title: '', systems: { app: { label: 'Application', kind: 'web' } }, actors: {}, nodes: [], edges: [] };
+  return { schema: 'process-graph/2', id: 'new_process', title: '', systems: { app: { label: 'Application', kind: 'web' } }, actors: {}, nodes: [], edges: [] };
 }
 function sysColor(sysId) {
   var keys = Object.keys(G.systems);
@@ -381,9 +379,7 @@ var cy = cytoscape({
   style: [
     { selector: 'node', style: { 'background-color': 'data(color)', label: 'data(label)', color: '#e8e9eb', 'font-size': 10, 'text-wrap': 'wrap', 'text-max-width': 110, 'text-valign': 'center', width: 'label', height: 'label', padding: '10px', shape: 'round-rectangle', 'border-width': 1, 'border-color': '#31353d' } },
     { selector: 'node[type="start"], node[type="end"]', style: { shape: 'ellipse', 'background-color': '#555b64' } },
-    { selector: 'node[type="decision"]', style: { shape: 'diamond' } },
     { selector: 'node[type="checkpoint"]', style: { shape: 'hexagon' } },
-    { selector: 'node[type="snapshot"]', style: { shape: 'barrel' } },
     { selector: 'node[type="session"]', style: { 'border-width': 2.5, 'border-color': '#e8e9eb', 'font-weight': 'bold' } },
     { selector: 'node[type="data"]', style: { shape: 'barrel', 'background-color': '#8a6d3b' } },
     { selector: 'node[type="db"]', style: { shape: 'barrel', 'background-color': '#2e6e6a' } },
@@ -397,8 +393,7 @@ var cy = cytoscape({
     { selector: 'node[exp="fail"]', style: { 'border-color': '#e2604f', 'border-width': 3 } },
     { selector: 'node:selected', style: { 'border-color': '#5aa9e6', 'border-width': 2 } },
     { selector: 'edge', style: { width: 1.5, 'line-color': '#7d838c', 'target-arrow-color': '#7d838c', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', label: 'data(label)', 'font-size': 9, color: '#9aa0a8', 'text-rotation': 'autorotate', 'text-background-color': '#14161a', 'text-background-opacity': 0.8 } },
-    { selector: 'edge[type="navigates"]', style: { 'line-style': 'dotted' } },
-    { selector: 'edge[type="deny"], edge[type="denied"]', style: { 'line-style': 'dashed', 'line-color': '#e2604f', 'target-arrow-color': '#e2604f' } },
+    { selector: 'edge[type="denied"]', style: { 'line-style': 'dashed', 'line-color': '#e2604f', 'target-arrow-color': '#e2604f' } },
     { selector: 'edge[type="handoff"], edge[type="touches"]', style: { width: 3, 'line-color': '#d0913e', 'target-arrow-color': '#d0913e' } },
     { selector: 'edge[type="login_as"]', style: { width: 2.5, 'line-color': '#5aa9e6', 'target-arrow-color': '#5aa9e6' } },
     { selector: 'edge[type="requires"]', style: { 'line-style': 'dashed', 'line-color': '#7a5aa0', 'target-arrow-color': '#7a5aa0' } },
@@ -427,7 +422,7 @@ function edgeLabel(e) {
   if (e.type === 'asserts') parts.push('asserts');
   if (e.type === 'touches') parts.push('touches');
   if (e.label) parts.push(e.label);
-  if ((e.type === 'deny' || e.type === 'denied') && e.data && e.data.capability) parts.push('deny ' + e.data.capability);
+  if (e.type === 'denied' && e.data && e.data.capability) parts.push('deny ' + e.data.capability);
   if (e.data && e.data.recordRef) parts.push('rec ' + String(e.data.recordRef).slice(0, 6) + '…');
   if (e.data && e.data.frequency !== undefined) parts.push('×' + e.data.frequency);
   var ms = e.data && (e.data.deltaMs !== undefined ? e.data.deltaMs : e.data.meanMs);
@@ -546,7 +541,6 @@ function showNodeForm(n) {
   document.getElementById('nf_actor').value = n.actor || '';
   document.getElementById('nf_account').value = n.account ? n.account.usernameEnv : '';
   document.getElementById('nf_url').value = n.url || '';
-  document.getElementById('nf_catalog').value = n.catalog || '';
   document.getElementById('nf_steps_status').value = n.steps ? n.steps.status : '';
   document.getElementById('nf_journey').value = n.steps && n.steps.journeyId ? n.steps.journeyId : '';
   document.getElementById('nf_planned').value = n.timing && n.timing.plannedMs ? n.timing.plannedMs : '';
@@ -569,7 +563,7 @@ function showNodeForm(n) {
 function renderRecChip(n) {
   var chip = document.getElementById('nf_recchip');
   var btn = document.getElementById('nf_capture');
-  var showFor = n.type === 'session' || n.type === 'action';
+  var showFor = n.type === 'session';
   chip.classList.toggle('hide', !showFor);
   if (!showFor) return;
   var rec = n.steps && n.steps.status === 'captured';
@@ -707,21 +701,17 @@ var NODE_TIERS = {
   // on the nodes that carry a flow; infra nodes keep their own essentials.
   session: { primary: ['row_label', 'row_url', 'row_actor', 'row_creds', 'row_capture', 'row_snapshot'],
              extra: ['row_account', 'row_type', 'row_system', 'row_steps', 'row_journey', 'row_planned', 'row_expects', 'row_notes'] },
-  action:  { primary: ['row_label', 'row_url', 'row_actor', 'row_creds', 'row_capture', 'row_snapshot'],
-             extra: ['row_account', 'row_type', 'row_system', 'row_catalog', 'row_steps', 'row_journey', 'row_planned', 'row_expects', 'row_notes'] },
   data:       { primary: ['row_label', 'row_expects', 'row_snapshot'], extra: ['row_type', 'row_system', 'row_notes'] },
   checkpoint: { primary: ['row_label', 'row_expects', 'row_snapshot'], extra: ['row_type', 'row_system', 'row_notes'] },
   screen:     { primary: ['row_label', 'row_url', 'row_snapshot'], extra: ['row_type', 'row_system', 'row_expects', 'row_notes'] },
   db:     { primary: ['row_label', 'row_queryable'], extra: ['row_type', 'row_url', 'row_notes'] },
   logger: { primary: ['row_label', 'row_searchable'], extra: ['row_type', 'row_url', 'row_notes'] },
   api:    { primary: ['row_label', 'row_endpoint'], extra: ['row_type', 'row_url', 'row_notes'] },
-  decision: { primary: ['row_label'], extra: ['row_type', 'row_notes'] },
-  snapshot: { primary: ['row_label', 'row_snapshot'], extra: ['row_type', 'row_notes'] },
   start: { primary: [], extra: ['row_type'] },
   end:   { primary: [], extra: ['row_type'] },
 };
 var ALL_ROWS = ['row_label', 'row_url', 'row_actor', 'row_account', 'row_creds', 'row_endpoint', 'row_queryable', 'row_searchable',
-  'row_capture', 'row_snapshot', 'row_expects', 'row_type', 'row_system', 'row_catalog', 'row_steps', 'row_journey', 'row_planned', 'row_notes'];
+  'row_capture', 'row_snapshot', 'row_expects', 'row_type', 'row_system', 'row_steps', 'row_journey', 'row_planned', 'row_notes'];
 function layoutCard(type) {
   var t = NODE_TIERS[type] || { primary: ['row_label'], extra: ['row_type', 'row_notes'] };
   var main = document.getElementById('np_main');
@@ -923,7 +913,6 @@ function readNodeForm() {
   if (av) n.actor = av; else delete n.actor;
   var acc = document.getElementById('nf_account').value.trim(); if (acc) n.account = { usernameEnv: acc }; else delete n.account;
   var url = document.getElementById('nf_url').value.trim(); if (url) n.url = url; else delete n.url;
-  var cat = document.getElementById('nf_catalog').value.trim(); if (cat) n.catalog = cat; else delete n.catalog;
   var ss = document.getElementById('nf_steps_status').value;
   var jid = document.getElementById('nf_journey').value.trim();
   if (ss) { n.steps = n.steps || {}; n.steps.status = ss; if (jid) n.steps.journeyId = jid; else delete n.steps.journeyId; }
@@ -968,7 +957,7 @@ function readEdgeForm() {
 }
 
 function addNode(partial) {
-  var n = Object.assign({ id: nid(), type: 'action', label: 'new step' }, partial || {});
+  var n = Object.assign({ id: nid(), type: 'screen', label: 'new step' }, partial || {});
   if (!n.pos) { var p = { x: cy.width() / 2, y: cy.height() / 2 }; var rp = cy.pan(); var z = cy.zoom(); n.pos = { x: (p.x - rp.x) / z, y: (p.y - rp.y) / z }; }
   G.nodes.push(n);
   cy.add({ group: 'nodes', data: { id: n.id, label: displayLabel(n), type: n.type, color: n.system ? sysColor(n.system) : '#555b64' }, position: { x: n.pos.x, y: n.pos.y } });
@@ -1160,6 +1149,16 @@ function doSave(mode) {
 }
 function loadGraph(input) {
   var doc = typeof input === 'string' ? JSON.parse(input) : input;
+  // The load door (src/graph/upgrade.ts): a process-graph/1 file still opens
+  // — as v2. Nothing past this line knows the v1 vocabulary.
+  if (doc && doc.schema === 'process-graph/1') {
+    try { doc = upgradeGraph(doc).graph; }
+    catch (err) {
+      setStatus(); var bad = document.getElementById('status');
+      bad.className = 'bad'; bad.textContent = 'load refused: ' + (err && err.message ? err.message : String(err));
+      return { ok: false, errors: [err && err.message ? err.message : String(err)] };
+    }
+  }
   var v = validateGraph(doc);
   if (!v.ok) { setStatus(); var el = document.getElementById('status'); el.className = 'bad'; el.textContent = 'load refused: ' + v.errors.join(' | '); return v; }
   G = doc; hideForms(); render();
@@ -1535,7 +1534,7 @@ cy.on('tap', 'node', function (ev) {
   }
 });
 
-['nf_label','nf_type','nf_system','nf_actor','nf_account','nf_url','nf_catalog','nf_steps_status','nf_journey','nf_planned','nf_notes','nf_queryable','nf_searchable','nf_method','nf_path'].forEach(function (id) {
+['nf_label','nf_type','nf_system','nf_actor','nf_account','nf_url','nf_steps_status','nf_journey','nf_planned','nf_notes','nf_queryable','nf_searchable','nf_method','nf_path'].forEach(function (id) {
   document.getElementById(id).addEventListener('change', function () {
     readNodeForm();
     if (selected && selected.kind === 'node') {
@@ -1573,13 +1572,11 @@ var ADD_DEFAULTS = {
   screen: { label: 'screen' },
   data: { label: 'Record' },
   checkpoint: { label: 'Checkpoint' },
-  decision: { label: 'Decision?' },
-  action: { label: 'new step' },
   api: { label: 'endpoint_name', endpoint: { method: 'POST' } },
   db: { label: 'Database' },              // queryable stays OFF until a human says so
   logger: { label: 'Log system' },        // searchable by default
 };
-var ID_PREFIX = { session: 'sess', screen: 'scr', data: 'data', checkpoint: 'chk', decision: 'dec', action: 'act', api: 'api', db: 'db', logger: 'log' };
+var ID_PREFIX = { session: 'sess', screen: 'scr', data: 'data', checkpoint: 'chk', api: 'api', db: 'db', logger: 'log' };
 var ADD_HINTS = {
   session: 'set the role/user — then double-click the node any time to copy its capture command',
   db: 'tick "tests can QUERY" only if tests can really reach it — then checks elsewhere can use db.query targeting this node id',
@@ -1833,7 +1830,6 @@ function tipFor(id) {
         var ep = n.endpoint || {};
         return 'api endpoint' + (ep.method ? ' · ' + ep.method : '') + (ep.path ? ' ' + ep.path : '') + ' — integration hop; prove traffic with a log.traffic check';
       }
-      case 'decision': return 'decision — the flow branches here';
       default: return n.type + ' — ' + (n.label || n.id);
     }
   }
@@ -1843,11 +1839,10 @@ function tipFor(id) {
       case 'login_as': return 'login as — this role signs in' + (e.data && e.data.auth ? ' (' + e.data.auth + ')' : '');
       case 'does': return 'does — the step' + (e.data && e.data.catalog ? ' \'' + e.data.catalog + '\'' : ' (unbound: name or capture it)');
       case 'asserts': return 'asserts — runs the target node\'s checks';
-      case 'denied': case 'deny': return 'must NOT be able to' + (e.data && e.data.capability ? ': ' + e.data.capability : '') + ' — a security check';
+      case 'denied': return 'must NOT be able to' + (e.data && e.data.capability ? ': ' + e.data.capability : '') + ' — a security check';
       case 'handoff': return 'handoff — a record crosses here' + (e.data && e.data.recordRef ? ' (' + e.data.recordRef + ')' : '');
       case 'touches': return 'touches — writes/reads this system on the way through';
       case 'requires': return 'requires — must be true before this can run';
-      case 'navigates': return 'navigates — moves to another place in the app';
       default: return e.type;
     }
   }
@@ -1932,10 +1927,9 @@ document.addEventListener('keydown', function (ev) {
 function testCmds() {
   var id = (G.id || '').trim();
   if (!id) return null;
-  return {
-    spec: 'GRAPH_SPEC=' + id + ' npm run graph:spec',
-    run: 'npm run test:e2e -- tests/e2e/' + id + '.journey.spec.ts',
-  };
+  // One generic spec runs whatever SUITE selects (suites.json / tags) — no
+  // per-graph spec is generated any more, so "run this graph" is a selector.
+  return { run: 'SUITE=graph:' + id + ' npm run suite' };
 }
 function copyCmd(cmd, what) {
   var done = function () { setStatus(what + ' — copied, paste at the project root:  ' + cmd); };
@@ -1982,9 +1976,8 @@ document.getElementById('f_test').addEventListener('change', function (ev) {
   if (!v) return;
   if (v === 'order') { showRunOrder(); return; }
   var c = testCmds();
-  if (!c) { setStatus('give the graph an id first — the spec file is named after it'); return; }
-  if (v === 'spec') copyCmd(c.spec, 'make spec (writes tests/e2e/' + G.id + '.journey.spec.ts from this graph)');
-  if (v === 'run') copyCmd(c.run, 'run spec (add --headed to watch; every run repaints this graph pass/fail)');
+  if (!c) { setStatus('give the graph an id first — the suite selects graphs by id'); return; }
+  if (v === 'run') copyCmd(c.run, 'run this graph (add --headed to watch; every run repaints this graph pass/fail)');
 });
 
 // ---- import test cases (owner 2026-09-02): ADO .xlsx/.csv → project → pick

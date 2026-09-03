@@ -2,6 +2,10 @@
   "schema": "process-graph/2",
   "id": "lead_to_customer",
   "title": "Lead to customer, verified in Siebel",
+  "tags": [
+    "smoke",
+    "siebel"
+  ],
   "systems": {
     "sf": {
       "label": "Salesforce UAT",

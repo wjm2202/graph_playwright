@@ -10,7 +10,9 @@ export default tseslint.config(
       'node_modules/**',
       'playwright-report/**',
       'test-results/**',
-      'tools/**', // plain-JS build/dev scripts + the built single-file planner
+      // plain-JS build/dev scripts, the built single-file planners, and the
+      // planner v2 sources (tools/planner-v2/**: browser IIFEs, no TS project)
+      'tools/**',
       'L2/**',
       'recordings/**',
       'src/journeys/generated/**', // pipeline output — regenerate, never lint
@@ -44,8 +46,9 @@ export default tseslint.config(
   {
     // Validators defend against MALFORMED runtime JSON (user graphs,
     // personas.json). Their parameter types under-state that, so checks the
-    // rule calls "unnecessary" are exactly the job. Scope: validators only.
-    files: ['src/graph/schema.ts', 'src/personas/schema.ts', 'src/journeys/schema.ts'],
+    // rule calls "unnecessary" are exactly the job. Scope: validators only —
+    // upgrade.ts is one: it referees v1 documents off the disk.
+    files: ['src/graph/schema.ts', 'src/graph/upgrade.ts', 'src/personas/schema.ts', 'src/journeys/schema.ts'],
     rules: {
       '@typescript-eslint/no-unnecessary-condition': 'off',
     },

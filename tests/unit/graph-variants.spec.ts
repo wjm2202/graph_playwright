@@ -2,7 +2,8 @@
  * Persona matrix (owner, 2026-09-02): an ADO pre-req "Personas who can
  * perform this action: A, B, C" means the flow must be proven for EACH of
  * them. `graph.alternatives` declares the matrix; expandVariants() turns it
- * into bindings (default first); toSpec emits one test per binding;
+ * into bindings (default first); tests/e2e/graphs.spec.ts registers one test
+ * per binding (proven in suites.spec.ts, which lists the real suite);
  * runGraph takes the binding as actorOverrides; the gap engine checks the
  * alternatives against personas.json like it checks the defaults.
  */
@@ -10,7 +11,6 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { validateGraph, type ProcessGraph } from '../../src/graph/schema';
 import { expandVariants, MAX_VARIANTS } from '../../src/graph/toJourney';
-import { toSpec } from '../../src/graph/toSpec';
 import { runGraph } from '../../src/graph/run';
 import { computeGaps } from '../../src/graph/gaps';
 import { StepCatalog } from '../../src/journeys/catalog';
@@ -56,17 +56,6 @@ test.describe('expandVariants', () => {
     g.alternatives = { submitter: Array.from({ length: MAX_VARIANTS }, (_, i) => `p${i}`) };
     expect(() => expandVariants(g)).toThrow(/persona matrix has 25 variants \(max 24\)/);
   });
-});
-
-test('toSpec emits the matrix and one test per binding; no matrix → a single unchanged test', () => {
-  const spec = toSpec(withMatrix());
-  expect(spec).toContain('const VARIANTS: { id: string; label: string; actors: Record<string, string> }[] = [{"id":"default"');
-  expect(spec).toContain('"id":"lead_creator"');
-  expect(spec).toContain('for (const variant of VARIANTS) {');
-  expect(spec).toContain("test(variant.id === 'default' ? 'Expense flows into Siebel' : 'Expense flows into Siebel · as ' + variant.label");
-  expect(spec).toContain("...(variant.id === 'default' ? {} : { actorOverrides: variant.actors, variant: variant.id })");
-  const plain = toSpec(goodGraphV2());
-  expect(plain).toContain('[{"id":"default","label":"default"');
 });
 
 test('runGraph with actorOverrides runs the same walk as the other persona; an unknown alias is refused', async () => {

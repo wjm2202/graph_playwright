@@ -1,8 +1,11 @@
 # Roles → accounts → env vars
 
-*Decision 2026-09-02 (owner). Implemented in `src/personas/schema.ts`,
-`src/personas/registry.ts`, `src/personas/doctor.ts`, the planner personas
-dialog and `tools/serve-planner.mjs`. Tests: `tests/unit/personas.spec.ts`,
+*Decision 2026-09-02 (owner). Implemented in `src/personas/schema.ts` (the
+model + the env convention), `src/personas/wiring.ts` (the rules the planner
+drives: role → id, roles → logins, renames, `.env` presence — S2.3 moved them
+out of the dev server), `src/personas/registry.ts`, `src/personas/doctor.ts`,
+the planner personas dialog and `tools/serve-planner.mjs` (I/O only now).
+Tests: `tests/unit/personas.spec.ts`, `tests/unit/personas-wiring.spec.ts`,
 `tests/unit/doctor.spec.ts`, `tests/unit/serve-planner.spec.ts`,
 `tests/harness/planner-import-cases.spec.ts`.*
 
@@ -43,6 +46,10 @@ Rules:
 - **A persona is a role.** It carries what the test case knows — `role`,
   `kind`, `site`, `profile` — and the `account` it logs in as. Several roles
   may share one account.
+- **One role name → one persona id, everywhere.** `slugRole()`
+  (`src/personas/wiring.ts`) is the repo's single slug and is the alias
+  `fromAdo` mints: a role pasted into the planner and the same phrase read out
+  of an ADO pre-req become the same persona (lower_snake_case, 40 chars).
 - **An account is a login in one application.** It owns `auth`, `poolSize`
   and, implicitly, the credentials. `system` defaults to `salesforce`.
 - **Env names are derived, never spelled:**

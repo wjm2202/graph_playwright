@@ -2,6 +2,9 @@
   "schema": "process-graph/2",
   "id": "lead_to_customer_via_ado",
   "title": "Lead to customer via ADO",
+  "tags": [
+    "ado"
+  ],
   "systems": {
     "sf": {
       "label": "Salesforce",

@@ -1,0 +1,291 @@
+/*
+ * PLANNER v2 — the look, lifted from docs/PROTOTYPE-journey-script-planner.html
+ * (owner-approved 2026-09-03). Changes from the prototype, and only these:
+ *  - no webfont <link>: the built planner is ONE file opened over file://, so
+ *    a network font would silently fall back anyway. System stacks instead.
+ *  - two panes, not three (the inspector became the glued node card).
+ *  - the canvas stage is a live #cy element (cytoscape mounts into it in 3.2)
+ *    rather than an inline <svg>, so tab switching never destroys it.
+ *  - .legend, body.view (read-only mode) and .cfoot are new; everything else
+ *    is the prototype's, selector for selector.
+ */
+:root{
+  --ground:#F2F3F6; --panel:#FFFFFF; --panel2:#F7F8FA; --ink:#171C24; --ink2:#4B5563; --muted:#7B8494; --line:#D8DCE3; --line2:#E9EBF0;
+  --accent:#1D4ED8; --accent-ink:#FFFFFF; --accent-soft:#E4ECFF;
+  --record:#A8712A; --record-soft:#F7ECDC; --session:#3C6E9E; --session-soft:#E3EDF7;
+  --ok:#2F855A; --ok-soft:#E3F3EA; --warn:#B7791F; --warn-soft:#FBF0D9; --bad:#C53030; --bad-soft:#FBE4E4;
+  --shadow:0 1px 2px rgba(23,28,36,.06), 0 8px 24px rgba(23,28,36,.06);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --ground:#12151B; --panel:#1A1E26; --panel2:#20252E; --ink:#E7EAEF; --ink2:#B8BFCA; --muted:#7F8896; --line:#2E343F; --line2:#262B34;
+  --accent:#7AA2FF; --accent-ink:#0E1424; --accent-soft:#1F2A44;
+  --record:#D8A24F; --record-soft:#3A2E1B; --session:#7FB0DD; --session-soft:#1D2D3E;
+  --ok:#5CBF86; --ok-soft:#173225; --warn:#E0A840; --warn-soft:#3A2E14; --bad:#F07373; --bad-soft:#3E1C1C;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+}}
+:root[data-theme="dark"]{
+  --ground:#12151B; --panel:#1A1E26; --panel2:#20252E; --ink:#E7EAEF; --ink2:#B8BFCA; --muted:#7F8896; --line:#2E343F; --line2:#262B34;
+  --accent:#7AA2FF; --accent-ink:#0E1424; --accent-soft:#1F2A44;
+  --record:#D8A24F; --record-soft:#3A2E1B; --session:#7FB0DD; --session-soft:#1D2D3E;
+  --ok:#5CBF86; --ok-soft:#173225; --warn:#E0A840; --warn-soft:#3A2E14; --bad:#F07373; --bad-soft:#3E1C1C;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font:13px/1.45 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+button{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover{border-color:var(--ink2)}
+button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:500}
+button.ghost{background:transparent;border-color:transparent;color:var(--ink2)}
+button.ghost:hover{background:var(--panel2);border-color:transparent}
+button.small{padding:2px 8px;font-size:12px;border-radius:5px}
+button[disabled]{opacity:.45;cursor:default}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+input.inline{background:transparent;border-color:transparent;padding:2px 4px;border-radius:4px}
+input.inline:hover{border-color:var(--line)} input.inline:focus{background:var(--panel);border-color:var(--accent)}
+.app{height:100vh;display:grid;grid-template-rows:auto auto 1fr;overflow:hidden}
+/* read-only mode — the parity row `f_mode` */
+body.view .editonly{display:none !important}
+body.view .line .tools{display:none !important}
+body.view input,body.view select,body.view textarea{pointer-events:none;background:transparent;border-color:transparent}
+/* top bar */
+.top{display:flex;align-items:center;gap:14px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{font-weight:600;letter-spacing:.01em}
+.brand small{color:var(--muted);font-weight:400;margin-left:8px}
+.top .grow{flex:1}
+.menu{position:relative}
+.menu .pop{display:none;position:absolute;top:calc(100% + 4px);left:0;min-width:220px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);padding:4px;z-index:20}
+.menu.open .pop{display:block}
+.pop button{display:block;width:100%;text-align:left;border:0;background:transparent;padding:7px 10px;border-radius:5px}
+.pop button:hover{background:var(--panel2)}
+.pop button small{display:block;color:var(--muted);font-size:11px}
+/* check strip */
+.strip{display:flex;align-items:center;gap:10px;padding:6px 14px;background:var(--panel2);border-bottom:1px solid var(--line);font-size:12px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);background:var(--panel);font-variant-numeric:tabular-nums}
+.chip b{font-weight:600}
+.chip.bad{border-color:var(--bad);color:var(--bad);background:var(--bad-soft)}
+.chip.warn{border-color:var(--warn);color:var(--warn);background:var(--warn-soft)}
+.chip.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-soft)}
+.chip.muted{color:var(--muted)}
+.strip .grow{flex:1}
+/* panes */
+.panes{display:grid;grid-template-columns:260px 1fr;min-height:0}
+.panes.no-left{grid-template-columns:30px 1fr}
+.pane.lib{grid-column:1}.center{grid-column:2}
+.panes.no-left .pane.lib>*:not(.rail){display:none}
+.pane .phead{display:flex;align-items:center;gap:6px;padding:8px 8px 0 14px}
+.pane .phead h2{padding:0;flex:1}
+.pane .phead .tog{border:1px solid var(--line);background:var(--panel);border-radius:5px;padding:1px 6px;color:var(--muted);font-size:12px;line-height:1.4}
+.pane .phead .tog:hover{color:var(--ink)}
+.rail{display:none;flex-direction:column;align-items:center;gap:10px;padding:8px 0;height:100%;cursor:pointer}
+.rail:hover{background:var(--panel2)}
+.rail .tog{border:1px solid var(--line);background:var(--panel);border-radius:5px;padding:1px 5px;color:var(--muted);font-size:12px}
+.rail .vlabel{writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.panes.no-left .pane.lib .rail{display:flex}
+.panes.no-left .pane.lib{overflow:hidden;padding:0}
+.pane{min-height:0;overflow:auto;background:var(--panel);border-right:1px solid var(--line)}
+.pane:last-child{border-right:0}
+.pane h2{margin:0;padding:12px 14px 6px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.pane section{padding:0 0 10px}
+.center{background:var(--ground);display:grid;grid-template-rows:auto 1fr;min-height:0;min-width:0}
+.tabs{display:flex;gap:2px;padding:8px 14px 0;background:var(--panel);border-bottom:1px solid var(--line)}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:transparent;padding:6px 10px;color:var(--ink2)}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent);font-weight:500}
+.tabs .grow{flex:1}
+.tabs .meta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;padding-bottom:4px}
+.view{min-height:0;min-width:0;overflow:auto;padding:14px}
+.view.fill{overflow:hidden}
+.view.fill>.split{height:100%}
+.split{display:grid;grid-template-columns:minmax(460px,1fr) minmax(0,1fr);gap:14px;min-height:0;height:100%}
+.split>div{min-height:0;overflow:auto}
+/* which half of the split each tab shows */
+.view.tab-script #canvaswrap{display:none}
+.view.tab-script .split{grid-template-columns:minmax(0,820px)}
+.view.tab-script{overflow:auto}
+.view.tab-canvas #scriptwrap{display:none}
+.view.tab-canvas .split{grid-template-columns:minmax(0,1fr)}
+/* library */
+.lib .item{display:flex;align-items:center;gap:8px;padding:5px 14px;cursor:pointer;border-left:2px solid transparent}
+.lib .item:hover{background:var(--panel2)}
+.lib .item.active{background:var(--accent-soft);border-left-color:var(--accent)}
+.lib .item .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib .proj{padding:4px 14px;color:var(--muted);font-size:11px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none}
+.dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)} .dot.muted{background:var(--line)}
+/* the record ledger — ONE line per record: `name · SObject` left, `↑ n · ↓ m`
+   right (the graph ids live in the title, where they cannot wrap the pane) */
+.ledger .row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:4px 14px;font-size:12px;align-items:baseline;cursor:pointer;border-left:2px solid transparent}
+.ledger .row:hover{background:var(--panel2)}
+.ledger .row.on{background:var(--accent-soft);border-left-color:var(--accent)}
+.ledger .row .what{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ledger .row .rec{color:var(--record);font-weight:500}
+.ledger .row .who{color:var(--muted);font-size:11px;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ledger .filterbar{padding:4px 14px;cursor:pointer}
+.suite{padding:5px 14px;display:flex;align-items:center;gap:8px}
+.suite input{margin:0}
+.suite .n{color:var(--muted);font-variant-numeric:tabular-nums;margin-left:auto;font-size:11px}
+.runbox{margin:6px 14px 0;padding:8px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:6px;font-size:11px;color:var(--ink2)}
+.runbox code{display:block;margin-top:4px;color:var(--ink);word-break:break-all}
+/* script */
+.script{background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}
+.script .head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line2)}
+.script .head input.title{font-size:15px;font-weight:600;flex:1}
+.script .head .sys{color:var(--muted);font-size:12px}
+.line{display:grid;grid-template-columns:34px 1fr;border-bottom:1px solid var(--line2);cursor:pointer}
+.line:hover{background:var(--panel2)}
+.line.sel{background:var(--accent-soft)}
+.line .num{color:var(--muted);font-size:11px;padding:9px 0 0 12px;font-variant-numeric:tabular-nums}
+.line .body{padding:7px 12px 7px 0;min-width:0}
+.line.session .body{padding-top:9px}
+.line.session .who{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.line.session .who .as{color:var(--session);font-weight:600}
+.line.stranded .who .as{color:var(--warn)}
+.line.step{padding-left:22px}
+.line.step .what{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.line.step .what .verb{width:78px;min-width:0}
+.line.step .what .rec{color:var(--record);font-weight:500;width:130px;min-width:0}
+.line.denied .what .verb{color:var(--bad)}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;font-size:11px;border:1px solid var(--line);background:var(--panel);white-space:nowrap;cursor:pointer}
+.pill.produces{color:var(--ok);border-color:var(--ok);background:var(--ok-soft)}
+.pill.consumes{color:var(--session);border-color:var(--session);background:var(--session-soft)}
+.pill.updates{color:var(--record);border-color:var(--record);background:var(--record-soft)}
+.pill.draft{border-style:dashed}
+.pill.gap{color:var(--warn);border-color:var(--warn);background:var(--warn-soft)}
+.pill.bad{color:var(--bad);border-color:var(--bad);background:var(--bad-soft)}
+.pill.ok{color:var(--ok)}
+.pill.persona{color:var(--ink2)}
+.checks{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.checks .pill.check{color:var(--ink2)} .checks .pill.check.draft{color:var(--warn);border-color:var(--warn)}
+.line .tools{display:none;gap:4px;margin-top:6px}
+.line.sel .tools{display:flex}
+.addrow{padding:8px 14px 8px 46px;display:flex;gap:6px}
+.addrow.session-add{padding-left:14px;border-top:1px dashed var(--line);background:var(--panel2)}
+.hint{color:var(--muted);font-size:11px}
+/* canvas */
+.canvas{background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);padding:10px;overflow:hidden;height:100%;display:flex;flex-direction:column;min-height:0}
+.canvas .stage{flex:1;min-height:220px;position:relative;overflow:hidden;border-radius:6px}
+.canvas .cfoot{display:flex;gap:10px;align-items:center;padding:6px 4px 0}
+.canvas .cfoot .grow{flex:1}
+.canvas .stub{display:flex;height:100%;align-items:center;justify-content:center;text-align:center;color:var(--muted);font-size:12px;padding:20px}
+/* node card — glued beside the selected line, like today's planner */
+.ncard{position:fixed;z-index:25;width:320px;max-height:78vh;overflow:auto;background:var(--panel);border:1px solid var(--accent);border-radius:10px;box-shadow:var(--shadow);padding:0 0 10px}
+.ncard.hide{display:none}
+.ncard .chead{display:flex;align-items:center;gap:8px;padding:8px 10px 0 14px;position:sticky;top:0;background:var(--panel);z-index:1}
+.ncard .chead h2{padding:0;flex:1;margin:0;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.ncard .chead button{padding:1px 7px}
+#insp{padding:0 14px 4px}
+#insp .kv{display:grid;grid-template-columns:90px 1fr;gap:6px 10px;align-items:center;margin-top:8px}
+#insp .kv label{color:var(--muted);font-size:11px}
+#insp .kv input,#insp .kv select{width:100%}
+#insp h3{margin:14px 0 4px;font-size:12px;font-weight:600}
+.creds{display:flex;flex-direction:column;gap:4px}
+.credrow{display:grid;grid-template-columns:10px 1fr auto;gap:8px;align-items:center}
+.credrow input{width:100%;font-size:11px;padding:3px 6px}
+#insp .env{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px;font-size:11px;color:var(--ink2);white-space:pre-wrap}
+#insp .gaplist{margin:0;padding:0;list-style:none}
+#insp .gaplist li{display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin-top:6px;font-size:12px}
+#insp .gaplist li.bad{border-color:var(--bad);background:var(--bad-soft)}
+#insp .gaplist li.warn{border-color:var(--warn);background:var(--warn-soft)}
+#insp .gaplist li .fix{margin-left:auto;white-space:nowrap}
+.checkrow{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;margin-top:6px}
+.checkrow .fields{display:grid;grid-template-columns:110px 1fr 1fr;gap:6px}
+.checkrow .fields input,.checkrow .fields select{width:100%;font-size:12px;padding:4px 6px}
+.checkrow .fields label{grid-column:1/-1;color:var(--muted);font-size:10px;margin-top:2px}
+.checkrow .budget{display:grid;grid-template-columns:1fr 1fr;gap:6px;grid-column:1/-1}
+/* sprint 3.4 — the card rows the parity ○ entries needed */
+.rdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle;background:var(--muted)}
+.rdot.ok{background:var(--ok)} .rdot.bad{background:var(--bad)}
+.pill.check.fail{border-color:var(--bad);color:var(--bad)}
+.pill.check.pass{border-color:var(--ok)}
+.chiprow{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.chiprow .chip{font-size:11px;padding:1px 8px}
+.addcheck{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.addcheck select,.addcheck input{font-size:12px;padding:3px 6px}
+.infrarow{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;margin-top:6px}
+.infrarow .fields{display:flex;gap:6px;align-items:center;flex-wrap:wrap;min-width:0}
+.infrarow .fields input{font-size:12px;padding:3px 6px;min-width:0;flex:1}
+.infrarow .fields .pill{cursor:default}
+.infrarow .flag{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:11px;white-space:nowrap}
+.infrarow .flag input{flex:none}
+.snap .shot{display:block;max-width:100%;border:1px solid var(--line);border-radius:6px;background:var(--panel2)}
+.snap .snaprow{display:flex;gap:6px;align-items:center;margin-top:6px}
+.snap .snaprow input[type=file]{font-size:11px;border:0;padding:0;background:transparent;min-width:0;flex:1}
+.stub{padding:10px 14px;color:var(--muted);font-size:12px}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+/* sheet (join / paste / export) */
+.sheet{position:fixed;inset:0;background:rgba(10,12,16,.35);display:none;align-items:flex-start;justify-content:center;padding-top:80px;z-index:30}
+.sheet.open{display:flex}
+.sheet .card{width:560px;max-width:92vw;max-height:80vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:16px}
+.sheet h3{margin:0 0 10px;font-size:14px}
+.sheet textarea{width:100%;min-height:200px}
+.sheet .row{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.pick{border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.pick button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line2);border-radius:0;padding:8px 10px}
+.pick button:last-child{border-bottom:0}
+.pick button small{display:block;color:var(--muted)}
+/* sheet wizards (3.3): the ADO import steps, the recordings list, the roles →
+   logins grid, and the two ways a sheet answers back (problems, warnings). */
+.sheet .hide{display:none !important}
+.sheet .row .grow{flex:1;text-align:left;align-self:center}
+.sheet .kv{display:grid;grid-template-columns:110px 1fr;gap:6px 10px;align-items:center;margin-top:8px}
+.sheet .kv label{color:var(--muted);font-size:11px}
+.sheet .kv input,.sheet .kv select{width:100%}
+.sheet .listhead{display:flex;align-items:center;gap:6px;margin:10px 0 6px}
+.sheet .listhead .hint{flex:1}
+.caselist{max-height:42vh;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+.caserow{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line2);text-align:left}
+.caserow:last-child{border-bottom:0}
+.caserow input[type=checkbox]{margin:0;flex:none}
+.problems{margin:8px 0 0;padding:0;list-style:none;max-height:30vh;overflow:auto}
+.problems li{padding:4px 8px;border:1px solid var(--warn);background:var(--warn-soft);border-radius:6px;margin-top:4px;font-size:12px}
+.problems li .num{color:var(--warn);margin-right:6px}
+.warnbox{margin-top:10px;padding:8px 10px;border:1px solid var(--warn);background:var(--warn-soft);border-radius:6px;font-size:12px}
+.warnbox .problems li{border-color:var(--line);background:var(--panel)}
+.warnbox .cmd{margin:6px 0;padding:6px 8px;background:var(--panel);border:1px solid var(--line);border-radius:6px;word-break:break-all;user-select:all}
+.castgrid{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.castgrid select{width:100%}
+/* legend (the `?` button) */
+.legend{position:fixed;right:16px;top:96px;z-index:28;width:300px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:12px 14px;font-size:12px}
+.legend.hide{display:none}
+.legend h3{margin:0 0 6px;font-size:12px}
+.legend dl{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;margin:0}
+.legend dt{color:var(--ink2)} .legend dd{margin:0;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:var(--ground);padding:7px 14px;border-radius:999px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:40}
+.toast.show{opacity:1}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.recording{animation:pulse 1.2s ease-in-out infinite}
+.pill.rec{color:var(--bad);border-color:var(--bad);background:var(--bad-soft);font-weight:500}
+.pill.rec.live{color:var(--panel);background:var(--bad)}
+@media (prefers-reduced-motion: reduce){.toast{transition:none}.recording{animation:none}}
+@media (max-width:1100px){.panes{grid-template-columns:220px 1fr}.split{grid-template-columns:1fr}}
+
+/* ==== sprint 3.2 — the canvas overlays ==================================
+   Cytoscape draws the lanes, steps, records and edges on its own canvas;
+   these four layers are the HTML that has to stay clickable on top of it.
+   All of them live INSIDE #cy (which cytoscape makes position:relative), so
+   their coordinates are exactly cytoscape's rendered coordinates and the
+   stage's overflow:hidden clips them for free. */
+#cy > .cyover,#cy > .cytip,#cy > .cyanchor,#cy > .cypop,#cy > #groupbox{position:absolute;z-index:12}
+#cy > .cyover{inset:0;pointer-events:none}
+/* ● record, one per lane — pulses while a capture is running */
+.cyover .recdot{position:absolute;pointer-events:auto;width:22px;height:22px;border-radius:50%;padding:0;line-height:1;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;background:var(--panel);border:1.5px solid var(--bad);color:var(--bad)}
+.cyover .recdot.captured{border-color:var(--ok);color:var(--ok)}
+.cyover .recdot.recording{border-color:var(--bad);color:var(--bad);animation:pulse 1.2s ease-in-out infinite}
+/* hover tips — every node and edge explains itself (parity `tipFor`) */
+#cy > .cytip{display:none;max-width:280px;background:var(--ink);color:var(--ground);border-radius:6px;padding:6px 9px;font-size:11px;line-height:1.5;pointer-events:none;z-index:16}
+#cy > .cytip.on{display:block}
+/* the group frame (parity `groupbox`, `gb_grip`, `gb_hit`) */
+#cy > #groupbox{pointer-events:none;z-index:14}
+#groupbox.hide{display:none}
+#groupbox .gb_frame{position:absolute;inset:0;border:1.5px dashed var(--accent);border-radius:6px}
+#groupbox .gb_hit{position:absolute;pointer-events:auto;cursor:move}
+#gb_grip{position:absolute;top:-22px;left:0;pointer-events:auto;cursor:grab;background:var(--panel);border:1px solid var(--accent);color:var(--accent);border-radius:5px;padding:1px 8px;font-size:10px;font-weight:600;white-space:nowrap;user-select:none}
+/* the transparent element the node card glues itself to */
+#cy > .cyanchor{pointer-events:none;z-index:10}
+/* the does / must-not choice a drop onto a record asks */
+#cy > .cypop{display:flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--accent);border-radius:8px;box-shadow:var(--shadow);padding:6px;z-index:18}
+#cy > .cypop.hide{display:none}
+.cypop .cpop_t{font-size:11px;color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cypop button{padding:3px 9px;font-size:12px}

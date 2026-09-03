@@ -52,7 +52,7 @@ test('the graph-author skill exists in the repo and hands the spec + the command
   const skill = fs.readFileSync(path.resolve('skills/graph-author/SKILL.md'), 'utf8');
   expect(skill).toMatch(/^---\nname: graph-author\n/);
   expect(skill).toContain('docs/GRAPH-SPEC.md');
-  for (const cmd of ['npm run grillme', 'GRILLME_APPLY', 'npm run ado:import', 'npm run record', 'npm run graph:spec', 'GAPS_JSON']) {
+  for (const cmd of ['npm run grillme', 'GRILLME_APPLY', 'npm run ado:import', 'npm run record', 'npm run suite', 'GAPS_JSON']) {
     expect(skill, `skill must mention ${cmd}`).toContain(cmd);
   }
   for (const kind of GAP_KINDS) expect(skill, `skill must know gap kind ${kind}`).toContain(kind);

@@ -132,7 +132,7 @@ export function computeGaps(graph: ProcessGraph, opts: { knownPersonas?: string[
   }
 
   const actorCount = Object.keys(graph.actors).length;
-  if (actorCount >= 2 && !graph.edges.some((e) => e.type === 'denied' || e.type === 'deny')) {
+  if (actorCount >= 2 && !graph.edges.some((e) => e.type === 'denied')) {
     gaps.push({
       kind: 'no_deny_coverage', at: graph.id,
       question: `${actorCount} roles and no denied edges — is there an action some role must NOT be able to do? (That's a security test worth having.)`,

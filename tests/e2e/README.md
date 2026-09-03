@@ -2,6 +2,12 @@
 
 Env-gated: without `SF_*` variables in `.env` these skip and `npm test` stays green.
 
+`graphs.spec.ts` is the suite runner: `SUITE=smoke npm run suite` walks every
+graph the selection names (`suites.json`, or `graph:<ref>` / `tag:<t>` /
+`project:<p>`), one test per graph × persona-matrix binding, repainting each
+graph with the run's evidence. Nothing is generated per graph — a graph joins
+a suite by being listed or tagged.
+
 To run against a real org (sandbox — never production):
 
 1. `sf org display --json` → copy `accessToken` + `instanceUrl` into `.env`.

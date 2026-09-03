@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Journey Script Planner</title>
+<!--
+  PLANNER v2 — the SHELL markup (sprint 3.1). Structure only: every list,
+  line, pill and card is built by tools/planner-v2/js/*.js against the
+  ProcessGraph itself, so this file carries no copy that could drift from the
+  document. The visual language is docs/PROTOTYPE-journey-script-planner.html
+  (owner-approved CSS + copy); the MODEL is src/graph/*.ts, inlined below.
+
+  Placeholders are resolved by tools/build-planner.mjs (buildV2) into the
+  single-file tools/journey-planner.html — libraries first, then the
+  transpiled shared modules in dependency order, then this app's css + js.
+  #cy and #sheet are the containers sprints 3.2 (canvas) and 3.3 (sheets)
+  fill; they exist here so the hooks are stable from day one.
+-->
+<!--INLINE:cytoscape-->
+<!--INLINE:dagre-->
+<!--INLINE:cytoscape-dagre-->
+<!--INLINE:lodash-->
+<!--INLINE:cytoscape-edgehandles-->
+<!--INLINE:schema-->
+<!--INLINE:upgrade-->
+<!--INLINE:compose-->
+<!--INLINE:gaps-->
+<!--INLINE:script-->
+<!--INLINE:graphs-->
+<!--INLINE:personas-->
+<style>
+<!--INLINE:v2:css-->
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- top bar ------------------------------------------------------------ -->
+  <div class="top">
+    <span class="brand">Journey Script Planner <small id="brand_sub">process-graph/2</small></span>
+    <div class="menu editonly" id="m_new">
+      <button class="primary" id="b_new">New ▾</button>
+      <div class="pop">
+        <button data-new="blank">Blank graph<small>start + one session line</small></button>
+        <button data-new="paste">Paste a script<small>the grammar an AI or a test case can write</small></button>
+        <button data-new="ado">From an ADO export<small>.xlsx / .csv → one draft per test case</small></button>
+        <button data-new="rec">From a recording<small>capture-first: sessions, steps and records inferred</small></button>
+        <button data-new="file">Open a file…<small>a .graph.json from disk (v1 opens as v2)</small></button>
+        <button data-new="project">＋ New project…<small>projects/&lt;name&gt;/ — the same scaffolder npm run project:new runs</small></button>
+      </div>
+    </div>
+    <button id="b_join" class="editonly">Join another graph…</button>
+    <button class="ghost editonly" id="b_undo" title="undo the last edit (⌘Z)">↶</button>
+    <span class="grow"></span>
+    <span class="hint" id="proj_label"></span>
+    <button id="b_save" class="editonly">Save to project</button>
+    <button id="b_saveas" class="ghost editonly" title="save this graph into another project (or a new one)">Save to…</button>
+    <button class="ghost" id="b_export">Export JSON</button>
+    <button class="ghost" id="b_mode" title="read-only view — hides the editing controls">View</button>
+    <button class="ghost" id="b_help" title="what the shapes and pills mean">?</button>
+  </div>
+
+  <!-- check strip --------------------------------------------------------- -->
+  <div class="strip" id="strip"></div>
+
+  <div class="panes" id="panes">
+    <!-- LEFT: library, records ledger, suites ----------------------------- -->
+    <div class="pane lib">
+      <div class="rail" id="rail_left" title="show the library (⌘[)"><button class="tog">▸</button><span class="vlabel">library · records · suites</span></div>
+      <div class="phead"><h2>Graphs</h2><button class="tog" id="t_left" title="hide the library (⌘[)">◂</button></div>
+      <section id="library"></section>
+      <h2>Records across the project</h2>
+      <section class="ledger" id="ledger"></section>
+      <h2>Suites</h2>
+      <section id="suites"></section>
+      <div class="runbox" id="runbox"></div>
+    </div>
+
+    <!-- CENTRE: script + canvas ------------------------------------------- -->
+    <div class="center">
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="split">Script + canvas</button>
+        <button role="tab" aria-selected="false" data-tab="script">Script</button>
+        <button role="tab" aria-selected="false" data-tab="canvas">Canvas</button>
+        <span class="grow"></span>
+        <span class="meta" id="doc_meta"></span>
+      </div>
+      <div class="view fill tab-split" id="view">
+        <div class="split">
+          <div id="scriptwrap"></div>
+          <div id="canvaswrap">
+            <div class="canvas">
+              <div class="stage" id="cy" tabindex="0" aria-label="canvas rendering of the script"></div>
+              <div class="cfoot hint">
+                <span class="grow" id="canvas_hint"></span>
+                <button class="small ghost editonly" id="b_graphcard2" title="graph settings — id, title, tags, systems">⚙ graph</button>
+                <button class="small ghost" id="b_fit" title="zoom to everything">fit</button>
+                <button class="small ghost editonly" id="b_layout" title="auto-arrange (resets saved positions)">auto layout</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- the node card, glued beside the selected line / lane ------------------- -->
+<div class="ncard hide" id="ncard">
+  <div class="chead"><h2 id="ncard_title">node</h2><button class="ghost" id="ncard_close" title="close (Esc)">✕</button></div>
+  <div id="insp"></div>
+</div>
+
+<!-- sheets (3.3 fills these) ---------------------------------------------- -->
+<div class="sheet" id="sheet"><div class="card" id="sheet_card"></div></div>
+
+<div class="legend hide" id="legend"></div>
+<div class="toast" id="toast"></div>
+<datalist id="records"></datalist>
+
+<script>
+<!--INLINE:v2:js-->
+</script>
+</body>
+</html>
