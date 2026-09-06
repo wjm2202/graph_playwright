@@ -315,8 +315,8 @@
       }
       state.runs[spec] = { id: res.json.id, batch: res.json.batch, status: 'running', tail: [] };
       P2.bus.emit('change', { op: 'run' });
-      return pollRun(spec, res.json.id).then(function (r) { settleTab(tab, r); return r; });
-    }).then(null, function (e) { settleTab(tab, { ok: false, error: String(e && e.message || e) }); throw e; });
+      return pollRun(spec, res.json.id).then(function (r) { settleTab(tab, r, spec); return r; });
+    }).then(null, function (e) { settleTab(tab, { ok: false, error: String(e && e.message || e) }, spec); throw e; });
   }
 
   /**
@@ -335,18 +335,31 @@
     } catch (e) { /* cross-origin about:blank quirks — harmless */ }
     return w;
   }
-  function settleTab(tab, r) {
+  function settleTab(tab, r, spec) {
     if (!tab) return;
     try {
       if (tab.closed) return;
-      var url = r && r.studio && reviewUrl(r.studio);
-      if (r && r.ok && url) { tab.location.href = url; return; }
+      var url = r && r.studio && reviewUrl(r.studio, spec);
+      // absolute on purpose: a relative assignment resolves against the CALLER's
+      // base by spec, but an about:blank tab is the last place to rely on that
+      if (r && r.ok && url) { tab.location.href = new URL(url, location.href).href; return; }
       tab.document.body.innerHTML = '<div style="font:14px system-ui;padding:32px;color:#a33"><b>' + (r && r.ok ? 'nothing to review' : 'run ' + esc((r && r.status) || 'failed')) + '</b><br><br>' + esc((r && r.error) || 'the planner has the details') + '</div>';
     } catch (e) { /* the tab is gone */ }
   }
-  /** Which page a finished run opens: the one test's review, else the batch dashboard. */
-  function reviewUrl(studio) {
+  /**
+   * Which page a finished run opens: for `graph:<ref>` the review of THAT
+   * graph (its default variant when there are several), else the one linked
+   * test, else the batch dashboard.
+   */
+  function reviewUrl(studio, spec) {
     var linked = (studio.tests || []).filter(function (t) { return t.url; });
+    if (spec && /^graph:/.test(spec)) {
+      var ref = spec.slice(6);
+      var mine = linked.filter(function (t) { return t.ref === ref; });
+      if (mine.length === 1) return mine[0].url;
+      var def = mine.filter(function (t) { return /--default$/.test(t.slug || ''); });
+      if (def.length === 1) return def[0].url;
+    }
     return linked.length === 1 ? linked[0].url : studio.dashboard;
   }
 

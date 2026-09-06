@@ -1,6 +1,6 @@
 # Scope: run a graph in the planner, review it in Journey Studio
 
-Status: M1 + M3 shipped 2026-09-06 (see §7), Journey Studio vendored AND mounted in the planner at /studio/; M0 spike and the harness runs need the owner's Mac; M2 `includeFailed` open.
+Status: M1 + M2 + M3 shipped 2026-09-06 (see §7); Journey Studio vendored AND mounted in the planner at /studio/. §8 is tomorrow's checklist — the harness runs and the first real org run need the owner's Mac.
 Decisions taken by the owner while scoping: planner button triggers the run; failed runs must be reviewable too. Revised the same day: Journey Studio is vendored (`tools/studio`) and MOUNTED in the planner at `/studio/` — one process, one origin, the review is a link and a button.
 
 ## 1. Goal and verdict
@@ -134,16 +134,19 @@ Journey Studio (`node --test`):
 |---|---|---|---|
 | M0 | Spike: one real graph run with video on, ingest by hand, open the studio page. | ½ day | **owner** — needs the org; §5.1 was settled by code review instead, see §3.5 |
 | M1 | Config + annotation + attachment + `src/studio/slug.ts` + guardrail tests. `npm run studio`. Per-persona video in Cast. | 1 day | **shipped** |
-| M2 | Journey Studio: `--no-open` (done), stitching (done, §3.5), `includeFailed` (open). | ½–1 day | `includeFailed` still open — failed tests show as red pills without a page |
+| M2 | Journey Studio: `--no-open`, stitching (§3.5), `includeFailed` (`ingest --include-failed`: a failing run gets a page with a FAILED banner + error; the planner always passes it). | ½–1 day | **shipped** |
 | M3 | Planner `/__run`, `/__runs`, `/__studio`, UI pills + links, parity doc, harness test. Journey Studio vendored into `tools/studio/`. | 1½–2 days | **shipped** — `tests/unit/serve-planner.spec.ts` (4 new, real vendored ingest), `tests/harness/planner-run-review.spec.ts` (browser, owner runs) |
 | M4 | `test.step` per graph node (runner hook) + `graph-run` panel in the studio. | 1–2 days | later |
 
-## 8. M0 spike — commands (why / where / safe)
+## 8. Tomorrow's check — the whole path, in order (why / where / safe)
 
-All run on your Mac in `Documents/code/SalesForce/salesforce_playwright` unless stated. Nothing here writes outside `test-results/` and a scratch `studio/` folder; nothing touches git, the org, or `.env`.
+Everything below runs in `Documents/code/SalesForce/salesforce_playwright`. Nothing touches git. Steps 1–3 need no org; step 4 is the first one that logs into your sandbox.
 
-1. Temporarily edit `playwright.config.ts` as in §3.1 (do not commit yet).
-2. `SUITE=graph:salesforce/o2a_tc01_prospect_to_customer npx playwright test --project=e2e` — why: produces `test-results/results.json` + video + trace for one graph; safe: same run the planner's copy-command already gives you, against your configured sandbox org.
-3. `ls test-results/*/ && jq '.suites[0].specs[0].tests[0].results[0].attachments[].name' test-results/results.json` — why: answers §5.1 (how many `video` attachments) without opening anything.
-4. In `Documents/parametric/journey-studio`: `node bin/journey-studio.mjs ingest --from ../../code/SalesForce/salesforce_playwright/test-results --batch spike-1 --out /tmp/studio-spike` — why: copies the run into a scratch guides folder and opens the dashboard on 8777; safe: read-only on the source, writes only to `/tmp/studio-spike`, binds 127.0.0.1.
-5. Open `http://127.0.0.1:8777/studio.html?batch=spike-1&slug=<slug shown on the dashboard card>` — this is the exact tab the planner will open later.
+1. `npm install` then `npm test` — why: 611 unit tests + the harness with a real browser, including `tests/harness/cast-video.spec.ts` (per-persona video actually records) and `tests/harness/planner-run-review.spec.ts` (Run click → tab → `/studio/…`), which could not run in the sandbox. Safe: local browser only.
+2. `npm run test:studio` — why: the vendored Journey Studio's 92 tests, incl. the real-ffmpeg stitch proof; needs `ffmpeg`/`ffprobe` on PATH (`brew install ffmpeg`) or the two ffmpeg tests skip. Safe: tmp dirs only.
+3. `npm run planner`, open http://127.0.0.1:8765/, open a complete graph (strip says *complete — only recording is left*). Check http://127.0.0.1:8765/studio/ answers (empty dashboard). Why: proves the mount before any run.
+4. Press **Run this graph** with *open review* ticked. A tab opens at once saying *running…*; the strip shows *running… → ingesting…*; when done the tab lands on `/studio/studio.html?batch=run-…&slug=<project>--<id>--default` and the strip shows one pill per test (green/red, both clickable) + *dashboard ↗* + *open review ↗*. Where: your sandbox org, the same `node bin/sfpw.mjs suite graph:<ref>` a terminal would run. Safe: writes `test-results/` and `studio/` (both gitignored).
+5. In the studio tab: the video plays and scrubs (Range), the step list is trace-mined, a failed run shows the red *FAILED — <error>* banner above the video. Multi-persona graphs: the video is ONE cut following the acting persona (`guide.json.stitched` lists the clips); without ffmpeg it falls back to the first persona's recording.
+6. No org configured (`hasOrgConfig()` false): tests skip → grey *○ skipped — no page* pills and the tab lands on the batch dashboard. That is expected, not a bug.
+
+Known limits: one run at a time (409 — they share `test-results/`); the *running…* tab stays open for the length of the run (up to 300 s per test); `npx sfpw` is not linked into `node_modules/.bin` by `npm install` — the planner runs `node bin/sfpw.mjs` for that reason.

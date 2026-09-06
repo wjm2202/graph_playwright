@@ -56,7 +56,24 @@ const graph = (id: string) => ({
 interface PlannerWindow {
   planner: { openFromLibrary(ref: string): boolean; get(): { id: string } };
   P2: { state: { runs: Record<string, unknown>; ref: string; library: { projects: unknown[] } }; net: { served(): boolean } };
+  GRAPH_LIBRARY: Record<string, unknown>;
 }
+/**
+ * The planner inlines graph DOCUMENTS at build time (window.GRAPH_LIBRARY);
+ * /__library only lists rows. A graph that lives in a throwaway PLANNER_ROOT
+ * is not in the built planner, so — as planner-projects.spec.ts does — the
+ * test hands the page the document, then opens it by ref. The SERVER still
+ * resolves the ref from the sandbox root when Run is pressed.
+ */
+const openGraph = async (page: import('@playwright/test').Page, ref: string, doc: unknown) => {
+  const opened = await page.evaluate(({ r, d }) => {
+    const w = window as unknown as PlannerWindow;
+    w.GRAPH_LIBRARY = w.GRAPH_LIBRARY || {};
+    w.GRAPH_LIBRARY[r] = d;
+    return w.planner.openFromLibrary(r);
+  }, { r: ref, d: doc });
+  expect(opened, `open ${ref}`).toBe(true);
+};
 
 const boot = async (page: import('@playwright/test').Page, url: string) => {
   await page.goto(url);
@@ -113,7 +130,7 @@ test.describe('served', () => {
   test('Run this graph runs it, opens the review tab on the same site, and the strip shows a pill per test', async ({ page, context }) => {
     await boot(page, `${base}/`);
     await libraryLoaded(page);
-    expect(await page.evaluate(() => (window as unknown as PlannerWindow).planner.openFromLibrary('runp/tiny_flow'))).toBe(true);
+    await openGraph(page, 'runp/tiny_flow', graph('tiny_flow'));
     await expect(page.locator('#strip #b_run1')).toHaveText('Run this graph');
     await expect(page.locator('#strip #b_runcmd')).toHaveCount(1); // the CI line is still one click away
     await expect(page.locator('#strip #f_openreview')).toBeChecked(); // open the review tab when done — default on
@@ -139,29 +156,42 @@ test.describe('served', () => {
     await expect(page.locator('#strip a.chip.review-open')).toHaveAttribute('href', href!);
     await tab.close();
 
-    // the failing test: a red pill, no page (Journey Studio only builds pages for passes today), the error in the title
-    const bad = page.locator('#strip .chip.bad', { hasText: 'runp/other' });
+    // the failing test: a red pill that ALSO links to its page (the failing attempt's video), error in the title
+    const bad = page.locator('#strip a.chip.bad', { hasText: 'runp/other' });
     await expect(bad).toBeVisible();
     await expect(bad).toHaveAttribute('title', /Lead was not created/);
+    await expect(bad).toHaveAttribute('href', /slug=runp--other--default$/);
+    // and that page says so above the fold
+    const failedPage = await context.newPage();
+    await failedPage.goto(`${base}${await bad.getAttribute('href')}`);
+    await expect(failedPage.locator('#failbanner')).toContainText('FAILED');
+    await expect(failedPage.locator('#failbanner')).toContainText('Lead was not created');
+    await expect(failedPage.locator('#outcome')).toHaveText('failed');
+    await failedPage.close();
 
     const dash = page.locator('#strip a.chip', { hasText: 'dashboard' });
     await expect(dash).toHaveAttribute('href', /^\/studio\/dashboard\.html\?batch=run-\d{8}-\d{6}-graph-runp-tiny_flow$/);
     await expect(page.locator('#strip #b_run1')).toBeEnabled();
 
-    // toggle off → Run opens no tab
+    // toggle off → a second Run opens no tab (and is a NEW batch: the batch id carries the time)
     await page.locator('#strip #f_openreview').uncheck();
     let popped = false;
     context.once('page', () => { popped = true; });
     await page.locator('#b_run1').click();
+    await expect(page.locator('#strip #b_run1')).toBeDisabled();
     await expect(page.locator('#strip #b_run1')).toBeEnabled({ timeout: 30_000 });
     expect(popped).toBe(false);
+    const href2 = await pill.getAttribute('href');
+    expect(href2).toMatch(/^\/studio\/studio\.html\?batch=run-\d{8}-\d{6}-graph-runp-tiny_flow&slug=runp--tiny_flow--default$/);
+    expect(href2).not.toBe(href);
 
-    // a reload keeps the links: /__runs fed state.runs from studio/runs.json
+    // a reload keeps the links: /__runs (studio/runs.json) feeds state.runs — the LATEST run for the graph
     await page.reload();
     await page.waitForFunction(() => !!(window as unknown as PlannerWindow).planner);
     await libraryLoaded(page);
-    await page.evaluate(() => { (window as unknown as PlannerWindow).planner.openFromLibrary('runp/tiny_flow'); });
-    await expect(page.locator('#strip a.chip.review', { hasText: 'runp/tiny_flow' })).toHaveAttribute('href', href!, { timeout: 15_000 });
+    await openGraph(page, 'runp/tiny_flow', graph('tiny_flow'));
+    await expect(page.locator('#strip a.chip.review', { hasText: 'runp/tiny_flow' })).toHaveAttribute('href', href2!, { timeout: 15_000 });
+    await expect(page.locator('#strip #f_openreview')).not.toBeChecked(); // the toggle is remembered
   });
 });
 

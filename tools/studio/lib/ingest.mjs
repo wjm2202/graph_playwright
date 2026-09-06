@@ -140,7 +140,7 @@ function loadOpenApi(p) {
  * Ingest ONE dropped report folder into a batch under `out`.
  * @returns the batch index entry (also mirrored to guides/<batchId>/registry.json).
  */
-export function ingestFolder(srcDir, { out, openapiPath = null, batchId = null, now = '' , log = () => {} } = {}) {
+export function ingestFolder(srcDir, { out, openapiPath = null, batchId = null, now = '' , log = () => {}, includeFailed = false } = {}) {
   const src = path.resolve(srcDir);
   const reportPath = findReportFile(src);
   if (!reportPath) throw new Error(`no Playwright JSON report found under ${src}`);
@@ -154,7 +154,7 @@ export function ingestFolder(srcDir, { out, openapiPath = null, batchId = null, 
   const durations = {};
   const stitched = {};
   let missing = 0;
-  for (const g of buildFromReport(report).guides) {
+  for (const g of buildFromReport(report, { includeFailed }).guides) {
     const dir = path.join(batchOut, g.slug);
     mkdirSync(dir, { recursive: true });
     const dest = path.join(dir, 'raw.webm');
@@ -172,7 +172,7 @@ export function ingestFolder(srcDir, { out, openapiPath = null, batchId = null, 
   }
 
   // pass 2 — real durations → aligned; enrich; write bundles
-  const { guides, registry } = buildFromReport(report, { durations });
+  const { guides, registry } = buildFromReport(report, { durations, includeFailed });
   const guideSummaries = [];
   for (const g of guides) {
     const dir = path.join(batchOut, g.slug);
@@ -181,6 +181,7 @@ export function ingestFolder(srcDir, { out, openapiPath = null, batchId = null, 
       assumes: g.meta.assumes ?? [], journeyRef: g.meta.journeyRef ?? null, specFile: g.file ?? null,
       annotated: g.annotated, video: g.videoPath ? `${g.slug}/raw.webm` : null,
       durationMs: g.durationMs, aligned: g.aligned, steps: g.steps,
+      outcome: g.outcome, ...(g.error ? { error: g.error } : {}),
       ...(stitched[g.slug] ? { stitched: stitched[g.slug] } : {}),
     };
     // enrichment — trace → per-step downstream API calls (secrets scrubbed inside enrich)
@@ -214,11 +215,11 @@ export function ingestFolder(srcDir, { out, openapiPath = null, batchId = null, 
       { schema: 'journey-fingerprint/v1', slug: g.slug, hash: g.fingerprint, batch: id,
         steps: g.steps.map((s) => ({ title: s.title, testId: s.testId, assertions: s.assertions })) }, null, 2));
     guideSummaries.push({
-      slug: g.slug, title: bundle.title, category: bundle.category, annotated: g.annotated,
+      slug: g.slug, title: bundle.title, category: bundle.category, annotated: g.annotated, outcome: g.outcome,
       aligned: g.aligned, durationMs: g.durationMs, steps: bundle.steps.length, downstream: ds.total,
       hasVideo: durations[g.slug] != null,   // dashboard renders cards from this — no per-guide fetch
     });
-    log(`  ${g.annotated ? '★' : '·'} ${g.slug}  ${bundle.steps.length} steps  ${g.durationMs}ms  aligned=${g.aligned}  downstream=${ds.total}`);
+    log(`  ${g.annotated ? '★' : '·'} ${g.slug}  ${g.outcome}  ${bundle.steps.length} steps  ${g.durationMs}ms  aligned=${g.aligned}  downstream=${ds.total}`);
   }
 
   mkdirSync(batchOut, { recursive: true });

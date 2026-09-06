@@ -201,7 +201,7 @@
           P2.runview.openToggle('2')
         : '<button class="small primary" id="b_runsuite">Copy the ' + esc(chosen) + ' line</button>') +
       '</div>' +
-      P2.runview.render(run, { compact: false });
+      P2.runview.render(run, { compact: false, spec: chosen });
     document.getElementById('b_runsuite').addEventListener('click', function () {
       if (!served) { P2.ui.copy('npx sfpw suite ' + chosen, 'copied the suite command'); return; }
       var tab = P2.net.openReview() ? P2.net.openReviewTab(chosen) : null;   // inside the click: allowed

@@ -7,7 +7,7 @@ for video work, `ffmpeg`/`ffprobe` on PATH (`brew install ffmpeg`).
 
 | | |
 |---|---|
-| Upstream commit | `8683e48` + the `--no-open` flag, `lib/stitch.mjs` (multi-persona cut) and `lib/serve.mjs` (the HTTP surface as a mountable handler; pages use relative URLs), all landed upstream the same day |
+| Upstream commit | `8683e48` + the `--no-open` flag, `lib/stitch.mjs` (multi-persona cut) and `lib/serve.mjs` (the HTTP surface as a mountable handler; pages use relative URLs) and `ingest --include-failed` (failed runs get a page with a FAILED banner), all landed upstream the same day |
 | Copied | `bin/ lib/ web/ assets/ test/ drop LICENSE README.md` |
 | Not copied | `playwright/narrated-step.ts` (optional rich-guide producer; this repo has its own producer in `tests/e2e/graphs.spec.ts`), `.github/`, sample `guides/` and `inbox/` |
 | Tests | `npm run test:studio` → `node --test tools/studio/test/*.test.mjs` (the upstream suite, unchanged) |

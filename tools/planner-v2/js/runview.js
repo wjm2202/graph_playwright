@@ -20,7 +20,7 @@
     var cls = t.outcome === 'passed' ? 'ok' : t.outcome === 'failed' ? 'bad' : t.outcome === 'flaky' ? 'warn' : 'muted';
     var mark = t.outcome === 'passed' ? '✓' : t.outcome === 'failed' ? '✗' : t.outcome === 'flaky' ? '⚡' : '○';
     var label = mark + ' ' + esc(t.ref || t.title || '?');
-    if (t.url) return link(t.url, cls + ' review', label + ' <span class="arrow">↗</span>', 'review ' + (t.ref || '') + ' in Journey Studio (' + t.outcome + ')');
+    if (t.url) return link(t.url, cls + ' review', label + ' <span class="arrow">↗</span>', 'review ' + (t.ref || '') + ' in Journey Studio (' + t.outcome + (t.error ? ' — ' + t.error : '') + ')');
     var why = t.error ? String(t.error) : t.outcome === 'skipped' ? 'skipped — no page to review' : 'no review page (no video for this test)';
     return '<span class="chip ' + cls + '" title="' + esc(why) + '">' + label + '</span>';
   }
@@ -48,7 +48,7 @@
     var studio = run.studio;
     if (!studio) return '<span class="chip muted run">done — nothing ingested</span>';
     var tests = studio.tests || [];
-    var open = P2.net.reviewUrl(studio);
+    var open = P2.net.reviewUrl(studio, opts && opts.spec);
     var html = '<span class="runpills' + (compact ? ' compact' : '') + '">' +
       tests.map(pill).join('') +
       link(studio.dashboard, 'muted', 'dashboard <span class="arrow">↗</span>', 'this run in Journey Studio') +

@@ -62,14 +62,26 @@ function chaptersFromSteps(res) {
   });
 }
 
-export function buildFromReport(report, { durations = {} } = {}) {
+/**
+ * @param report  a Playwright json report
+ * @param opts.durations     slug → real video ms (ffprobe), for `aligned`
+ * @param opts.includeFailed a guide from a FAILING run too (the review case):
+ *        the last attempt's video + trace, with `outcome` and the error on the
+ *        guide. Default off — a published how-to must come from a passing run.
+ */
+export function buildFromReport(report, { durations = {}, includeFailed = false } = {}) {
   const registry = {};
   const guides = [];
   const seen = new Set();
+  const outcomes = new Map(outcomesFromReport(report).map((o) => [`${o.file ?? ''}\u0000${o.title}`, o]));
 
   for (const { spec, test: tc, file } of collectTests(report.suites)) {
-    const res = (tc.results ?? []).find((r) => r.status === 'passed') ?? (tc.results ?? [])[0];
-    if (!res || res.status !== 'passed') continue; // a guide must come from a passing run
+    const rs = tc.results ?? [];
+    const passed = rs.find((r) => r.status === 'passed');
+    const res = passed ?? rs[rs.length - 1];
+    if (!res) continue;
+    const outcome = outcomes.get(`${file ?? ''}\u0000${spec.title}`) ?? { outcome: res.status === 'passed' ? 'passed' : 'failed', error: null };
+    if (!passed && !(includeFailed && res.status !== 'skipped')) continue; // a guide must come from a passing run (unless reviewing failures)
     const video = att(res.attachments, 'video');
     if (!video) continue; // no video = nothing to make a guide from
 
@@ -113,11 +125,11 @@ export function buildFromReport(report, { durations = {} } = {}) {
       try { const parsed = JSON.parse(Buffer.from(vt.body, 'base64').toString('utf8')); if (parsed && parsed.schema === 'video-timeline/v1') videoTimeline = parsed; } catch {}
     }
 
-    guides.push({ slug, meta, file, specTitle: spec.title, steps, durationMs, aligned, fingerprint: fp, videoPath: video.path ?? null, videoPaths, videoTimeline, tracePath: trace?.path ?? null, annotated: !!ann });
+    guides.push({ slug, meta, file, specTitle: spec.title, steps, durationMs, aligned, fingerprint: fp, videoPath: video.path ?? null, videoPaths, videoTimeline, tracePath: trace?.path ?? null, annotated: !!ann, outcome: outcome.outcome, error: outcome.error ?? null });
     registry[slug] = {
       title: meta.title, category: meta.category ?? 'uncategorized', assumes: meta.assumes ?? [],
       journeyRef: meta.journeyRef ?? null, specFile: file ?? null, fingerprint: fp,
-      capturable: meta.capturable ?? true, aligned, annotated: !!ann,
+      capturable: meta.capturable ?? true, aligned, annotated: !!ann, outcome: outcome.outcome,
     };
   }
   return { guides, registry };

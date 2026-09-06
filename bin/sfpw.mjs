@@ -34,7 +34,16 @@ try {
   process.exit(1);
 }
 
-const { main } = await import(pathToFileURL(path.join(HERE, '..', 'src', 'cli', 'main.ts')).href);
+// tsx transpiles main.ts to CommonJS. Whether `import()` of that surfaces
+// `main` as a NAMED export depends on Node's CJS export detection — it did on
+// 22.23, it did not on 22.22 ("main is not a function"). The CJS namespace
+// always carries module.exports as `default`, so accept either shape.
+const mod = await import(pathToFileURL(path.join(HERE, '..', 'src', 'cli', 'main.ts')).href);
+const main = typeof mod.main === 'function' ? mod.main : mod.default && typeof mod.default.main === 'function' ? mod.default.main : null;
+if (!main) {
+  process.stderr.write(`sfpw: src/cli/main.ts loaded but exported no main() — exports: ${Object.keys(mod).join(', ') || '(none)'}\n`);
+  process.exit(1);
+}
 
 process.exitCode = await main(process.argv.slice(2), {
   cwd: process.cwd(),

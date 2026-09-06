@@ -56,7 +56,7 @@
     var served = P2.net.served();
     var run = state.runs[runSpec()];
     var busy = run && (run.status === 'starting' || run.status === 'running' || run.status === 'ingesting');
-    return P2.runview.render(run, { compact: true }) +
+    return P2.runview.render(run, { compact: true, spec: runSpec() }) +
       (served
         ? '<button class="small primary" id="b_run1"' + (busy ? ' disabled' : '') + ' title="run this graph now, then review it in Journey Studio">' + (busy ? 'running…' : 'Run this graph') + '</button>' +
           '<button class="small" id="b_runcmd" title="copy the command that runs this graph (CI, or a terminal)">copy CLI</button>' +

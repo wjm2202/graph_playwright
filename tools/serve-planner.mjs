@@ -474,7 +474,7 @@ if (isMain) {
 
   // ---- runs (M3, docs/SCOPE-JOURNEY-STUDIO-INTEGRATION.md §3.2) ---------
   // POST /__run {ref} | {suite} → run the graph/suite with the SAME command a
-  // human types (`npx sfpw suite <spec>`), then hand `test-results/` to the
+  // human types (`npm run suite -- <spec>` = `node bin/sfpw.mjs suite <spec>`), then hand `test-results/` to the
   // vendored Journey Studio (`ingest --batch <id>`), then read what it made
   // and turn it into links. One run at a time: Playwright wipes test-results/
   // on start, so two runs would eat each other's report (409).
@@ -567,7 +567,8 @@ if (isMain) {
       let argv;
       try { argv = argvOf('PLANNER_INGEST_CMD', process.env.JOURNEY_STUDIO_BIN || 'node tools/studio/bin/journey-studio.mjs'); }
       catch (e) { finish('failed', e.message); return; }
-      const child = spawn(argv[0], [...argv.slice(1), 'ingest', '--from', testResults, '--out', studioOut, '--batch', batch, '--no-serve'], {
+      // --include-failed: a failing journey is exactly what gets reviewed — it gets a page too
+      const child = spawn(argv[0], [...argv.slice(1), 'ingest', '--from', testResults, '--out', studioOut, '--batch', batch, '--no-serve', '--include-failed'], {
         cwd: root, detached: false, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, RUN_BATCH: batch },
       });
       child.stdout.on('data', tail);
@@ -581,7 +582,10 @@ if (isMain) {
       });
     };
     let argv;
-    try { argv = argvOf('PLANNER_RUN_CMD', 'npx sfpw suite'); }
+    // `node bin/sfpw.mjs`, not `npx sfpw`: a package's own bin is NOT linked into
+    // node_modules/.bin by `npm install`, so `npx sfpw` here would go looking
+    // for a package called sfpw on the npm registry.
+    try { argv = argvOf('PLANNER_RUN_CMD', 'node bin/sfpw.mjs suite'); }
     catch (e) { finish('failed', e.message); runs.set(id, run); return run; }
     // detached:false — Ctrl+C on `npm run planner` takes the run with it.
     const child = spawn(argv[0], [...argv.slice(1), spec], {

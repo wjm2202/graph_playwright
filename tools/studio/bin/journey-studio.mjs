@@ -51,7 +51,8 @@ function parseArgs(argv) {
     else if (t === '--add-intro') a.addIntro = argv[++i];
     else if (t === '--intro') a.intro = argv[++i];
     else if (t === '--no-serve') a.serve = false;
-    else if (t === '--no-open') a.open = false;   // serve without launching a browser (a dev server that links here has its own tab)
+    else if (t === '--no-open') a.open = false;
+    else if (t === '--include-failed') a.includeFailed = true;   // failed runs get a page too (review), not just passes (how-tos)   // serve without launching a browser (a dev server that links here has its own tab)
     else a._.push(t);
   }
   return a;
@@ -129,7 +130,7 @@ function ingest(args) {
   const out = path.resolve(args.out ?? 'guides');
   const openapiPath = args.openapi ? path.resolve(args.openapi) : null;
   const now = nowIso();
-  const opts = { out, openapiPath, now, log: (m) => console.log(m) };
+  const opts = { out, openapiPath, now, log: (m) => console.log(m), includeFailed: !!args.includeFailed };
   let entries;
   if (args.from) {
     console.log(`▒ ingesting folder ${args.from}`);
@@ -200,6 +201,6 @@ if (cmd === 'build') {
   const out = build(path.resolve(cmd), path.resolve(args.out ?? 'guides'), args.openapi ? path.resolve(args.openapi) : null);
   serve(out, args.port ?? 8777, args.host);
 } else {
-  console.log('usage:\n  journey-studio <results.json>                       build one report + open dashboard\n  journey-studio build <results.json> [--out ./guides] [--openapi <spec.json>]\n  journey-studio ingest [--inbox ./inbox] [--openapi <spec.json>]   drop-folder ingest → index\n  journey-studio ingest --from <report-folder> [--batch <id>]\n  journey-studio serve [--dir ./guides] [--port 8777] [--host 127.0.0.1] [--no-open]\n  journey-studio splice <slug> [--rate 1.75] [--add-intro <add_intro.sh>] [--intro <intro.mp4>]');
+  console.log('usage:\n  journey-studio <results.json>                       build one report + open dashboard\n  journey-studio build <results.json> [--out ./guides] [--openapi <spec.json>]\n  journey-studio ingest [--inbox ./inbox] [--openapi <spec.json>]   drop-folder ingest → index\n  journey-studio ingest --from <report-folder> [--batch <id>] [--include-failed]\n  journey-studio serve [--dir ./guides] [--port 8777] [--host 127.0.0.1] [--no-open]\n  journey-studio splice <slug> [--rate 1.75] [--add-intro <add_intro.sh>] [--intro <intro.mp4>]');
   process.exit(cmd ? 1 : 0);
 }

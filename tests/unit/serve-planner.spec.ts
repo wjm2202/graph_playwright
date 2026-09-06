@@ -711,9 +711,11 @@ test.describe('runs → Journey Studio', () => {
       outcome: 'passed', slug: 'runp--tiny_flow--default',
       url: `/studio/studio.html?batch=${started.batch}&slug=runp--tiny_flow--default`,
     });
-    // the failing test is listed with its error; no studio page until Journey Studio learns includeFailed (M2)
-    expect(byRef['runp/broken']).toMatchObject({ outcome: 'failed' });
+    // the failing test gets a page too (ingest --include-failed) — that is the review case
+    expect(byRef['runp/broken']).toMatchObject({ outcome: 'failed', slug: 'runp--broken--default', url: `/studio/studio.html?batch=${started.batch}&slug=runp--broken--default` });
     expect(byRef['runp/broken'].error).toContain('expected 1 got 2');
+    const failedGuide = JSON.parse(fs.readFileSync(path.join(tmp, 'studio', 'guides', started.batch, 'runp--broken--default', 'guide.json'), 'utf8'));
+    expect(failedGuide).toMatchObject({ outcome: 'failed', error: 'expected 1 got 2' });
     // on disk: the batch folder Journey Studio wrote, under the sandbox root
     expect(fs.existsSync(path.join(tmp, 'studio', 'guides', started.batch, 'runp--tiny_flow--default', 'guide.json'))).toBe(true);
     // and the run survives in runs.json for the library rail
@@ -759,10 +761,17 @@ test.describe('runs → Journey Studio', () => {
   });
 
   test('the mounted studio serves the ingested batch on the SAME origin: pages, api, guide.json, video Range', async () => {
-    const runs = await (await fetch(`${base}/__runs`)).json();
-    const done = runs.runs.find((r: { status: string; spec: string }) => r.status === 'done' && r.spec === 'graph:runp/tiny_flow');
-    expect(done).toBeTruthy();
-    const batch = done.batch as string;
+    // Self-contained: fullyParallel may put this test on a worker whose server
+    // has never run anything, so run one here (project/graph may already exist
+    // on this worker — 409s are fine, the ref just has to resolve).
+    await makeProject('runp');
+    await saveGraph('runp', twoSessionGraph('mount_flow'));
+    const started = await (await fetch(`${base}/__run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: 'runp/mount_flow' }),
+    })).json();
+    expect(started.ok, JSON.stringify(started)).toBe(true);
+    await expect.poll(async () => (await (await fetch(`${base}/__run/${started.id}`)).json()).status, { timeout: 30_000 }).toBe('done');
+    const batch = started.batch as string;
     // /studio → /studio/ → the dashboard, live from tools/studio/web
     const r301 = await fetch(`${base}/studio`, { redirect: 'manual' });
     expect(r301.status).toBe(301);

@@ -8,6 +8,13 @@
   header a{color:#9fc6ff;text-decoration:none;font-size:13px;white-space:nowrap}
   header h1{margin:0;font-size:18px;font-weight:650;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   header .cat{font-size:11px;color:#a9a9b3;border:1px solid #2b2b36;border-radius:999px;padding:2px 10px}
+  /* a guide from a FAILED run (ingest --include-failed): say so above the fold */
+  header .outcome{font-size:11px;border-radius:999px;padding:2px 10px;border:1px solid transparent}
+  header .outcome.passed{color:#8fe3a8;border-color:#1f4d2c;background:#0f2417}
+  header .outcome.failed{color:#ffb0b0;border-color:#5a1f1f;background:#2a1111}
+  header .outcome.flaky{color:#ffd28a;border-color:#5a4a1f;background:#2a2211}
+  .failbanner{display:none;margin:0 0 10px;padding:10px 14px;border:1px solid #5a1f1f;background:#2a1111;color:#ffb0b0;border-radius:8px;font-size:13px;white-space:pre-wrap}
+  .failbanner.on{display:block}
   header .pace{color:#6a6a74;font-size:12px}
   .wrap{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(340px,.85fr);gap:0;height:calc(100vh - 53px)}
   @media(max-width:900px){.wrap{grid-template-columns:1fr;height:auto}}
@@ -151,9 +158,11 @@
   <a href="dashboard.html">← folders</a>
   <h1 id="jname">…</h1>
   <span class="cat" id="cat"></span>
+  <span class="outcome" id="outcome" hidden></span>
   <span class="pace" id="pace"></span>
 </header>
 <div class="wrap">
+<div class="failbanner" id="failbanner"></div>
   <section class="stage">
     <video id="vid" playsinline></video>
     <div class="timeline" id="tl"></div>
@@ -270,6 +279,8 @@ async function init(){
   const g=await (await fetch(`${base}/guide.json`,{cache:'no-store'})).json();
   steps=g.steps||[]; total=g.durationMs||(steps.length?steps[steps.length-1].endMs:0);
   $('jname').textContent=g.title||slug; $('cat').textContent=g.category||'';
+  if(g.outcome){ const o=$('outcome'); o.textContent=g.outcome; o.className='outcome '+g.outcome; o.hidden=false; }
+  if(g.outcome==='failed'){ const fb=$('failbanner'); fb.textContent='✗ this run FAILED'+(g.error?' — '+g.error:'')+'\nthe video and steps below are the failing attempt; the last step is where it stopped.'; fb.classList.add('on'); }
   $('pace').textContent=`plays ${(1/rate).toFixed(2)}× (human pace)`;
   await loadFlags();
   renderSteps();
