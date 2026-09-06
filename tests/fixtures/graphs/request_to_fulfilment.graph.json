@@ -1,7 +1,7 @@
 {
   "schema": "process-graph/2",
-  "id": "lead_to_customer",
-  "title": "Lead to customer, verified in Siebel",
+  "id": "request_to_fulfilment",
+  "title": "Request to fulfilment, verified in the second system",
   "tags": [
     "smoke",
     "siebel"
@@ -22,10 +22,10 @@
     }
   },
   "actors": {
-    "lead_creator": "lead_creator",
-    "lead_approver": "lead_approver",
-    "credit_approver": "credit_approver",
-    "customer_approver": "sales_user",
+    "requester": "sales_user",
+    "reviewer": "lead_approver",
+    "risk_reviewer": "credit_approver",
+    "fulfiller": "admin",
     "siebel_admin": "siebel_admin"
   },
   "nodes": [
@@ -35,94 +35,94 @@
       "label": ""
     },
     {
-      "id": "sess_sf_lead_creator",
+      "id": "sess_sf_requester",
       "type": "session",
-      "label": "Salesforce · lead_creator",
+      "label": "Salesforce · requester",
       "system": "sf",
-      "actor": "lead_creator",
+      "actor": "requester",
       "account": {
         "usernameEnv": "SF_LEAD_CREATOR_USERNAME"
       },
-      "url": "/lightning/o/Lead/list",
+      "url": "/lightning/o/Case/list",
       "steps": {
         "status": "captured",
-        "journeyId": "lead_to_customer"
+        "journeyId": "request_to_fulfilment"
       },
       "timing": {
         "capturedMeanMs": 1100
       },
       "snapshot": {
         "status": "captured",
-        "ref": "evidence/lead_to_customer/sim_mthrf41j/sess_sf_lead_creator.jpg",
+        "ref": "evidence/request_to_fulfilment/sim_fixture/sess_sf_requester.jpg",
         "capturedAt": "2026-08-31T21:37:57.560Z"
       }
     },
     {
-      "id": "sess_sf_lead_approver",
+      "id": "sess_sf_reviewer",
       "type": "session",
-      "label": "Salesforce · lead_approver",
+      "label": "Salesforce · reviewer",
       "system": "sf",
-      "actor": "lead_approver",
+      "actor": "reviewer",
       "account": {
         "usernameEnv": "SF_LEAD_APPROVER_USERNAME"
       },
-      "url": "/lightning/o/Lead/list",
+      "url": "/lightning/o/Case/list",
       "steps": {
         "status": "captured",
-        "journeyId": "lead_to_customer"
+        "journeyId": "request_to_fulfilment"
       },
       "timing": {
         "capturedMeanMs": 1237
       },
       "snapshot": {
         "status": "captured",
-        "ref": "evidence/lead_to_customer/sim_mthrf41j/sess_sf_lead_approver.jpg",
+        "ref": "evidence/request_to_fulfilment/sim_fixture/sess_sf_reviewer.jpg",
         "capturedAt": "2026-08-31T21:37:57.560Z"
       }
     },
     {
-      "id": "sess_sf_credit_approver",
+      "id": "sess_sf_risk_reviewer",
       "type": "session",
-      "label": "Salesforce · credit_approver",
+      "label": "Salesforce · risk_reviewer",
       "system": "sf",
-      "actor": "credit_approver",
+      "actor": "risk_reviewer",
       "account": {
         "usernameEnv": "SF_CREDIT_APPROVER_USERNAME"
       },
-      "url": "/lightning/o/Lead/list",
+      "url": "/lightning/o/Case/list",
       "steps": {
         "status": "captured",
-        "journeyId": "lead_to_customer"
+        "journeyId": "request_to_fulfilment"
       },
       "timing": {
         "capturedMeanMs": 1374
       },
       "snapshot": {
         "status": "captured",
-        "ref": "evidence/lead_to_customer/sim_mthrf41j/sess_sf_credit_approver.jpg",
+        "ref": "evidence/request_to_fulfilment/sim_fixture/sess_sf_risk_reviewer.jpg",
         "capturedAt": "2026-08-31T21:37:57.560Z"
       }
     },
     {
-      "id": "sess_sf_customer_approver",
+      "id": "sess_sf_fulfiller",
       "type": "session",
-      "label": "Salesforce · customer_approver",
+      "label": "Salesforce · fulfiller",
       "system": "sf",
-      "actor": "customer_approver",
+      "actor": "fulfiller",
       "account": {
         "usernameEnv": "SF_SALES_USERNAME"
       },
       "url": "/lightning/o/Opportunity/list",
       "steps": {
         "status": "captured",
-        "journeyId": "lead_to_customer"
+        "journeyId": "request_to_fulfilment"
       },
       "timing": {
         "capturedMeanMs": 1511
       },
       "snapshot": {
         "status": "captured",
-        "ref": "evidence/lead_to_customer/sim_mthrf41j/sess_sf_customer_approver.jpg",
+        "ref": "evidence/request_to_fulfilment/sim_fixture/sess_sf_fulfiller.jpg",
         "capturedAt": "2026-08-31T21:37:57.560Z"
       }
     },
@@ -137,143 +137,143 @@
       },
       "snapshot": {
         "status": "captured",
-        "ref": "evidence/lead_to_customer/sim_mthrf41j/sess_siebel_admin.jpg",
+        "ref": "evidence/request_to_fulfilment/sim_fixture/sess_siebel_admin.jpg",
         "capturedAt": "2026-08-31T21:37:57.560Z"
       },
       "url": "/",
       "steps": {
         "status": "captured",
-        "journeyId": "lead_to_customer"
+        "journeyId": "request_to_fulfilment"
       },
       "timing": {
         "capturedMeanMs": 1785
       }
     },
     {
-      "id": "lead",
+      "id": "request",
       "type": "data",
-      "label": "Lead record",
-      "sobject": "Lead",
+      "label": "Request record",
+      "sobject": "Case",
       "expects": [
         {
-          "id": "lead_created",
+          "id": "request_created",
           "kind": "api.record_exists",
-          "target": "Lead",
-          "after": "lead.create",
-          "note": "lead row persisted",
+          "target": "Case",
+          "after": "request.create",
+          "note": "request row persisted",
           "timeoutMs": 10000,
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
-            "runId": "sim_mthrf41j",
+            "runId": "sim_fixture",
             "message": "simulated"
           }
         },
         {
-          "id": "lead_potential",
+          "id": "request_triaged",
           "kind": "api.field_equals",
-          "target": "Lead",
-          "value": "Status=Potential",
-          "after": "lead.progress_to_potential",
-          "note": "progressed by the approver",
+          "target": "Case",
+          "value": "Status=Triaged",
+          "after": "request.triage",
+          "note": "triaged by the reviewer",
           "timeoutMs": 10000,
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
-            "runId": "sim_mthrf41j",
+            "runId": "sim_fixture",
             "message": "simulated"
           }
         },
         {
-          "id": "credit_approved",
+          "id": "risk_approved",
           "kind": "api.field_equals",
-          "target": "Lead",
-          "value": "Credit_Status__c=Approved",
-          "after": "credit.check",
-          "note": "credit check outcome persisted",
+          "target": "Case",
+          "value": "Risk_Status__c=Approved",
+          "after": "risk.check",
+          "note": "risk check outcome persisted",
           "timeoutMs": 10000,
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
-            "runId": "sim_mthrf41j",
+            "runId": "sim_fixture",
             "message": "simulated"
           }
         }
       ]
     },
     {
-      "id": "customer",
+      "id": "order",
       "type": "data",
-      "label": "Customer record",
-      "sobject": "Account",
+      "label": "Order record",
+      "sobject": "Order",
       "expects": [
         {
-          "id": "customer_created",
+          "id": "order_created",
           "kind": "api.record_exists",
-          "target": "Account",
-          "after": "lead.approve_to_customer",
-          "note": "conversion produced the customer account",
+          "target": "Order",
+          "after": "request.fulfil",
+          "note": "fulfilment produced the order",
           "timeoutMs": 10000,
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
-            "runId": "sim_mthrf41j",
+            "runId": "sim_fixture",
             "message": "simulated"
           }
         },
         {
-          "id": "conversion_toast",
+          "id": "fulfilment_toast",
           "kind": "ui.toast",
-          "value": "converted",
-          "after": "lead.approve_to_customer",
-          "note": "UI confirms the conversion",
+          "value": "fulfilled",
+          "after": "request.fulfil",
+          "note": "UI confirms the fulfilment",
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
-            "runId": "sim_mthrf41j",
+            "runId": "sim_fixture",
             "message": "simulated"
           }
         }
       ]
     },
     {
-      "id": "customer_siebel",
+      "id": "order_siebel",
       "type": "data",
-      "label": "Customer record (Siebel)",
-      "sobject": "Customer",
-      "notes": "created by the SF→Siebel API integration when the customer is approved — no human session involved",
+      "label": "Order record (second system)",
+      "sobject": "Order",
+      "notes": "created by the SF→Siebel API integration when the order is approved — no human session involved",
       "expects": [
         {
-          "id": "customer_visible_in_ui",
+          "id": "order_visible_in_ui",
           "kind": "ui.text",
           "value": "E2E_",
-          "after": "siebel.check_customer",
-          "note": "siebel_admin sees the E2E-prefixed customer name in the Siebel UI (DB not queryable — verify via UI)",
+          "after": "siebel.check_order",
+          "note": "siebel_admin sees the E2E-prefixed order name in the second system UI (DB not queryable — verify via UI)",
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
-            "runId": "sim_mthrf41j",
+            "runId": "sim_fixture",
             "message": "simulated"
           }
         }
       ]
     },
     {
-      "id": "chk_customer",
+      "id": "chk_order",
       "type": "checkpoint",
-      "label": "Customer exists in Siebel",
+      "label": "Order exists in the second system",
       "expects": [
         {
-          "id": "customer_in_siebel",
+          "id": "order_in_siebel",
           "kind": "api.record_exists",
-          "target": "Customer",
+          "target": "Order",
           "note": "in Siebel = pass; missing = the SF→Siebel integration failed",
           "timeoutMs": 120000,
           "pollMs": 5000,
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
-            "runId": "sim_mthrf41j",
+            "runId": "sim_fixture",
             "message": "simulated"
           }
         },
@@ -281,21 +281,21 @@
           "id": "endpoint_traffic",
           "kind": "log.traffic",
           "target": "log_gateway",
-          "value": "create_customer_v2",
+          "value": "create_order_v2",
           "timeoutMs": 60000,
           "pollMs": 5000,
           "note": "draft — confirm the log system + search term",
           "lastResult": {
             "status": "pass",
             "at": "2026-08-31T21:37:57.560Z",
-            "runId": "sim_mthrf41j",
+            "runId": "sim_fixture",
             "message": "simulated"
           }
         }
       ],
       "snapshot": {
         "status": "captured",
-        "ref": "evidence/lead_to_customer/sim_mthrf41j/chk_customer.jpg",
+        "ref": "evidence/request_to_fulfilment/sim_fixture/chk_order.jpg",
         "capturedAt": "2026-08-31T21:37:57.560Z"
       }
     },
@@ -305,12 +305,12 @@
       "label": ""
     },
     {
-      "id": "api_create_customer_v2",
+      "id": "api_create_order_v2",
       "type": "api",
-      "label": "create_customer_v2",
+      "label": "create_order_v2",
       "endpoint": {
         "method": "POST",
-        "path": "/services/apexrest/create_customer_v2"
+        "path": "/services/apexrest/create_order_v2"
       }
     },
     {
@@ -329,7 +329,7 @@
     {
       "id": "e1",
       "from": "start",
-      "to": "sess_sf_lead_creator",
+      "to": "sess_sf_requester",
       "type": "login_as",
       "data": {
         "auth": "frontdoor"
@@ -337,19 +337,19 @@
     },
     {
       "id": "e2",
-      "from": "sess_sf_lead_creator",
-      "to": "lead",
+      "from": "sess_sf_requester",
+      "to": "request",
       "type": "does",
-      "label": "create lead",
+      "label": "create request",
       "data": {
-        "catalog": "lead.create",
+        "catalog": "request.create",
         "io": "produces"
       }
     },
     {
       "id": "e3",
-      "from": "sess_sf_lead_creator",
-      "to": "sess_sf_lead_approver",
+      "from": "sess_sf_requester",
+      "to": "sess_sf_reviewer",
       "type": "login_as",
       "data": {
         "auth": "frontdoor"
@@ -357,19 +357,19 @@
     },
     {
       "id": "e4",
-      "from": "sess_sf_lead_approver",
-      "to": "lead",
+      "from": "sess_sf_reviewer",
+      "to": "request",
       "type": "does",
-      "label": "progress to potential lead",
+      "label": "triage the request",
       "data": {
-        "catalog": "lead.progress_to_potential",
+        "catalog": "request.triage",
         "io": "updates"
       }
     },
     {
       "id": "e5",
-      "from": "sess_sf_lead_approver",
-      "to": "sess_sf_credit_approver",
+      "from": "sess_sf_reviewer",
+      "to": "sess_sf_risk_reviewer",
       "type": "login_as",
       "data": {
         "auth": "frontdoor"
@@ -377,19 +377,19 @@
     },
     {
       "id": "e6",
-      "from": "sess_sf_credit_approver",
-      "to": "lead",
+      "from": "sess_sf_risk_reviewer",
+      "to": "request",
       "type": "does",
-      "label": "credit check",
+      "label": "risk check",
       "data": {
-        "catalog": "credit.check",
+        "catalog": "risk.check",
         "io": "updates"
       }
     },
     {
       "id": "e7",
-      "from": "sess_sf_credit_approver",
-      "to": "sess_sf_customer_approver",
+      "from": "sess_sf_risk_reviewer",
+      "to": "sess_sf_fulfiller",
       "type": "login_as",
       "data": {
         "auth": "frontdoor"
@@ -397,19 +397,19 @@
     },
     {
       "id": "e8",
-      "from": "sess_sf_customer_approver",
-      "to": "customer",
+      "from": "sess_sf_fulfiller",
+      "to": "order",
       "type": "does",
-      "label": "approve to customer",
+      "label": "approve to order",
       "data": {
-        "catalog": "lead.approve_to_customer",
+        "catalog": "request.fulfil",
         "io": "produces"
       }
     },
     {
       "id": "e9",
-      "from": "sess_sf_customer_approver",
-      "to": "lead",
+      "from": "sess_sf_fulfiller",
+      "to": "request",
       "type": "touches",
       "data": {
         "io": "consumes"
@@ -417,7 +417,7 @@
     },
     {
       "id": "e10",
-      "from": "sess_sf_customer_approver",
+      "from": "sess_sf_fulfiller",
       "to": "sess_siebel_admin",
       "type": "login_as",
       "data": {
@@ -427,37 +427,37 @@
     {
       "id": "e11",
       "from": "sess_siebel_admin",
-      "to": "customer_siebel",
+      "to": "order_siebel",
       "type": "does",
-      "label": "check customer created",
+      "label": "check order created",
       "data": {
-        "catalog": "siebel.check_customer",
+        "catalog": "siebel.check_order",
         "io": "consumes"
       }
     },
     {
       "id": "e12",
       "from": "sess_siebel_admin",
-      "to": "chk_customer",
+      "to": "chk_order",
       "type": "asserts"
     },
     {
       "id": "e13",
-      "from": "chk_customer",
+      "from": "chk_order",
       "to": "end",
       "type": "next"
     },
     {
       "id": "e_api",
-      "from": "customer",
-      "to": "api_create_customer_v2",
+      "from": "order",
+      "to": "api_create_order_v2",
       "type": "handoff",
       "label": "API replication SF → Siebel"
     },
     {
       "id": "e_api2",
-      "from": "api_create_customer_v2",
-      "to": "customer_siebel",
+      "from": "api_create_order_v2",
+      "to": "order_siebel",
       "type": "handoff",
       "label": "creates",
       "data": {
@@ -466,14 +466,14 @@
     },
     {
       "id": "e_api3",
-      "from": "api_create_customer_v2",
+      "from": "api_create_order_v2",
       "to": "db_siebel",
       "type": "touches",
       "label": "writes"
     },
     {
       "id": "e_api4",
-      "from": "api_create_customer_v2",
+      "from": "api_create_order_v2",
       "to": "log_gateway",
       "type": "touches",
       "label": "logged in"

@@ -19,7 +19,7 @@ import { readGraph, writeGraph } from './graphFile';
 
 export const usage = `usage: sfpw grillme <ref> [--apply <ops.json>] [--json]
 
-  <ref>              'lead_to_customer' or 'salesforce/lead_intake'
+  <ref>              'request_to_fulfilment' or 'salesforce/lead_intake'
   --apply <file>     an AnswerOp[] JSON file (see src/graph/gaps.ts) — applied
                      to the graph, in place, before the gaps are listed again
   --json             print ONLY the Gap[] array on stdout (for tools/skills)`;

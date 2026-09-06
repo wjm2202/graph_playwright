@@ -10,6 +10,41 @@ objective = the session's task) — the full research corpus and all project
 decisions/state live there now (treeVersion 32). Then read this file. Repo:
 `~/Documents/code/SalesForce/salesforce_playwright/` (re-request folder access).
 
+## NO SHIPPED GRAPHS + JOURNEY STUDIO REVIEW, 2026-09-07 (unit 608)
+
+*The repo ships no process graph; the suite runs on synthetic fixtures.*
+
+- **Demo set moved out.** `journeys/graphs/{expense_to_siebel,lead_to_customer,
+  lead_to_customer_via_ado}.graph.json`, the six tracked evidence thumbnails,
+  `journeys/expense_approval_sod.json` and the generated `lead_to_customer`
+  steps now live under the gitignored `projects/demo/` on the owner's machine
+  (`projects/demo/legacy/` for the non-graph files). `journeys/graphs/` ships
+  empty; the `.gitignore` evidence exception is gone; `suites.json` `smoke`
+  is `{ tags: ['smoke'] }` — no suite names a graph by id.
+- **Fixtures.** `tests/fixtures/graphs/request_to_fulfilment.graph.json` (the
+  multi-stage shape: five sessions, api/db/logger nodes, handoff/touches
+  edges, painted snapshots → six generated placeholder JPEGs under
+  `tests/fixtures/evidence/`), `imported_draft.graph.json` (ADO-import shape),
+  and the in-code SoD sample `goodGraphV2()`. Every name in them is generic.
+  Helpers: `tests/helpers/fixtures.ts` (`loadFixture`, `allFixtureGraphs`,
+  `scratchRoot`) and `tests/helpers/plannerLibrary.ts` (`injectLibrary` —
+  the built planner's library is empty, harness tests hand it the fixtures).
+  `tests/e2e/graphs.spec.ts` honours `GRAPH_ROOT` so the registration test
+  runs on a scratch root.
+- **Journey Studio review** (docs/SCOPE-JOURNEY-STUDIO-INTEGRATION.md):
+  vendored in `tools/studio/`, mounted by the planner at `/studio/`; **Run
+  this graph** runs, ingests, opens the review tab; failed runs get a page.
+- `fixture_demo.*` (the recorder pipeline's regression fixture) stays where it
+  was — it is a fixture, not a demo graph.
+- **Leak found and closed.** `tools/build-planner.mjs` inlined
+  `projects/*/graphs` into the COMMITTED `tools/planner.html` — HEAD's copy
+  carried `salesforce/o2a_tc01_prospect_to_customer`. The build now inlines
+  `journeys/graphs/` only (empty); `/__library` rows carry `doc` and the
+  page adopts them into `window.GRAPH_LIBRARY` (`net.refreshLibrary`), so the
+  served planner still opens every project graph. Over file:// the rail
+  shows project names only. History before this commit still holds the
+  inlined graph — owner's call whether to rewrite it.
+
 ## SPRINT 4.4 — SIMPLIFICATION TRIM, SHIPPED 2026-09-03 (suite 687)
 
 *Fewer concepts, same power* — the review's §3.1 trim list. Full write-up:

@@ -16,17 +16,19 @@ import * as path from 'path';
 import { parseScript, printScript, catalogOf } from '../../src/graph/script';
 import { loginChain } from '../../src/graph/compose';
 import { validateGraph, type Expectation, type PEdge, type PNode, type ProcessGraph } from '../../src/graph/schema';
+import { allFixtureGraphs } from '../helpers/fixtures';
 
-const TRACKED = [
-  'journeys/graphs/expense_to_siebel.graph.json',
-  'journeys/graphs/lead_to_customer.graph.json',
-  'journeys/graphs/lead_to_customer_via_ado.graph.json',
-];
-// Project graphs are customer material — `projects/*` is gitignored, so they
-// exist on a developer's machine but never on the CI runner. They are checked
-// wherever they are present and skipped (not failed) where they are not.
+/**
+ * The graphs under test: the two fixture files plus the in-code SoD sample
+ * (tests/helpers/fixtures.ts). No graph ships in journeys/graphs/ — real ones
+ * are customer material under the gitignored projects/ — so a project graph
+ * is checked wherever it is present and skipped (not failed) where it is not.
+ */
 const LOCAL = ['projects/salesforce/graphs/o2a_tc01_prospect_to_customer.graph.json'];
-const SHIPPED = [...TRACKED, ...LOCAL.filter((f) => fs.existsSync(path.resolve(f)))];
+const SHIPPED: { id: string; graph: () => ProcessGraph }[] = [
+  ...allFixtureGraphs().map((f) => ({ id: f.id, graph: () => f.graph })),
+  ...LOCAL.filter((f) => fs.existsSync(path.resolve(f))).map((f) => ({ id: path.basename(f, '.graph.json'), graph: () => load(f) })),
+];
 
 function load(file: string): ProcessGraph {
   return JSON.parse(fs.readFileSync(path.resolve(file), 'utf8')) as ProcessGraph;
@@ -108,9 +110,9 @@ function view(g: ProcessGraph): View {
 
 // ---------- round trip ----------
 
-for (const file of SHIPPED) {
-  test(`round trip: ${path.basename(file)}`, () => {
-    const original = load(file);
+for (const { id, graph } of SHIPPED) {
+  test(`round trip: ${id}`, () => {
+    const original = graph();
     const printed = printScript(original);
     const back = parseScript(printed.text);
     expect(back.problems, 'printScript must emit a script parseScript accepts').toEqual([]);
@@ -120,8 +122,8 @@ for (const file of SHIPPED) {
 }
 
 test('printScript names exactly what it could not express, per shipped graph', () => {
-  const dropped = Object.fromEntries(SHIPPED.map((f) => [path.basename(f, '.graph.json'), printScript(load(f)).dropped]));
-  const present = new Set(SHIPPED.map((f) => path.basename(f, '.graph.json')));
+  const dropped = Object.fromEntries(SHIPPED.map((g) => [g.id, printScript(g.graph()).dropped]));
+  const present = new Set(SHIPPED.map((g) => g.id));
   const expected = (all: Record<string, string[]>) => Object.fromEntries(Object.entries(all).filter(([k]) => present.has(k)));
   expect(dropped).toEqual(expected({
     expense_to_siebel: [
@@ -133,29 +135,29 @@ test('printScript names exactly what it could not express, per shipped graph', (
       'session account (usernameEnv): sess_sf_sales, sess_sf_admin, sess_siebel_admin',
       'session label: sess_sf_sales, sess_sf_admin, sess_siebel_admin',
     ],
-    lead_to_customer: [
-      'api node: api_create_customer_v2',
+    request_to_fulfilment: [
+      'api node: api_create_order_v2',
       'db node: db_siebel',
       'edge label: e2, e4, e6, e8, e11',
       'expectation (db/log oracle needs an infra node): endpoint_traffic',
-      'expectation id: lead_created, lead_potential, credit_approved, customer_created, conversion_toast, customer_visible_in_ui, customer_in_siebel',
-      'expectation lastResult: lead_created, lead_potential, credit_approved, customer_created, conversion_toast, customer_visible_in_ui, customer_in_siebel',
-      'expectation note: lead_created, lead_potential, credit_approved, customer_created, conversion_toast, customer_visible_in_ui, customer_in_siebel',
+      'expectation id: request_created, request_triaged, risk_approved, order_created, fulfilment_toast, order_visible_in_ui, order_in_siebel',
+      'expectation lastResult: request_created, request_triaged, risk_approved, order_created, fulfilment_toast, order_visible_in_ui, order_in_siebel',
+      'expectation note: request_created, request_triaged, risk_approved, order_created, fulfilment_toast, order_visible_in_ui, order_in_siebel',
       'handoff edge: e_api, e_api2',
       'logger node: log_gateway',
-      'node notes: customer_siebel',
-      'node snapshot: sess_sf_lead_creator, sess_sf_lead_approver, sess_sf_credit_approver, sess_sf_customer_approver, sess_siebel_admin, chk_customer',
-      'node steps (capture state): sess_sf_lead_creator, sess_sf_lead_approver, sess_sf_credit_approver, sess_sf_customer_approver, sess_siebel_admin',
-      'node timing: sess_sf_lead_creator, sess_sf_lead_approver, sess_sf_credit_approver, sess_sf_customer_approver, sess_siebel_admin',
-      'session account (usernameEnv): sess_sf_lead_creator, sess_sf_lead_approver, sess_sf_credit_approver, sess_sf_customer_approver, sess_siebel_admin',
-      'session label: sess_sf_lead_creator, sess_sf_lead_approver, sess_sf_credit_approver, sess_sf_customer_approver',
+      'node notes: order_siebel',
+      'node snapshot: sess_sf_requester, sess_sf_reviewer, sess_sf_risk_reviewer, sess_sf_fulfiller, sess_siebel_admin, chk_order',
+      'node steps (capture state): sess_sf_requester, sess_sf_reviewer, sess_sf_risk_reviewer, sess_sf_fulfiller, sess_siebel_admin',
+      'node timing: sess_sf_requester, sess_sf_reviewer, sess_sf_risk_reviewer, sess_sf_fulfiller, sess_siebel_admin',
+      'session account (usernameEnv): sess_sf_requester, sess_sf_reviewer, sess_sf_risk_reviewer, sess_sf_fulfiller, sess_siebel_admin',
+      'session label: sess_sf_requester, sess_sf_reviewer, sess_sf_risk_reviewer, sess_sf_fulfiller',
       'touches edge: e9, e_api3, e_api4',
     ],
-    lead_to_customer_via_ado: [
+    imported_draft: [
       'edge label: e_do_1, e_do_2, e_do_3, e_do_4, e_do_5',
-      'expectation after (edge id rewritten to its catalog): check_lead_record_is_created, check_toast_shows_lead_updat, check_credit_check_screen_sho, check_customer_record_is_crea, check_customer_record_exists',
-      'expectation id: check_lead_record_is_created, check_toast_shows_lead_updat, check_credit_check_screen_sho, check_customer_record_is_crea, check_customer_record_exists',
-      'expectation note: check_lead_record_is_created, check_toast_shows_lead_updat, check_credit_check_screen_sho, check_customer_record_is_crea, check_customer_record_exists',
+      'expectation after (edge id rewritten to its catalog): check_request_record_is_created, check_toast_shows_request_upd, check_risk_check_screen_shows, check_order_record_is_created, check_order_record_exists',
+      'expectation id: check_request_record_is_created, check_toast_shows_request_upd, check_risk_check_screen_shows, check_order_record_is_created, check_order_record_exists',
+      'expectation note: check_request_record_is_created, check_toast_shows_request_upd, check_risk_check_screen_shows, check_order_record_is_created, check_order_record_exists',
     ],
     o2a_tc01_prospect_to_customer: [
       'edge label: e_lead_create, e_lead_convert, e_lead_verify, e_credit_open, e_credit_complete, e_case_create, e_case_close, e_emails, e_credit_approve, e_account_active, e_account_customer',

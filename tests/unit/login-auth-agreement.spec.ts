@@ -10,6 +10,7 @@ import { validateGraph, type ProcessGraph } from '../../src/graph/schema';
 import { toJourney } from '../../src/graph/toJourney';
 import { PersonaRegistry } from '../../src/personas/registry';
 import { goodGraphV2 } from '../helpers/sampleGraph';
+import { allFixtureGraphs } from '../helpers/fixtures';
 
 const ROSTER = { sales_user: 'frontdoor', admin: 'frontdoor', siebel_admin: 'ui' } as const;
 
@@ -96,10 +97,8 @@ test.describe('the regression this check found', () => {
   test('the Siebel session is played by a Siebel persona, not a Salesforce one', () => {
     // The seed graph originally reused the Salesforce 'approver' (persona
     // admin: frontdoor, no site) for a Siebel session — it would have logged
-    // into Salesforce and called it Siebel.
-    const seed = JSON.parse(
-      fs.readFileSync(path.resolve('journeys/graphs/expense_to_siebel.graph.json'), 'utf8'),
-    ) as ProcessGraph;
+    // into Salesforce and called it Siebel. The SoD fixture carries the fix.
+    const seed = goodGraphV2();
     const siebelSession = seed.nodes.find((n) => n.id === 'sess_siebel_admin')!;
     const alias = siebelSession.actor;
     expect(alias, 'the Siebel session lost its actor').toBeTruthy();
@@ -110,19 +109,17 @@ test.describe('the regression this check found', () => {
     expect(registry.authMethods()[persona]).toBe('ui');
   });
 
-  test('every login_as edge in every shipped graph agrees with personas.json', () => {
+  test('every login_as edge in every fixture graph agrees with personas.json', () => {
     const registry = PersonaRegistry.load();
     const personaAuth = registry.authMethods();
-    const dir = path.resolve('journeys/graphs');
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.graph.json'));
-    expect(files.length).toBeGreaterThan(0);
+    const graphs = allFixtureGraphs();
+    expect(graphs.length).toBeGreaterThan(0);
 
-    for (const f of files) {
-      const graph = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as ProcessGraph;
+    for (const { id, graph } of graphs) {
       const authErrors = validateGraph(graph, { personaAuth }).errors.filter((e) =>
         e.includes('data.auth'),
       );
-      expect(authErrors, `${f} has login_as/persona auth disagreements`).toEqual([]);
+      expect(authErrors, `${id} has login_as/persona auth disagreements`).toEqual([]);
     }
   });
 });

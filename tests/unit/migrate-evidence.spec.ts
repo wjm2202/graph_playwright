@@ -1,7 +1,7 @@
 /**
  * S4.2 — tools/migrate-evidence.mjs: the one-off that moves ALREADY PAINTED
  * inline snapshots out of a graph and into its evidence folder, so a customer
- * (and this repo's own `lead_to_customer`) does not have to re-run anything
+ * (and the multi-stage fixture) does not have to re-run anything
  * to get a graph whose diffs can be read.
  *
  * Driven as the CLI it is (`node tools/migrate-evidence.mjs …`, the same way
@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { evidenceDirFor, resolveEvidenceRef } from '../../src/graph/evidence';
+import { fixturePath } from '../helpers/fixtures';
 
 const TOOL = path.resolve('tools', 'migrate-evidence.mjs');
 const PIXEL = Buffer.from(
@@ -124,18 +125,18 @@ test('it says what to do with no arguments, and names a file it cannot read', ()
   expect(ghost.out).toContain('no such file');
 });
 
-test('the shipped lead_to_customer graph is migrated: file refs, no base64, images on disk', () => {
+test('the multi-stage fixture is in the migrated form: file refs, no base64, images on disk', () => {
   // The outcome of the one-off, guarded so nobody re-inlines it by accident.
-  const file = path.resolve('journeys/graphs/lead_to_customer.graph.json');
+  const file = fixturePath('request_to_fulfilment');
   const text = fs.readFileSync(file, 'utf8');
   expect(text).not.toContain('base64');
-  expect(fs.statSync(file).size).toBeLessThan(30_000);          // was 91 KB
+  expect(fs.statSync(file).size).toBeLessThan(30_000);          // the pre-migration form was 91 KB
 
   const graph = JSON.parse(text) as Graph;
   const snaps = graph.nodes.filter((n) => n.snapshot?.ref);
   expect(snaps.length).toBe(6);
   for (const n of snaps) {
-    expect(n.snapshot!.ref, n.id).toMatch(/^evidence\/lead_to_customer\/[a-z0-9_]+\/[a-z0-9_]+\.jpg$/);
+    expect(n.snapshot!.ref, n.id).toMatch(/^evidence\/request_to_fulfilment\/[a-z0-9_]+\/[a-z0-9_]+\.jpg$/);
     expect(fs.existsSync(resolveEvidenceRef(file, n.snapshot!.ref)!), `${n.id} → ${n.snapshot!.ref}`).toBe(true);
   }
 });

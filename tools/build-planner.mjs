@@ -144,15 +144,11 @@ function graphLibrary() {
       if (doc && doc.id) lib[doc.id] = doc;
     }
   }
+  // Project graphs are customer material and NEVER go into the committed
+  // planner.html (this build used to inline them — a real leak, found
+  // 2026-09-07). The served planner receives every project document over
+  // /__library instead; over file:// the rail shows project NAMES only.
   const projects = listProjects(root);
-  for (const p of projects) {
-    const dir = join(root, 'projects', p.project, 'graphs');
-    if (!existsSync(dir)) continue;
-    for (const f of readdirSync(dir).filter((x) => x.endsWith('.graph.json')).sort()) {
-      const doc = JSON.parse(readFileSync(join(dir, f), 'utf8'));
-      if (doc && doc.id) lib[`${p.project}/${doc.id}`] = doc;
-    }
-  }
   return `window.GRAPH_LIBRARY = ${JSON.stringify(lib)};\nwindow.PROJECT_LIST = ${JSON.stringify(projects)};`;
 }
 

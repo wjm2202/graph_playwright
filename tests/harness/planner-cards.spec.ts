@@ -482,10 +482,10 @@ test.describe('served', () => {
     fs.writeFileSync(path.join(project, 'graphs', 'lead.graph.json'), JSON.stringify({ ...graphWithFileRef(), id: 'lead' }));
     const runDir = path.join(project, 'evidence', 'lead', 'run_1');
     fs.mkdirSync(runDir, { recursive: true });
-    // A REAL jpeg (the shipped demo graph's own evidence) so the browser
-    // decoding it is part of the assertion.
+    // A REAL jpeg (a fixture evidence placeholder) so the browser decoding
+    // it is part of the assertion.
     fs.copyFileSync(
-      path.join(ROOT, 'journeys/evidence/lead_to_customer/sim_mthrf41j/chk_customer.jpg'),
+      path.join(ROOT, 'tests/fixtures/evidence/request_to_fulfilment/sim_fixture/chk_order.jpg'),
       path.join(runDir, 'sess_sf_sales.jpg'),
     );
 

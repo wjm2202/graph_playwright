@@ -8,7 +8,7 @@
  * now — this moves the paint already on disk to the same place, so a graph
  * does not have to be re-run to become reviewable.
  *
- *   node tools/migrate-evidence.mjs journeys/graphs/lead_to_customer.graph.json
+ *   node tools/migrate-evidence.mjs projects/<name>/graphs/<id>.graph.json
  *   node tools/migrate-evidence.mjs projects/crm/graphs/*.graph.json
  *   node tools/migrate-evidence.mjs --dry-run journeys/graphs/*.graph.json
  *

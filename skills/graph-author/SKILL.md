@@ -94,10 +94,10 @@ to clear them with the human.
       names the ROLES IN THE PROCESS. Default reading (owner, 2026-09-02):
       the role names say what each one does — map them to a chain of
       hand-overs, one session per persona, using the reference graph
-      `journeys/graphs/lead_to_customer.graph.json` (creator → approver →
-      credit check → customer approver) and business logic: who creates the
-      lead, who advances it to a prospect, who requests the credit check,
-      who decides it, who converts to customer. Only when the human says
+      `tests/fixtures/graphs/request_to_fulfilment.graph.json` (requester →
+      reviewer → risk reviewer → fulfiller) and business logic: who creates
+      the request, who triages it, who runs the risk check, who decides it,
+      who fulfils it. Only when the human says
       the list means "any ONE of these" use the persona matrix instead
       (one session + `alternatives`, spec §3.3). When unsure, propose the
       chain and ask.

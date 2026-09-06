@@ -537,9 +537,10 @@ tools/
   serve-planner.mjs    the dev server: the planner at /, the /__ routes (incl. /__run), Journey Studio mounted at /studio/, live reload
   studio/              Journey Studio, vendored (MIT): bin/ lib/ web/ test/ — see tools/studio/VENDOR.md
 studio/guides/         ingested runs for review — one batch per run (gitignored, regenerable)
-journeys/graphs/       the process graphs — the living plan/test/report artifacts
+journeys/graphs/       legacy flat graphs (ships empty — real graphs are customer material under projects/)
 journeys/evidence/     their run screenshots, `<graph_id>/<runId>/<node>.jpg` (a
                        project graph's live in projects/<p>/evidence/ instead)
+tests/fixtures/        the synthetic graphs + evidence the suite runs on (tests/helpers/fixtures.ts)
 projects/<name>/       a team's graphs, imports, evidence and recordings (gitignored: customer work)
 docs/                  designs, studies and specs — docs/README.md is the map
 HANDOVER.md            the session-by-session ledger, newest first

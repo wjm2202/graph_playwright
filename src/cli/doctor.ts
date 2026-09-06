@@ -13,7 +13,7 @@ import { readGraph } from './graphFile';
 
 export const usage = `usage: sfpw doctor [<ref>|all|project:<name>]
 
-  <ref>              one graph: 'lead_to_customer' or 'salesforce/lead_intake'
+  <ref>              one graph: 'request_to_fulfilment' or 'salesforce/lead_intake'
   all                every graph in the library (the default)
   project:<name>     every graph in one project
 

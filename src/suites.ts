@@ -6,7 +6,7 @@
  *
  * `suites.json` at the repo root:
  *
- *   { "smoke": { "graphs": ["expense_to_siebel", "salesforce/o2a_tc01"] },
+ *   { "smoke": { "graphs": ["crm/create_customer", "salesforce/o2a_tc01"] },
  *     "sod":   { "tags": ["sod"] },
  *     "salesforce": { "project": "salesforce" } }
  *

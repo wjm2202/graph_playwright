@@ -11,12 +11,10 @@ recordings/
 .DS_Store
 journeys/telemetry.jsonl
 
-# run evidence for the legacy flat graphs (sprint 4.2): regenerable, EXCEPT
-# the shipped demo graph's six thumbnails, which ship so a fresh clone still
-# shows paint on lead_to_customer without running anything.
+# run evidence for the legacy flat graphs (sprint 4.2): regenerable. No graph
+# ships in journeys/graphs/ any more (real graphs are customer material under
+# projects/); the suite runs on tests/fixtures/.
 journeys/evidence/**
-!journeys/evidence/lead_to_customer/
-!journeys/evidence/lead_to_customer/**
 
 # per-project scratch (DESIGN-PROJECTS.md)
 projects/*/recordings/

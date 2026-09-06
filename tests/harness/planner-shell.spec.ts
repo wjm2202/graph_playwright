@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { legacyGraphV1, goodGraphV2 } from '../helpers/sampleGraph';
+import { injectLibrary } from '../helpers/plannerLibrary';
 
 const ROOT = path.resolve(__dirname, '../..');
 const PLANNER = pathToFileURL(path.join(ROOT, 'tools/planner.html')).href;
@@ -101,7 +102,9 @@ test('boots self-contained: every shared module inlined, no page errors, a valid
   expect(await page.evaluate(() => (window as unknown as V2Window).planner.script().text)).toContain('as ');
 });
 
-test('every shipped graph loads, and lines() is runOrder + declaration order', async ({ page }) => {
+test('every fixture graph loads, and lines() is runOrder + declaration order', async ({ page }) => {
+  // journeys/graphs/ ships empty — the fixtures stand in for "every shipped graph".
+  await injectLibrary(page);
   const refs = await page.evaluate(() => Object.keys((window as unknown as V2Window).GRAPH_LIBRARY).sort());
   expect(refs.length).toBeGreaterThan(2);
   for (const ref of refs) {

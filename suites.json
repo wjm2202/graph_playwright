@@ -1,9 +1,13 @@
 {
   "smoke": {
-    "graphs": ["expense_to_siebel", "lead_to_customer"]
+    "tags": [
+      "smoke"
+    ]
   },
   "sod": {
-    "tags": ["sod"]
+    "tags": [
+      "sod"
+    ]
   },
   "salesforce": {
     "project": "salesforce"

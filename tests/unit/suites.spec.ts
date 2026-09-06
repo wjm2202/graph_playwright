@@ -7,6 +7,7 @@
  * meet by listing the real suite through Playwright.
  */
 import { test, expect } from '@playwright/test';
+import { scratchRoot } from '../helpers/fixtures';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -112,12 +113,20 @@ test.describe('selection', () => {
 });
 
 test.describe('the shipped suites.json', () => {
-  test('smoke, sod and salesforce resolve against this repo', () => {
+  test('smoke and sod are tag selections, salesforce a project — no graph is named by id (none ships)', () => {
     const suites = loadSuites(REPO);
-    expect(Object.keys(suites).sort()).toEqual(['salesforce', 'smoke', 'sod']);
-    expect(suiteMembers('smoke', REPO)).toEqual(['expense_to_siebel', 'lead_to_customer']);
-    // Tagging is what makes `sod` non-empty — it must not rot to nothing.
-    expect(suiteMembers('sod', REPO).length).toBeGreaterThan(0);
+    expect(suites).toEqual({ smoke: { tags: ['smoke'] }, sod: { tags: ['sod'] }, salesforce: { project: 'salesforce' } });
+  });
+
+  test('against a root holding the fixture graphs, smoke and sod resolve to the tagged ones', () => {
+    // journeys/graphs/ is empty in the repo (real graphs are customer material
+    // under the gitignored projects/), so the shipped selections are proven on
+    // a scratch root with the same suites.json and the fixture graphs.
+    const root = scratchRoot(['request_to_fulfilment', 'imported_draft', goodGraphV2()]);
+    fs.copyFileSync(path.join(REPO, 'suites.json'), path.join(root, 'suites.json'));
+    expect(suiteMembers('smoke', root)).toEqual(['expense_to_siebel', 'request_to_fulfilment']);
+    expect(suiteMembers('sod', root)).toEqual(['expense_to_siebel']);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 });
 
@@ -128,7 +137,10 @@ test.describe('tests/e2e/graphs.spec.ts', () => {
     // provide, now proven end to end through Playwright itself.
     // The child must not inherit this run's worker wiring, or Playwright
     // refuses to start inside Playwright.
-    const env: NodeJS.ProcessEnv = { SUITE: 'smoke' };
+    // The graphs live on a scratch root (GRAPH_ROOT): the repo ships none.
+    const root = scratchRoot(['request_to_fulfilment', goodGraphV2()]);
+    fs.copyFileSync(path.join(REPO, 'suites.json'), path.join(root, 'suites.json'));
+    const env: NodeJS.ProcessEnv = { SUITE: 'smoke', GRAPH_ROOT: root };
     for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('PW_')) env[k] = v;
 
     const out = execFileSync(
@@ -138,11 +150,12 @@ test.describe('tests/e2e/graphs.spec.ts', () => {
     );
     const titles = [...out.matchAll(/graphs\.spec\.ts:\d+:\d+ › (.+)$/gm)].map((m) => m[1]!.trim());
 
-    const expected = selectGraphs('smoke', REPO).flatMap((ref) => {
-      const graph = loadGraphFile(resolveGraphRef(ref, REPO).file);
+    const expected = selectGraphs('smoke', root).flatMap((ref) => {
+      const graph = loadGraphFile(resolveGraphRef(ref, root).file);
       return expandVariants(graph).map((v) => (v.id === 'default' ? ref : `${ref} · as ${v.label}`));
     });
     expect(expected.length).toBeGreaterThanOrEqual(2);
     expect(titles).toEqual(expected);
+    fs.rmSync(root, { recursive: true, force: true });
   });
 });

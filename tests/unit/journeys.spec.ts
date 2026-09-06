@@ -3,6 +3,8 @@
  * grading boundaries, and full runner orchestration against fakes.
  */
 import { test, expect } from '@playwright/test';
+import { loadFixture } from '../helpers/fixtures';
+import { toJourney } from '../../src/graph/toJourney';
 import type { Page } from '@playwright/test';
 import * as path from 'path';
 import { validateJourney, type Journey } from '../../src/journeys/schema';
@@ -67,12 +69,11 @@ test.describe('validateJourney', () => {
     expect(validateJourney(goodJourney()).errors).toEqual([]);
   });
 
-  test('the shipped reference journey binds to shipped personas', () => {
-     
-    const journey = require(path.resolve(__dirname, '../../journeys/expense_approval_sod.json'));
+  test('the journey walked from the multi-stage fixture binds to shipped personas', () => {
      
     const personas = require(path.resolve(__dirname, '../../personas.json'));
     expect(validatePersonas(personas).ok).toBe(true);
+    const journey = toJourney(loadFixture('request_to_fulfilment'), { personaIds: Object.keys(personas.personas) }).journey;
     const r = validateJourney(journey, { personaIds: Object.keys(personas.personas) });
     expect(r.errors).toEqual([]);
   });

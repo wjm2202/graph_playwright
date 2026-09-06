@@ -21,6 +21,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
+import { fixtureLibrary, injectLibrary } from '../helpers/plannerLibrary';
+import type { ProcessGraph } from '../../src/graph/schema';
 
 const ROOT = path.resolve(__dirname, '../..');
 const PLANNER = pathToFileURL(path.join(ROOT, 'tools/planner.html')).href;
@@ -71,7 +73,7 @@ const newMenu = async (page: import('@playwright/test').Page, kind: string) => {
 // ===================================================================
 
 test.describe('file://', () => {
-  test.beforeEach(async ({ page }) => { await boot(page, PLANNER); });
+  test.beforeEach(async ({ page }) => { await boot(page, PLANNER); await injectLibrary(page); });
 
   test('New ▾ → Paste a script: the example drafts two sessions and three steps, dirty', async ({ page }) => {
     await newMenu(page, 'paste');
@@ -114,11 +116,11 @@ test.describe('file://', () => {
   });
 
   test('Export → Copy as script round-trips, and names what the text cannot carry', async ({ page }) => {
-    await page.evaluate(() => (window as unknown as SheetWindow).planner.openFromLibrary('lead_to_customer'));
+    await page.evaluate(() => (window as unknown as SheetWindow).planner.openFromLibrary('request_to_fulfilment'));
     await page.locator('#b_export').click();
     await page.locator('#s_script').click();
     const text = await page.locator('#s_json').inputValue();
-    expect(text).toContain('lead_to_customer');
+    expect(text).toContain('request_to_fulfilment');
     expect(text).toMatch(/^\s*as /m);
 
     // parse(print(g)) is the same script: same sessions, same steps, no problems.
@@ -141,7 +143,7 @@ test.describe('file://', () => {
     expect(round.after.sessions).toBe(round.before.sessions);
     expect(round.after.records).toBe(round.before.records);
 
-    // lead_to_customer carries api/db/logger evidence nodes: the script form
+    // request_to_fulfilment carries api/db/logger evidence nodes: the script form
     // cannot say them, so it SAYS SO rather than losing them silently.
     await expect(page.locator('#s_dropped .warnbox')).toContainText('the script cannot carry');
     const dropped = await page.evaluate(() => (window as unknown as SheetWindow).planner.script().dropped);
@@ -149,11 +151,11 @@ test.describe('file://', () => {
   });
 
   test('Join another graph: the picker summarises produces/needs and splices the graph in', async ({ page }) => {
-    await page.evaluate(() => (window as unknown as SheetWindow).planner.openFromLibrary('lead_to_customer'));
+    await page.evaluate(() => (window as unknown as SheetWindow).planner.openFromLibrary('request_to_fulfilment'));
     await page.locator('#b_join').click();
     await expect(page.locator('#sheet_card h3')).toContainText('Join another graph after');
     // The open graph is never offered to itself.
-    await expect(page.locator('#sheet .pick [data-ref="lead_to_customer"]')).toHaveCount(0);
+    await expect(page.locator('#sheet .pick [data-ref="request_to_fulfilment"]')).toHaveCount(0);
     const expense = page.locator('#sheet .pick [data-ref="expense_to_siebel"]');
     await expect(expense).toContainText('3 sessions');
     await expect(expense).toContainText('produces Expense record');
@@ -174,7 +176,13 @@ test.describe('file://', () => {
   });
 
   test('a system-definition clash is refused WITH the fix; aligning and retrying merges the shared record', async ({ page }) => {
-    await page.evaluate(() => (window as unknown as SheetWindow).planner.openFromLibrary('lead_to_customer'));
+    // The clash partner is a project graph — customer material, gitignored,
+    // never in the built planner. Present on a developer's machine → handed
+    // to the page; absent (CI, a fresh clone) → skipped, never failed.
+    const o2a = path.join(ROOT, 'projects/salesforce/graphs/o2a_tc01_prospect_to_customer.graph.json');
+    test.skip(!fs.existsSync(o2a), 'projects/salesforce (customer material) is not on this machine');
+    await injectLibrary(page, { ...fixtureLibrary(), 'salesforce/o2a_tc01_prospect_to_customer': JSON.parse(fs.readFileSync(o2a, 'utf8')) as ProcessGraph });
+    await page.evaluate(() => (window as unknown as SheetWindow).planner.openFromLibrary('request_to_fulfilment'));
     await page.locator('#b_join').click();
     await page.locator('#sheet .pick [data-ref="salesforce/o2a_tc01_prospect_to_customer"]').click();
 
@@ -186,12 +194,13 @@ test.describe('file://', () => {
 
     await page.locator('#s_align').click();
     await expect(page.locator('#sheet')).not.toHaveClass(/open/);
-    // 'Lead record' exists in both graphs under the same id: ONE record after.
-    await expect(page.locator('#toast')).toContainText('merged lead');
+    await expect(page.locator('#toast')).toContainText('joined o2a_tc01_prospect_to_customer'); // the toast names the graph id, as the join of expense_to_siebel does
 
     const doc = await page.evaluate(() => (window as unknown as SheetWindow).planner.get());
     expect(doc.systems.sf!.label).toBe('Salesforce SIT');
+    // the fixture's record is 'request', the joined graph's is 'lead': both survive, nothing merges by accident
     expect(doc.nodes.filter((n) => n.id === 'lead')).toHaveLength(1);
+    expect(doc.nodes.filter((n) => n.id === 'request')).toHaveLength(1);
     expect(doc.nodes.filter((n) => n.type === 'session').length).toBe(10);
     expect(await page.evaluate(() => (window as unknown as SheetWindow).planner.validate().ok)).toBe(true);
   });
@@ -236,7 +245,7 @@ test.describe('served', () => {
     }));
     fs.writeFileSync(path.join(tmp, '.env'), '');
     fs.writeFileSync(path.join(tmp, '.env.example'), '# sandbox\n');
-    fs.mkdirSync(path.join(tmp, 'recordings', 'lead_to_customer', 'admin-20260901-101500'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, 'recordings', 'request_to_fulfilment', 'admin-20260901-101500'), { recursive: true });
     child = spawn('node', [path.resolve('tools/serve-planner.mjs')], {
       env: { ...process.env, PLANNER_ROOT: tmp, PLANNER_PORT: '0', PLANNER_NO_REBUILD: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -396,12 +405,12 @@ test.describe('served', () => {
   test('New ▾ → From a recording lists recordings/ and hands over the pipeline command', async ({ page }) => {
     await boot(page, `${base}/`);
     await newMenu(page, 'rec');
-    await expect(page.locator('#rc_list')).toContainText('lead_to_customer');
+    await expect(page.locator('#rc_list')).toContainText('request_to_fulfilment');
     await expect(page.locator('#rc_list')).toContainText('1 capture');
     await expect(page.locator('#rc_list')).toContainText('admin');
-    await page.locator('[data-journey="lead_to_customer"]').click();
+    await page.locator('[data-journey="request_to_fulfilment"]').click();
     // Honest: it PREPARES the command, it does not run the pipeline.
-    await expect(page.locator('#rc_cmd .cmd')).toHaveText('npx sfpw pipeline lead_to_customer --graph');
+    await expect(page.locator('#rc_cmd .cmd')).toHaveText('npx sfpw pipeline request_to_fulfilment --graph');
     await expect(page.locator('#rc_cmd')).toContainText('does not run the pipeline for you');
     await page.locator('#rc_copy').click();
     await expect(page.locator('#toast')).toContainText('copied the pipeline command');

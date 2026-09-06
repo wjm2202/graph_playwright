@@ -9,7 +9,7 @@ import { runPlaywright } from './playwright';
 
 export const usage = `usage: sfpw simulate <ref> [--overwrite] [--dry-run]
 
-  <ref>          'lead_to_customer' or 'salesforce/lead_intake'
+  <ref>          'request_to_fulfilment' or 'salesforce/lead_intake'
   --overwrite    let the simulated steps module replace real pipeline output
   --dry-run      print the Playwright command instead of running it`;
 

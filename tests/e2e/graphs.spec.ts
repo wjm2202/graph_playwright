@@ -30,7 +30,9 @@ import { guideAnnotation } from '../../src/studio/slug';
 import { buildVideoTimeline } from '../../src/studio/video';
 import type { StepReport } from '../../src/journeys/runner';
 
-const ROOT = path.resolve(__dirname, '../..');
+// GRAPH_ROOT: where journeys/graphs, projects/ and suites.json live. The
+// repo by default; a scratch root for the suite that proves registration.
+const ROOT = process.env.GRAPH_ROOT ? path.resolve(process.env.GRAPH_ROOT) : path.resolve(__dirname, '../..');
 const SUITE = process.env.SUITE ?? 'smoke';
 
 /**

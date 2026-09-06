@@ -17,6 +17,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { goodGraphV2 } from '../helpers/sampleGraph';
+import { injectLibrary } from '../helpers/plannerLibrary';
 
 const ROOT = path.resolve(__dirname, '../..');
 const PLANNER = pathToFileURL(path.join(ROOT, 'tools/planner.html')).href;
@@ -144,7 +145,9 @@ async function drag(page: Page, from: Pos, dx: number, dy: number): Promise<void
 
 // ---------------------------------------------------------------- rendering
 
-test('every shipped graph draws one compound lane per session, in chain order', async ({ page }) => {
+test('every fixture graph draws one compound lane per session, in chain order', async ({ page }) => {
+  // journeys/graphs/ ships empty — the fixtures stand in for "every shipped graph".
+  await injectLibrary(page);
   const refs = await page.evaluate(() => Object.keys((window as unknown as V2Window).GRAPH_LIBRARY).sort());
   expect(refs.length).toBeGreaterThan(2);
   for (const ref of refs) {

@@ -441,6 +441,7 @@ test('library: read fresh off disk per call — projects, legacy journeys, and a
   expect(lib.graphs[1]).toEqual({
     ref: 'lib/two_sessions', id: 'two_sessions', title: 'Two sessions', tags: ['smoke', 'sod'],
     sessions: 2, captured: 1, file: 'projects/lib/graphs/two_sessions.graph.json',
+    doc: twoSessionGraph('two_sessions'), // the document rides along: the build no longer inlines project graphs
   });
   // Listed, never hidden — a graph you cannot see is a graph you cannot fix:
   expect(lib.graphs[0].invalid).toEqual([

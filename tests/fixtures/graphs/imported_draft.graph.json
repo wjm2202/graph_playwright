@@ -1,7 +1,7 @@
 {
   "schema": "process-graph/2",
-  "id": "lead_to_customer_via_ado",
-  "title": "Lead to customer via ADO",
+  "id": "imported_draft",
+  "title": "Imported draft: request to fulfilment",
   "tags": [
     "ado"
   ],
@@ -19,10 +19,10 @@
     }
   },
   "actors": {
-    "lead_creator": "lead_creator",
-    "lead_approver": "lead_approver",
-    "credit_approver": "credit_approver",
-    "salesforce_user": "salesforce_user",
+    "requester": "sales_user",
+    "reviewer": "lead_approver",
+    "risk_reviewer": "credit_approver",
+    "fulfiller": "admin",
     "siebel_admin": "siebel_admin"
   },
   "nodes": [
@@ -32,98 +32,98 @@
       "label": ""
     },
     {
-      "id": "sess_lead_creator",
+      "id": "sess_requester",
       "type": "session",
-      "label": "Salesforce · lead_creator",
+      "label": "Salesforce · requester",
       "system": "sf",
-      "actor": "lead_creator"
+      "actor": "requester"
     },
     {
-      "id": "lead",
+      "id": "request",
       "type": "data",
-      "label": "Lead record",
+      "label": "Request record",
       "expects": [
         {
-          "id": "check_lead_record_is_created",
+          "id": "check_request_record_is_created",
           "after": "e_do_1",
           "draft": true,
           "note": "draft from ADO — confirm once (planner: draft? button)",
           "kind": "api.record_exists",
-          "target": "Lead"
+          "target": "Case"
         }
       ]
     },
     {
-      "id": "sess_lead_approver",
+      "id": "sess_reviewer",
       "type": "session",
-      "label": "Salesforce · lead_approver",
+      "label": "Salesforce · reviewer",
       "system": "sf",
-      "actor": "lead_approver"
+      "actor": "reviewer"
     },
     {
       "id": "scr_1",
       "type": "screen",
-      "label": "progress the lead to potential lead",
+      "label": "triage the request",
       "expects": [
         {
-          "id": "check_toast_shows_lead_updat",
+          "id": "check_toast_shows_request_upd",
           "after": "e_do_2",
           "draft": true,
           "note": "draft from ADO — confirm once (planner: draft? button)",
           "kind": "ui.toast",
-          "value": "Lead updated"
+          "value": "Request updated"
         }
       ]
     },
     {
-      "id": "sess_credit_approver",
+      "id": "sess_risk_reviewer",
       "type": "session",
-      "label": "Salesforce · credit_approver",
+      "label": "Salesforce · risk_reviewer",
       "system": "sf",
-      "actor": "credit_approver"
+      "actor": "risk_reviewer"
     },
     {
       "id": "scr_2",
       "type": "screen",
-      "label": "do the credit check",
+      "label": "do the risk check",
       "expects": [
         {
-          "id": "check_credit_check_screen_sho",
+          "id": "check_risk_check_screen_shows",
           "after": "e_do_3",
           "draft": true,
           "note": "draft from ADO — confirm once (planner: draft? button)",
           "kind": "ui.text",
-          "value": "Credit check screen shows Approved"
+          "value": "Risk check screen shows Approved"
         }
       ]
     },
     {
-      "id": "sess_salesforce_user",
+      "id": "sess_fulfiller",
       "type": "session",
-      "label": "Salesforce · salesforce_user",
+      "label": "Salesforce · fulfiller",
       "system": "sf",
-      "actor": "salesforce_user"
+      "actor": "fulfiller"
     },
     {
-      "id": "customer",
+      "id": "order",
       "type": "data",
-      "label": "Customer record",
+      "label": "Order record",
       "expects": [
         {
-          "id": "check_customer_record_is_crea",
+          "id": "check_order_record_is_created",
           "after": "e_do_4",
           "draft": true,
           "note": "draft from ADO — confirm once (planner: draft? button)",
           "kind": "api.record_exists",
-          "target": "Customer"
+          "target": "Order"
         },
         {
-          "id": "check_customer_record_exists",
+          "id": "check_order_record_exists",
           "after": "e_do_5",
           "draft": true,
           "note": "draft from ADO — confirm once (planner: draft? button)",
           "kind": "api.record_exists",
-          "target": "Customer"
+          "target": "Order"
         }
       ]
     },
@@ -144,81 +144,81 @@
     {
       "id": "e_login_1",
       "from": "start",
-      "to": "sess_lead_creator",
+      "to": "sess_requester",
       "type": "login_as"
     },
     {
       "id": "e_do_1",
-      "from": "sess_lead_creator",
-      "to": "lead",
+      "from": "sess_requester",
+      "to": "request",
       "type": "does",
-      "label": "create a lead",
+      "label": "create a request",
       "data": {
-        "catalog": "lead.create"
+        "catalog": "request.create"
       }
     },
     {
       "id": "e_login_2",
-      "from": "sess_lead_creator",
-      "to": "sess_lead_approver",
+      "from": "sess_requester",
+      "to": "sess_reviewer",
       "type": "login_as"
     },
     {
       "id": "e_do_2",
-      "from": "sess_lead_approver",
+      "from": "sess_reviewer",
       "to": "scr_1",
       "type": "does",
-      "label": "progress the lead to potential lead",
+      "label": "triage the request",
       "data": {
-        "catalog": "lead.progress"
+        "catalog": "request.triage"
       }
     },
     {
       "id": "e_login_3",
-      "from": "sess_lead_approver",
-      "to": "sess_credit_approver",
+      "from": "sess_reviewer",
+      "to": "sess_risk_reviewer",
       "type": "login_as"
     },
     {
       "id": "e_do_3",
-      "from": "sess_credit_approver",
+      "from": "sess_risk_reviewer",
       "to": "scr_2",
       "type": "does",
-      "label": "do the credit check",
+      "label": "do the risk check",
       "data": {
         "catalog": "scr_2.do"
       }
     },
     {
       "id": "e_login_4",
-      "from": "sess_credit_approver",
-      "to": "sess_salesforce_user",
+      "from": "sess_risk_reviewer",
+      "to": "sess_fulfiller",
       "type": "login_as"
     },
     {
       "id": "e_do_4",
-      "from": "sess_salesforce_user",
-      "to": "customer",
+      "from": "sess_fulfiller",
+      "to": "order",
       "type": "does",
-      "label": "approve to customer",
+      "label": "approve to order",
       "data": {
-        "catalog": "customer.approve"
+        "catalog": "order.approve"
       }
     },
     {
       "id": "e_login_5",
-      "from": "sess_salesforce_user",
+      "from": "sess_fulfiller",
       "to": "sess_siebel_admin",
       "type": "login_as"
     },
     {
       "id": "e_do_5",
       "from": "sess_siebel_admin",
-      "to": "customer",
+      "to": "order",
       "type": "does",
-      "label": "check the customer is created",
+      "label": "check the order is created",
       "data": {
-        "catalog": "customer.check"
+        "catalog": "order.check"
       }
     },
     {

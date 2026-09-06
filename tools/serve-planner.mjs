@@ -311,8 +311,12 @@ if (isMain) {
   /** Shape of /__library; bump when a field's meaning changes. */
   const LIBRARY_VERSION = 1;
 
-  /** One graph file → its library row. An unreadable or invalid graph is
-   *  LISTED with its errors — a file you cannot see is a file you cannot fix. */
+  /** One graph file → its library row, DOCUMENT INCLUDED. The page keeps
+   *  the document to open a graph, and the build no longer inlines project
+   *  graphs (customer material) into the committed planner.html — the served
+   *  planner gets every document from here, fresh per call. An unreadable or
+   *  invalid graph is LISTED with its errors — a file you cannot see is a
+   *  file you cannot fix. */
   function libraryEntry(file, relFile, project) {
     const fallbackId = basename(file).replace(/\.graph\.json$/, '');
     const row = { ref: project ? `${project}/${fallbackId}` : fallbackId, id: fallbackId, title: '', tags: [], sessions: 0, captured: 0, file: relFile };
@@ -332,6 +336,7 @@ if (isMain) {
       sessions: sessions.length,
       captured: sessions.filter((n) => n.steps && n.steps.status === 'captured').length,
       file: relFile,
+      doc,
       ...(v.ok ? {} : { invalid: v.errors }),
     };
   }

@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
+import { injectLibrary } from '../helpers/plannerLibrary';
 
 const ROOT = path.resolve(__dirname, '../..');
 const PLANNER = pathToFileURL(path.join(ROOT, 'tools/planner.html')).href;
@@ -201,10 +202,11 @@ test.describe('file://', () => {
     await boot(page, PLANNER);
     const served = await page.evaluate(() => (window as unknown as PlannerWindow).P2.net.served());
     expect(served).toBe(false);
-    // any built-in graph that is complete
+    // journeys/graphs/ ships empty: hand the page the SoD sample and open it
+    await injectLibrary(page);
     const opened = await page.evaluate(() => {
       const w = window as unknown as PlannerWindow;
-      return w.planner.openFromLibrary('lead_to_customer');
+      return w.planner.openFromLibrary('expense_to_siebel');
     });
     expect(opened).toBe(true);
     const run = page.locator('#strip #b_run1');

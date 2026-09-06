@@ -89,8 +89,18 @@
     return getJson('/__library').then(function (j) {
       var local = localLibrary();
       if (j && j.ok) {
-        // The server is the truth about WHICH graphs exist; the inlined copy
-        // is the only place the whole document lives, so suites fall back.
+        // The server is the truth about WHICH graphs exist AND, since the
+        // build stopped inlining project graphs (customer material) into
+        // planner.html, about what each one says: every row carries `doc`,
+        // and that is what openFromLibrary opens. Suites still fall back.
+        window.GRAPH_LIBRARY = window.GRAPH_LIBRARY || {};
+        var groups = (j.projects || []).map(function (p) { return p.graphs || []; }).concat([j.legacy || []]);
+        for (var gi = 0; gi < groups.length; gi++) {
+          for (var ri = 0; ri < groups[gi].length; ri++) {
+            var row = groups[gi][ri];
+            if (row && row.doc && row.ref) window.GRAPH_LIBRARY[row.ref] = row.doc;
+          }
+        }
         state.library = { version: j.version, projects: j.projects || [], legacy: j.legacy || [], suites: j.suites || local.suites };
       } else {
         state.library = local;

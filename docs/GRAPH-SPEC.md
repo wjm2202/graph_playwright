@@ -51,8 +51,8 @@ that looks like a URL with credentials, or an inline secret, is rejected.
 ```jsonc
 {
   "schema": "process-graph/2",
-  "id": "lead_to_customer",
-  "title": "Lead → customer, replicated to Siebel",   // optional
+  "id": "request_to_fulfilment",
+  "title": "Request → fulfilment, replicated to the ERP", // optional
   "systems": { "<key>": SystemDef, ... },
   "actors":  { "<alias>": "<personaId>", ... },       // alias → personas.json id
   "nodes":   [ PNode, ... ],
@@ -103,8 +103,8 @@ never names an account or an env var — only the role.
 Two readings of an ADO pre-req like *"Personas who can perform this
 action: Client Associate, Client Lead, BDM…"*. The DEFAULT reading is a
 **chain of hand-overs** — the role names say what each does, so model one
-session per persona in process order (`lead_to_customer` is the reference:
-creator → approver → credit check → customer approver). Only when the list
+session per persona in process order (`tests/fixtures/graphs/request_to_fulfilment.graph.json`
+is the reference: requester → reviewer → risk reviewer → fulfiller). Only when the list
 means "any ONE of these may do it" is it a **permission claim** — then ONE
 session bound to the first persona plus the matrix:
 

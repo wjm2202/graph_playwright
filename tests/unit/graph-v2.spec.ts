@@ -12,16 +12,18 @@ import { upgradeGraph } from '../../src/graph/upgrade';
 import { toJourney } from '../../src/graph/toJourney';
 import { loadGraphFile } from '../../src/graph/resolve';
 import { legacyGraphV1, goodGraphV2 } from '../helpers/sampleGraph';
+import { loadFixture } from '../helpers/fixtures';
 
 const PERSONAS = ['admin', 'sales_user', 'portal_user', 'guest', 'siebel_admin'];
 
 test.describe('v2 validation', () => {
-  test('the v2 sample and the shipped seed are valid and identical (drift guard)', () => {
+  test('the v2 sample is valid and survives the disk round trip (it is the SoD fixture — nothing ships in journeys/graphs/)', () => {
     expect(validateGraph(goodGraphV2()).errors).toEqual([]);
-     
-    const shipped = require(path.resolve(__dirname, '../../journeys/graphs/expense_to_siebel.graph.json'));
-    expect(validateGraph(shipped).errors).toEqual([]);
-    expect(shipped).toEqual(goodGraphV2());
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'graph-v2-'));
+    const file = path.join(dir, 'expense_to_siebel.graph.json');
+    fs.writeFileSync(file, JSON.stringify(goodGraphV2(), null, 2));
+    expect(loadGraphFile(file)).toEqual(goodGraphV2());
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   test('v2 rules: session lane, login_as target, does naming, denied capability', () => {
@@ -169,9 +171,8 @@ test.describe('v1 → v2 upgrade', () => {
   });
 });
 
-test.describe('lead_to_customer (shipped, owner-dictated)', () => {
-   
-  const leadGraph = () => require(path.resolve(__dirname, '../../journeys/graphs/lead_to_customer.graph.json'));
+test.describe('request_to_fulfilment (the multi-stage fixture)', () => {
+  const leadGraph = () => loadFixture('request_to_fulfilment');
    
   const personaIds = () => Object.keys(require(path.resolve(__dirname, '../../personas.json')).personas);
 
@@ -183,45 +184,44 @@ test.describe('lead_to_customer (shipped, owner-dictated)', () => {
 
   test('walks into the multi-role journey with per-state oracles and the Siebel policy', () => {
     const r = toJourney(leadGraph(), { personaIds: personaIds() });
-    // Budgets/oracles below reflect the 2026-09-01 grillme session (owner-
-    // answered): SF writes are synchronous (explicit 10s), the Siebel record
-    // is proven on-screen (DB not queryable), endpoint_traffic confirmed.
+    // Budgets/oracles mirror a grillme-answered graph: SF writes are
+    // synchronous (explicit 10s), the second-system record is proven
+    // on-screen (DB not queryable), endpoint_traffic confirmed.
     expect(r.journey.steps).toEqual([
       {
-        actor: 'lead_creator', do: 'lead.create', with: { produce: 'lead', sobject: 'Lead' },
-        expect: { expects: [{ id: 'lead_created', kind: 'api.record_exists', target: 'Lead', note: 'lead row persisted', timeoutMs: 10_000 }] },
+        actor: 'requester', do: 'request.create', with: { produce: 'request', sobject: 'Case' },
+        expect: { expects: [{ id: 'request_created', kind: 'api.record_exists', target: 'Case', note: 'request row persisted', timeoutMs: 10_000 }] },
       },
       {
-        actor: 'lead_approver', do: 'lead.progress_to_potential', with: { record: '{ref:lead.id}' },
-        expect: { expects: [{ id: 'lead_potential', kind: 'api.field_equals', target: 'Lead', value: 'Status=Potential', note: 'progressed by the approver', timeoutMs: 10_000 }] },
+        actor: 'reviewer', do: 'request.triage', with: { record: '{ref:request.id}' },
+        expect: { expects: [{ id: 'request_triaged', kind: 'api.field_equals', target: 'Case', value: 'Status=Triaged', note: 'triaged by the reviewer', timeoutMs: 10_000 }] },
       },
       {
-        actor: 'credit_approver', do: 'credit.check', with: { record: '{ref:lead.id}' },
-        expect: { expects: [{ id: 'credit_approved', kind: 'api.field_equals', target: 'Lead', value: 'Credit_Status__c=Approved', note: 'credit check outcome persisted', timeoutMs: 10_000 }] },
+        actor: 'risk_reviewer', do: 'risk.check', with: { record: '{ref:request.id}' },
+        expect: { expects: [{ id: 'risk_approved', kind: 'api.field_equals', target: 'Case', value: 'Risk_Status__c=Approved', note: 'risk check outcome persisted', timeoutMs: 10_000 }] },
       },
       {
-        actor: 'customer_approver', do: 'lead.approve_to_customer', with: { produce: 'customer', sobject: 'Account' },
+        actor: 'fulfiller', do: 'request.fulfil', with: { produce: 'order', sobject: 'Order' },
         expect: {
           expects: [
-            { id: 'customer_created', kind: 'api.record_exists', target: 'Account', note: 'conversion produced the customer account', timeoutMs: 10_000 },
-            { id: 'conversion_toast', kind: 'ui.toast', value: 'converted', note: 'UI confirms the conversion' },
+            { id: 'order_created', kind: 'api.record_exists', target: 'Order', note: 'fulfilment produced the order', timeoutMs: 10_000 },
+            { id: 'fulfilment_toast', kind: 'ui.toast', value: 'fulfilled', note: 'UI confirms the fulfilment' },
           ],
         },
       },
       {
-        // The Siebel copy is created by the API integration, never by a step: no id
-        // reaches the run, so the step locates it by business key (label + SObject).
-        actor: 'siebel_admin', do: 'siebel.check_customer', with: { record: 'Customer record (Siebel)', sobject: 'Customer' },
-        expect: { expects: [{ id: 'customer_visible_in_ui', kind: 'ui.text', value: 'E2E_', note: 'siebel_admin sees the E2E-prefixed customer name in the Siebel UI (DB not queryable — verify via UI)' }] },
+        // The second-system copy is created by the API integration, never by a
+        // step: no id reaches the run, so the step locates it by business key.
+        actor: 'siebel_admin', do: 'siebel.check_order', with: { record: 'Order record (second system)', sobject: 'Order' },
+        expect: { expects: [{ id: 'order_visible_in_ui', kind: 'ui.text', value: 'E2E_', note: 'siebel_admin sees the E2E-prefixed order name in the second system UI (DB not queryable — verify via UI)' }] },
       },
       {
-        actor: 'siebel_admin', do: 'assert.chk_customer',
-        // Async replication: the Siebel oracle POLLS — 2 min budget, 5s interval.
-        // Plus the (grillme-confirmed) gateway-log check: did traffic actually
-        // hit create_customer_v2?
+        actor: 'siebel_admin', do: 'assert.chk_order',
+        // Async replication: the oracle POLLS — 2 min budget, 5s interval — plus
+        // the gateway-log check: did traffic actually hit create_order_v2?
         expect: { expects: [
-          { id: 'customer_in_siebel', kind: 'api.record_exists', target: 'Customer', note: 'in Siebel = pass; missing = the SF→Siebel integration failed', timeoutMs: 120_000, pollMs: 5000 },
-          { id: 'endpoint_traffic', kind: 'log.traffic', target: 'log_gateway', value: 'create_customer_v2', timeoutMs: 60_000, pollMs: 5000, note: 'draft — confirm the log system + search term' },
+          { id: 'order_in_siebel', kind: 'api.record_exists', target: 'Order', note: 'in Siebel = pass; missing = the SF→Siebel integration failed', timeoutMs: 120_000, pollMs: 5000 },
+          { id: 'endpoint_traffic', kind: 'log.traffic', target: 'log_gateway', value: 'create_order_v2', timeoutMs: 60_000, pollMs: 5000, note: 'draft — confirm the log system + search term' },
         ] },
       },
     ]);
@@ -233,11 +233,11 @@ test.describe('lead_to_customer (shipped, owner-dictated)', () => {
 
   test('expectation validation: kinds, requirements, uniqueness, results', () => {
     const g = leadGraph();
-    const lead = g.nodes.find((n: { id: string }) => n.id === 'lead');
-    lead.expects.push({ id: 'lead_created', kind: 'ui.wizardry' }); // dup id + bad kind
-    lead.expects.push({ id: 'no_target', kind: 'api.record_exists' });
-    lead.expects.push({ id: 'no_value', kind: 'ui.text', target: 'x' });
-    lead.expects.push({ id: 'bad_result', kind: 'ui.visible', target: 'x', lastResult: { status: 'meh', at: 'now' } });
+    const lead = g.nodes.find((n) => n.id === 'request')!;
+    lead.expects!.push({ id: 'request_created', kind: 'ui.wizardry' } as never); // dup id + bad kind
+    lead.expects!.push({ id: 'no_target', kind: 'api.record_exists' } as never);
+    lead.expects!.push({ id: 'no_value', kind: 'ui.text', target: 'x' } as never);
+    lead.expects!.push({ id: 'bad_result', kind: 'ui.visible', target: 'x', lastResult: { status: 'meh', at: 'now' } } as never);
     const r = validateGraph(g);
     expect(r.errors.join()).toContain('duplicate expectation id');
     expect(r.errors.join()).toContain('ui.visible|ui.text|ui.toast|ui.url|api.record_exists|api.field_equals');

@@ -5,7 +5,7 @@ const errs=[]; page.on('pageerror',(e)=>errs.push(e.message)); page.on('dialog',
 const snap=async(name)=>{ n++; await page.screenshot({path:`${OUT}/${String(n).padStart(2,'0')}-${name}.png`}); };
 await page.goto('http://127.0.0.1:8765/planner.html'); await page.waitForFunction(()=>!!window.planner && window.planner.version==='planner/2', undefined, {timeout:60000});
 await page.waitForTimeout(800); await snap('boot');
-await page.evaluate(()=>window.planner.openFromLibrary('lead_to_customer')); await page.waitForTimeout(800); await snap('lead-split');
+await page.evaluate(()=>window.planner.openFromLibrary(Object.keys(window.GRAPH_LIBRARY)[0])); await page.waitForTimeout(800); await snap('lead-split');
 console.log('lines:', await page.evaluate(()=>{ const l=P2.view.lines(P2.state.doc); return Array.isArray(l)? l.length : Object.keys(l).join(','); }));
 await page.click('[role=tab][data-tab="canvas"]'); await page.waitForTimeout(600); await snap('lead-canvas');
 const lane = await page.locator('#cy').boundingBox(); 

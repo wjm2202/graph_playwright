@@ -77,10 +77,13 @@ writes `.auth/<persona>.json`; subsequent runs attach in ~100ms.
 
 ## 5. Run the reference journey (when step catalog lands for your org)
 
-`journeys/expense_approval_sod.json` is the shipped segregation-of-duties
-reference. Its step-catalog entries (`expense.submit/approve/verify`) bind to
-YOUR org's actual objects — that wiring session is the next piece of real-org
-work, and recording (design doc §7) will generate most of it.
+No journey ships in `journeys/` — real processes are customer material and
+live under the gitignored `projects/<name>/`. The segregation-of-duties
+reference the suite runs on is the in-code sample `goodGraphV2()`
+(tests/helpers/sampleGraph.ts); its step-catalog entries
+(`expense.submit/approve/verify`) bind to YOUR org's actual objects — that
+wiring session is the next piece of real-org work, and recording (design doc
+§7) will generate most of it.
 
 ## Troubleshooting
 
