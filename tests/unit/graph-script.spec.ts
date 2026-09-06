@@ -17,12 +17,16 @@ import { parseScript, printScript, catalogOf } from '../../src/graph/script';
 import { loginChain } from '../../src/graph/compose';
 import { validateGraph, type Expectation, type PEdge, type PNode, type ProcessGraph } from '../../src/graph/schema';
 
-const SHIPPED = [
+const TRACKED = [
   'journeys/graphs/expense_to_siebel.graph.json',
   'journeys/graphs/lead_to_customer.graph.json',
   'journeys/graphs/lead_to_customer_via_ado.graph.json',
-  'projects/salesforce/graphs/o2a_tc01_prospect_to_customer.graph.json',
 ];
+// Project graphs are customer material — `projects/*` is gitignored, so they
+// exist on a developer's machine but never on the CI runner. They are checked
+// wherever they are present and skipped (not failed) where they are not.
+const LOCAL = ['projects/salesforce/graphs/o2a_tc01_prospect_to_customer.graph.json'];
+const SHIPPED = [...TRACKED, ...LOCAL.filter((f) => fs.existsSync(path.resolve(f)))];
 
 function load(file: string): ProcessGraph {
   return JSON.parse(fs.readFileSync(path.resolve(file), 'utf8')) as ProcessGraph;
@@ -117,7 +121,9 @@ for (const file of SHIPPED) {
 
 test('printScript names exactly what it could not express, per shipped graph', () => {
   const dropped = Object.fromEntries(SHIPPED.map((f) => [path.basename(f, '.graph.json'), printScript(load(f)).dropped]));
-  expect(dropped).toEqual({
+  const present = new Set(SHIPPED.map((f) => path.basename(f, '.graph.json')));
+  const expected = (all: Record<string, string[]>) => Object.fromEntries(Object.entries(all).filter(([k]) => present.has(k)));
+  expect(dropped).toEqual(expected({
     expense_to_siebel: [
       'edge data.deltaMs: e5',
       'edge label: e2, e3, e5, e7',
@@ -159,7 +165,7 @@ test('printScript names exactly what it could not express, per shipped graph', (
       'node pos: start, sess_sf_client_associate, sess_sf_client_lead, sess_sf_bdm, sess_sf_billing_collections, sess_sf_business_admin, lead, account, credit_disclosure, credit_profile, case, chk_emails, end',
       'session label: sess_sf_client_associate, sess_sf_client_lead, sess_sf_bdm, sess_sf_billing_collections, sess_sf_business_admin',
     ],
-  });
+  }));
 });
 
 // ---------- the two worked examples ----------
