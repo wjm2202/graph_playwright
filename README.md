@@ -26,9 +26,15 @@ artifact to keep in sync.
 ```bash
 npm install
 npx playwright install chromium
+brew install ffmpeg           # optional: stitches multi-persona run videos into one cut (Linux: apt install ffmpeg)
 npm test                      # unit + harness — green with NO org, no .env
-npm run planner               # the Journey Script Planner on http://127.0.0.1:8765
+npm run test:studio           # the bundled Journey Studio's own suite (ffmpeg tests skip without it)
+npm run planner               # the Journey Script Planner on http://127.0.0.1:8765 — Journey Studio is at /studio/
 ```
+
+Journey Studio — the run reviewer (video, steps, API calls per step) — is
+bundled in `tools/studio/` and served by the planner itself. There is nothing
+else to clone or install.
 
 To run against a real org: `cp .env.example .env`, fill it (see
 [SETUP-REAL-ORG.md](SETUP-REAL-ORG.md)), then let the doctor tell you exactly
@@ -347,6 +353,53 @@ with auto-rebuild and live reload while you develop it. It edits the *same*
   one-session-at-a-time is a `maxConcurrent` policy; the Cast evicts by
   logging out (LRU) and keeps an audit trail.
 
+### Reviewing a run — Journey Studio
+
+Press **Run this graph** in the planner's check strip (it appears once the
+strip reads `0 must fix · 0 to finish`). What happens:
+
+1. A tab opens at once saying *running…* (it is opened by your click, so no
+   popup blocker gets in the way) while the strip shows *running… →
+   ingesting…*.
+2. The planner runs the same `node bin/sfpw.mjs suite graph:<ref>` a
+   terminal would, with video and a full trace on for every persona session.
+3. Journey Studio ingests `test-results/` into `studio/guides/<run>/` and the
+   tab lands on that graph's review: `/studio/studio.html?batch=…&slug=…`.
+4. The strip shows one pill per test — green/red by its own outcome, each a
+   link to its page — plus *dashboard ↗* (the whole run) and *open review ↗*.
+
+On the review page: the video plays at human pace and scrubs (HTTP Range);
+the step list is mined from the trace (actions, "user sees", API calls,
+console); a failed run has a red **FAILED — <error>** banner above the video
+— the footage is the failing attempt, and the last step is where it stopped.
+Multi-persona graphs are ONE cut that follows whoever is acting (the gap
+before a step shows the next actor logging in); without `ffmpeg` you get the
+first persona's recording instead. Tick or untick *open review* to change
+whether Run opens the tab; the choice is remembered per browser.
+
+Suites work the same way from the library rail: tick suites, press **Run**,
+one pill per graph.
+
+Nothing here touches git: `test-results/` and `studio/` are ignored, and
+each run is its own batch (`run-<date>-<time>-<spec>`), so earlier reviews
+survive later runs. Runs are one at a time (Playwright wipes `test-results/`
+on start) and in CI video stays off. Housekeeping: the dashboard's *remove*
+moves a batch to `studio/guides/_to_delete/`; empty that folder yourself.
+
+The same thing without the planner:
+
+```bash
+npx sfpw suite graph:crm/create_customer          # video + trace + results.json land in test-results/
+npm run studio:ingest -- --batch first-look       # → studio/guides/first-look/
+npm run studio                                    # standalone on http://127.0.0.1:8777 (optional — the planner already serves /studio/)
+```
+
+Knobs, all optional (`.env.example`): `JOURNEY_STUDIO_OUT` (where batches
+land, default `studio/guides`) and `JOURNEY_STUDIO_BIN` (the ingest CLI —
+the bundled copy by default). Design and status:
+[docs/SCOPE-JOURNEY-STUDIO-INTEGRATION.md](docs/SCOPE-JOURNEY-STUDIO-INTEGRATION.md);
+what is bundled and how to refresh it: [tools/studio/VENDOR.md](tools/studio/VENDOR.md).
+
 ### Assertions that fit real systems
 
 - **Four oracle families** — `ui.*` (visible / text / toast / url) watch the
@@ -449,7 +502,10 @@ The rest is still npm:
 | Command | What it does |
 |---|---|
 | `npm test` | unit + harness suites (no org needed) |
-| `npm run planner` | the Journey Script Planner — the graph as a numbered script beside a lane canvas; live-reload, env-status dots, editable env wiring (`tools/planner.html`) |
+| `npm run planner` | the Journey Script Planner — the graph as a numbered script beside a lane canvas; live-reload, env-status dots, editable env wiring (`tools/planner.html`). Serves Journey Studio at `/studio/` and runs graphs from the **Run** button |
+| `npm run studio:ingest` | `-- --batch <id>` — ingest the last `test-results/` run (report, per-persona videos, trace) into `studio/guides/<id>/`, stitching multi-persona recordings into one cut; the planner's Run does this for you |
+| `npm run studio` | serve `studio/guides` standalone on http://127.0.0.1:8777 (optional — the planner already serves it at `/studio/`) |
+| `npm run test:studio` | the bundled Journey Studio's own test suite (`tools/studio/test/`) |
 | `npm run build:planner` | rebuild that single file from `tools/planner-v2/` (a maintainer step; the output is committed) |
 | `npm run project:new` | `-- <name> [--team "…"]` — scaffold a team-named project under `projects/` (also in the planner: New ▾ → ＋ new project…) |
 | `npm run labour` | scaffold→first-green wall clock per process |
@@ -478,7 +534,9 @@ tests/
 tools/
   planner-v2/          the planner's source: index.html, style.css, js/*.js (one IIFE per module)
   build-planner.mjs    inlines the libraries + the shared src/graph modules → tools/planner.html (committed)
-  serve-planner.mjs    the dev server: the planner at /, the /__ routes, live reload
+  serve-planner.mjs    the dev server: the planner at /, the /__ routes (incl. /__run), Journey Studio mounted at /studio/, live reload
+  studio/              Journey Studio, vendored (MIT): bin/ lib/ web/ test/ — see tools/studio/VENDOR.md
+studio/guides/         ingested runs for review — one batch per run (gitignored, regenerable)
 journeys/graphs/       the process graphs — the living plan/test/report artifacts
 journeys/evidence/     their run screenshots, `<graph_id>/<runId>/<node>.jpg` (a
                        project graph's live in projects/<p>/evidence/ instead)

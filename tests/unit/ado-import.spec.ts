@@ -92,7 +92,7 @@ test.describe('adoCaseToGraph', () => {
     expect(all.every((x) => x.draft === true)).toBe(true);
     // The note is the Step Expected cell VERBATIM (the human phrasing of the
     // acceptance criterion) — never a placeholder that loses the wording.
-    expect(all.every((x) => x.note && x.note.length > 0 && !/^draft from/.test(x.note))).toBe(true);
+    expect(all.every((x) => x.note && x.note.length > 0 && !x.note.startsWith('draft from'))).toBe(true);
     expect(all.some((x) => x.note === 'Lead record is created and saved')).toBe(true);
 
     // 'Lead record is created and saved' → api.record_exists on Lead:

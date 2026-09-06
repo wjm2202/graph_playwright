@@ -24,6 +24,7 @@ it describes may since have been replaced, and each file says so at the top.
 | [SPRINT-PLAN-PLANNER-V2.md](SPRINT-PLAN-PLANNER-V2.md) | The four sprints that retired the first planner and the v1 graph form and shipped the Journey Script Planner, `sfpw` and suites — each sprint's deliverables, tests and outcome |
 | [REVIEW-SIMPLIFICATION-2026-09-03.md](REVIEW-SIMPLIFICATION-2026-09-03.md) | The code-complexity review that produced that plan: what was accretion, what was essential, the measured cost of the old authoring flow, and the script-first design |
 | [SPRINT-RECORDER-PIPELINE.md](SPRINT-RECORDER-PIPELINE.md) | The recorder sprint: record → distill → generate → run |
+| [SCOPE-JOURNEY-STUDIO-INTEGRATION.md](SCOPE-JOURNEY-STUDIO-INTEGRATION.md) | Run → review: the planner's Run button, the Journey Studio link contract (`/studio/studio.html?batch=…&slug=…`), per-persona video and the one-cut stitch, why the studio is vendored and mounted rather than a second process; §8 is the hands-on checklist |
 
 ## Design history — why things are the shape they are
 
