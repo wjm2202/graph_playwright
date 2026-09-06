@@ -29,6 +29,8 @@ import { fillLoginForm } from '../auth/loginForm';
 import { GUEST_STATE, sessionFreshness, sessionMaxAgeMs } from '../auth/storage';
 import { totpNow } from '../auth/totp';
 import { handleTotpChallenge } from '../auth/totp-challenge';
+import { collectVideos, videoPolicy, videoSize } from '../studio/video';
+import type { PersonaVideo, VideoOption } from '../studio/video';
 
 export interface CastOptions {
   registry?: PersonaRegistry;
@@ -46,6 +48,16 @@ export interface CastOptions {
   /** Per-system session limits (derive from a process graph via
    *  sessionPoliciesFromGraph, or hand-build). */
   sessionPolicies?: SessionPolicies;
+  /**
+   * Record one video per persona session under `<videoDir>/<persona>/`.
+   * Playwright never records manually created contexts (src/studio/video.ts),
+   * so Cast does it: the `cast` fixture sets this from the `video` option and
+   * attaches the files after teardown. Authenticators must build contexts
+   * from `cast.contextOptionsFor(persona)` for this to take effect.
+   */
+  videoDir?: string;
+  /** recordVideo frame size; Playwright's default when omitted. */
+  videoSize?: { width: number; height: number };
 }
 
 export type Authenticator = (
@@ -95,6 +107,12 @@ export class Cast {
   private readonly pages = new Map<string, Page>();
   private readonly lastUsed = new Map<string, number>();
   private touch = 0;
+  readonly videoDir?: string;
+  private readonly videoSize?: { width: number; height: number };
+  /** Personas in the order their FIRST session opened — the primary actor first. */
+  readonly sessionOrder: string[] = [];
+  /** Every page that recorded: its file and when it opened (videoManifest()). */
+  private readonly videoLog: Promise<PersonaVideo | null>[] = [];
 
   constructor(private readonly browser: Browser, opts: CastOptions = {}) {
     this.registry = opts.registry ?? PersonaRegistry.load();
@@ -102,7 +120,27 @@ export class Cast {
     this.env = opts.env ?? process.env;
     this.contextOptions = opts.contextOptions ?? {};
     if (opts.sessionPolicies !== undefined) this.sessionPolicies = opts.sessionPolicies;
+    if (opts.videoDir !== undefined) this.videoDir = opts.videoDir;
+    if (opts.videoSize !== undefined) this.videoSize = opts.videoSize;
     this.authenticator = opts.authenticator ?? defaultAuthenticator;
+  }
+
+  /**
+   * The options an authenticator must hand to `browser.newContext()` for
+   * this persona: the shared `contextOptions` plus, when video is on, a
+   * `recordVideo` dir of its own so the files can be attributed to the
+   * persona afterwards. Callers may still spread their own keys on top
+   * (the default ladder adds storageState).
+   */
+  contextOptionsFor(personaId: string): BrowserContextOptions {
+    if (!this.videoDir) return { ...this.contextOptions };
+    return {
+      ...this.contextOptions,
+      recordVideo: {
+        dir: path.join(this.videoDir, personaId),
+        ...(this.videoSize ? { size: this.videoSize } : {}),
+      },
+    };
   }
 
   /**
@@ -127,13 +165,51 @@ export class Cast {
     let context = this.contexts.get(personaId);
     if (!context) {
       await this.enforceSessionPolicy(personaId);
+      const openedAt = Date.now();
       context = await this.authenticator(personaId, this.browser, this);
       this.contexts.set(personaId, context);
+      if (!this.sessionOrder.includes(personaId)) this.sessionOrder.push(personaId);
+      // Video bookkeeping. A page the ladder already opened (UI login) started
+      // recording right after newContext — openedAt is within the context's
+      // own creation time of that. Pages opened from here on (the one below,
+      // popups) are stamped as they appear.
+      for (const p of context.pages()) this.registerVideo(personaId, p, openedAt);
+      context.on('page', (p) => {
+        this.registerVideo(personaId, p, Date.now());
+      });
     }
     const page = context.pages()[0] ?? (await context.newPage());
     this.pages.set(personaId, page);
     this.lastUsed.set(personaId, ++this.touch);
     return page;
+  }
+
+  /**
+   * Playwright names a page's video `<recordVideo.dir>/<page guid>.webm` and
+   * hands the client that path at page creation (page.video().path() resolves
+   * at once), so the file is known while the page is still alive; only its
+   * bytes finish on context close. No video option → page.video() is null.
+   */
+  private registerVideo(personaId: string, page: Page, openedAt: number): void {
+    const video = page.video();
+    if (!video) return;
+    this.videoLog.push(
+      video
+        .path()
+        .then((file): PersonaVideo => ({ persona: personaId, path: file, startedAt: openedAt }))
+        .catch(() => null),
+    );
+  }
+
+  /**
+   * Every recorded page, start order. Call after releaseAll() when the files
+   * are final; before that the paths are valid but the bytes are not.
+   */
+  async videoManifest(): Promise<PersonaVideo[]> {
+    const all = await Promise.all(this.videoLog);
+    return all
+      .filter((v): v is PersonaVideo => v !== null)
+      .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0));
   }
 
   /** Logout-to-comply: before opening a session on a limited system, release
@@ -220,7 +296,7 @@ export const defaultAuthenticator: Authenticator = async (personaId, browser, ca
   const def = registry.get(personaId);
 
   if (def.kind === 'guest') {
-    return browser.newContext({ ...cast.contextOptions, storageState: GUEST_STATE as never });
+    return browser.newContext({ ...cast.contextOptionsFor(personaId), storageState: GUEST_STATE as never });
   }
 
   const statePath = registry.statePathForPersona(personaId, workerIndex);
@@ -235,7 +311,7 @@ export const defaultAuthenticator: Authenticator = async (personaId, browser, ca
       sessionMaxAgeMs(env),
     );
     if (freshness.fresh) {
-      return browser.newContext({ ...cast.contextOptions, storageState: statePath });
+      return browser.newContext({ ...cast.contextOptionsFor(personaId), storageState: statePath });
     }
     // The ladder's decisions are exactly what you debug at 2am.
     console.log(`· session cache: ${freshness.reason}`);
@@ -243,7 +319,7 @@ export const defaultAuthenticator: Authenticator = async (personaId, browser, ca
 
   const creds = registry.resolveCreds(personaId, env, workerIndex);
   const domain = registry.authDomainFor(personaId, env);
-  const context = await browser.newContext(cast.contextOptions);
+  const context = await browser.newContext(cast.contextOptionsFor(personaId));
   const page = await context.newPage();
 
   try {
@@ -299,10 +375,48 @@ export const defaultAuthenticator: Authenticator = async (personaId, browser, ca
 import { test as lightningTest } from './test';
 
 export const test = lightningTest.extend<{ cast: Cast }>({
-  cast: async ({ browser }, use, testInfo) => {
-    const cast = new Cast(browser, { workerIndex: testInfo.parallelIndex });
+  // `video` is Playwright's own option (use: { video }) — read here because
+  // Playwright applies it only to its `context` fixture, never to the
+  // contexts Cast opens (src/studio/video.ts). Cast records per persona;
+  // after teardown every .webm is attached as `video`, primary actor first,
+  // plus a `videos` manifest naming the persona behind each file.
+  cast: async ({ browser, video }, use, testInfo) => {
+    const policy = videoPolicy(video as VideoOption, testInfo.retry);
+    const videoDir = policy.record ? testInfo.outputPath('videos') : undefined;
+    const size = videoSize(video as VideoOption);
+    const cast = new Cast(browser, {
+      workerIndex: testInfo.parallelIndex,
+      ...(videoDir ? { videoDir } : {}),
+      ...(size ? { videoSize: size } : {}),
+    });
     await use(cast);
-    await cast.releaseAll();
+    await cast.releaseAll(); // contexts closed → webm files are final
+    if (!videoDir) return;
+    if (!policy.keep(testInfo.status, testInfo.expectedStatus)) {
+      fs.rmSync(videoDir, { recursive: true, force: true });
+      return;
+    }
+    // Registered pages carry start times (the stitching contract); anything
+    // else found on disk (a page Playwright opened that we never saw) is
+    // still attached, after them, without a time.
+    const registered = (await cast.videoManifest()).filter((v) => fs.existsSync(v.path));
+    const seen = new Set(registered.map((v) => v.path));
+    const videos = [...registered, ...collectVideos(videoDir, cast.sessionOrder).filter((v) => !seen.has(v.path))];
+    for (const v of videos) {
+      await testInfo.attach('video', { path: v.path, contentType: 'video/webm' });
+    }
+    if (videos.length) {
+      await testInfo.attach('videos', {
+        body: JSON.stringify(
+          videos.map((v) => ({
+            persona: v.persona,
+            file: path.basename(v.path),
+            ...(v.startedAt !== undefined ? { startedAt: v.startedAt } : {}),
+          })),
+        ),
+        contentType: 'application/json',
+      });
+    }
   },
 });
 

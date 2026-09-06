@@ -327,6 +327,7 @@
       P2.net.refreshLibrary();
       P2.net.refreshEnv();
       P2.net.refreshPersonas();
+      P2.net.refreshRuns();
       resumeImport();
     }
   }

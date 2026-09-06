@@ -26,7 +26,10 @@
     "lint": "eslint .",
     "validate:encoding": "node L2/encoding/validate.mjs",
     "build:planner": "node tools/build-planner.mjs",
-    "planner": "node tools/serve-planner.mjs"
+    "planner": "node tools/serve-planner.mjs",
+    "studio": "node tools/studio/bin/journey-studio.mjs serve --dir studio/guides --no-open",
+    "studio:ingest": "node tools/studio/bin/journey-studio.mjs ingest --from test-results --out studio/guides --no-serve",
+    "test:studio": "node --test tools/studio/test/*.test.mjs"
   },
   "bin": {
     "sfpw": "bin/sfpw.mjs"

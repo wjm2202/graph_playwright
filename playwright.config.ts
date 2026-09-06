@@ -18,7 +18,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  // The json reporter is what Journey Studio ingests (docs/SCOPE-JOURNEY-
+  // STUDIO-INTEGRATION.md §3.1). It lands inside outputDir so a run and its
+  // report are wiped together. Cheap; applies to every project.
+  reporter: [['list'], ['html', { open: 'never' }], ['json', { outputFile: 'test-results/results.json' }]],
   expect: { timeout: 10_000 },
   use: {
     trace: 'on-first-retry',
@@ -47,6 +50,13 @@ export default defineConfig({
         baseURL: process.env.SF_INSTANCE_URL,
         // Trust the founding doc §6: generous expect timeouts absorb
         // Lightning's variable rendering; no fixed sleeps.
+        //
+        // Journey Studio needs a video and a full trace from PASSING runs
+        // (it mines the trace for steps when a test has no test.step). Local
+        // only — CI keeps the lean defaults. e2e is the only project that
+        // gets this: unit/harness stay unchanged.
+        video: process.env.CI ? 'off' : 'on',
+        trace: process.env.CI ? 'on-first-retry' : 'on',
       },
     },
   ],

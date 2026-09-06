@@ -76,6 +76,9 @@
     msel: [],
     /** sessionId → {id, status, tail} for in-flight `npm run record` runs. */
     recording: {},
+    /** run spec ('graph:<ref>' | suite names) → the latest /__run for it:
+     *  {id, batch, status, exitCode?, error?, tail, studio?} (in flight or last). */
+    runs: {},
   };
 
   var handlers = {};

@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { accountList, personaWiring } from './persona-wiring.mjs';
 import { listProjects, scaffoldProject } from './scaffold-project.mjs';
+import { createStudioHandler } from './studio/lib/serve.mjs';
 
 const requireCjs = createRequire(import.meta.url);
 /** Transpiled TypeScript this server runs: bridge name → [built js, source]. */
@@ -34,6 +35,7 @@ const BRIDGE = {
   evidence: ['graph/evidence.js', 'src/graph/evidence.ts'],
   personas: ['personas/schema.js', 'src/personas/schema.ts'],
   wiring: ['personas/wiring.js', 'src/personas/wiring.ts'],
+  studio: ['studio/slug.js', 'src/studio/slug.ts'],
 };
 /**
  * One of those modules, from tools/.planner-build/ (build-planner's
@@ -69,7 +71,7 @@ function transpileBridge(name, src, file) {
   if (!existsSync(file)) throw new Error(`${name} bridge not built — run npm run build:planner`);
 }
 /** What this server process can do — the page compares it with what it expects. */
-const SERVER_CAPABILITIES = { version: 7, imports: true, graphs: true, projects: true, personas: true, accounts: true, library: true, record: true, recordings: true, evidence: true };
+const SERVER_CAPABILITIES = { version: 8, imports: true, graphs: true, projects: true, personas: true, accounts: true, library: true, record: true, recordings: true, evidence: true, runs: true, studio: true };
 /** Persona ids from the data root's personas.json (draft-graph role binding hints). */
 function knownPersonas() {
   try {
@@ -470,6 +472,145 @@ if (isMain) {
     status: run.status, ...(run.exitCode === null ? {} : { exitCode: run.exitCode }), tail: run.tail,
   });
 
+  // ---- runs (M3, docs/SCOPE-JOURNEY-STUDIO-INTEGRATION.md §3.2) ---------
+  // POST /__run {ref} | {suite} → run the graph/suite with the SAME command a
+  // human types (`npx sfpw suite <spec>`), then hand `test-results/` to the
+  // vendored Journey Studio (`ingest --batch <id>`), then read what it made
+  // and turn it into links. One run at a time: Playwright wipes test-results/
+  // on start, so two runs would eat each other's report (409).
+  //
+  // A failing test is NOT a failed run — that is exactly what you review.
+  // `status` is about the machinery (did Playwright start, did ingest work);
+  // each test's own outcome rides in studio.tests[].outcome.
+  //
+  // PLANNER_RUN_CMD / PLANNER_INGEST_CMD replace the two commands (tests
+  // point them at scripts that write a fixture instead of driving an org).
+  // JOURNEY_STUDIO_BIN / _OUT / _URL are the user-facing knobs (.env.example).
+  const RUN_TAIL = 60;
+  const RUNS_KEEP = 50;
+  const runs = new Map();
+  let runSeq = 0;
+  const studioOut = resolve(dataRoot, process.env.JOURNEY_STUDIO_OUT || 'studio/guides');
+  const runsFile = join(dataRoot, 'studio', 'runs.json');
+  // Playwright's outputDir — PLANNER_TEST_RESULTS lets a test point the stub
+  // run at a sandbox instead of the repo's live folder.
+  const testResults = process.env.PLANNER_TEST_RESULTS ? resolve(process.env.PLANNER_TEST_RESULTS) : join(root, 'test-results');
+
+  function loadRuns() {
+    try {
+      const saved = JSON.parse(readFileSync(runsFile, 'utf8'));
+      for (const r of Array.isArray(saved) ? saved : []) {
+        // a run this process did not start can never finish — say so
+        if (r.status === 'running' || r.status === 'ingesting') { r.status = 'lost'; r.error = 'the planner restarted while this run was in flight'; }
+        runs.set(r.id, { ...r, tail: r.tail ?? [] });
+      }
+    } catch { /* no runs yet */ }
+  }
+  function saveRuns() {
+    const list = [...runs.values()].sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt))).slice(0, RUNS_KEEP);
+    try {
+      mkdirSync(dirname(runsFile), { recursive: true });
+      writeFileSync(runsFile, JSON.stringify(list.map(runStatus), null, 2));
+    } catch (e) { console.error(`✗ could not write ${runsFile}: ${e.message}`); }
+  }
+  const runStatus = (run) => ({
+    ok: true, id: run.id, spec: run.spec, batch: run.batch, startedAt: run.startedAt,
+    status: run.status, ...(run.exitCode === null || run.exitCode === undefined ? {} : { exitCode: run.exitCode }),
+    ...(run.error ? { error: run.error } : {}), ...(run.studio ? { studio: run.studio } : {}), tail: run.tail,
+  });
+
+  /** What Journey Studio made of the batch → links the page can render. */
+  function readStudioBatch(batch) {
+    const slug = bridge('studio');
+    let index = null;
+    try { index = JSON.parse(readFileSync(join(studioOut, 'index.json'), 'utf8')); } catch { return null; }
+    const entry = (index.batches ?? []).find((b) => b.id === batch);
+    if (!entry) return null;
+    let registry = {};
+    try { registry = JSON.parse(readFileSync(join(studioOut, batch, 'registry.json'), 'utf8')); } catch { /* no guides */ }
+    const tests = (entry.tests ?? []).map((t) => ({
+      ref: (t.slug && registry[t.slug] && registry[t.slug].journeyRef) || t.title,
+      title: t.title, outcome: t.outcome, durationMs: t.durationMs ?? 0,
+      ...(t.error ? { error: t.error } : {}),
+      ...(t.slug ? { slug: t.slug, url: slug.studioPath(batch, t.slug, STUDIO_PREFIX) } : {}),
+    }));
+    return { dashboard: slug.dashboardPath(batch, STUDIO_PREFIX), results: entry.results ?? null, tests };
+  }
+
+  function argvOf(envName, fallback) {
+    const argv = String(process.env[envName] || fallback).split(/\s+/).filter(Boolean);
+    if (!argv.length) throw new Error(`${envName} is empty — unset it to use the default`);
+    return argv;
+  }
+
+  function startRun(spec) {
+    const slug = bridge('studio');
+    const id = `run_${Date.now().toString(36)}_${++runSeq}`;
+    const batch = slug.batchId(spec);
+    const run = { id, spec, batch, startedAt: new Date().toISOString(), pid: 0, status: 'running', exitCode: null, error: '', studio: null, tail: [] };
+    const tail = (text) => {
+      for (const line of String(text).split('\n')) {
+        if (!line.trim()) continue;
+        run.tail.push(line);
+        if (run.tail.length > RUN_TAIL) run.tail.shift();
+      }
+    };
+    const finish = (status, error) => {
+      run.status = status;
+      if (error) { run.error = error; tail(`✗ ${error}`); }
+      saveRuns();
+    };
+    const ingest = () => {
+      if (!existsSync(join(testResults, 'results.json'))) { finish('failed', 'the run left no test-results/results.json — did Playwright start? (see tail)'); return; }
+      run.status = 'ingesting';
+      saveRuns();
+      let argv;
+      try { argv = argvOf('PLANNER_INGEST_CMD', process.env.JOURNEY_STUDIO_BIN || 'node tools/studio/bin/journey-studio.mjs'); }
+      catch (e) { finish('failed', e.message); return; }
+      const child = spawn(argv[0], [...argv.slice(1), 'ingest', '--from', testResults, '--out', studioOut, '--batch', batch, '--no-serve'], {
+        cwd: root, detached: false, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, RUN_BATCH: batch },
+      });
+      child.stdout.on('data', tail);
+      child.stderr.on('data', tail);
+      child.on('error', (e) => { finish('failed', `ingest spawn failed: ${e.message}`); });
+      child.on('close', (code) => {
+        if (code !== 0) { finish('failed', `journey-studio ingest exited ${code}`); return; }
+        run.studio = readStudioBatch(batch);
+        if (!run.studio) { finish('failed', `ingest finished but ${studioOut}/index.json has no batch '${batch}'`); return; }
+        finish('done');
+      });
+    };
+    let argv;
+    try { argv = argvOf('PLANNER_RUN_CMD', 'npx sfpw suite'); }
+    catch (e) { finish('failed', e.message); runs.set(id, run); return run; }
+    // detached:false — Ctrl+C on `npm run planner` takes the run with it.
+    const child = spawn(argv[0], [...argv.slice(1), spec], {
+      cwd: root, detached: false, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, RUN_SPEC: spec, RUN_BATCH: batch },
+    });
+    run.pid = child.pid ?? 0;
+    child.stdout.on('data', tail);
+    child.stderr.on('data', tail);
+    child.on('error', (e) => { finish('failed', `spawn failed: ${e.message}`); });
+    child.on('close', (code) => {
+      run.exitCode = code ?? -1;   // Playwright's exit code: ≠0 when a test failed — still ingested, that IS the review
+      if (run.status !== 'running') return;
+      ingest();
+    });
+    runs.set(id, run);
+    saveRuns();
+    return run;
+  }
+
+  // ---- Journey Studio, mounted ------------------------------------------
+  // The vendored studio's whole HTTP surface (pages, api, batch files, Range
+  // video) answers under /studio/ on THIS server: same origin, no second
+  // process, and a review link is just a link. The handler gets the path
+  // with the prefix stripped; its pages only ever use relative URLs.
+  const STUDIO_PREFIX = '/studio';
+  const studio = createStudioHandler({ root: studioOut, inbox: join(dataRoot, 'studio', 'inbox') });
+  mkdirSync(studioOut, { recursive: true });
+  loadRuns();
+
   const server = createServer((req, res) => {
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
     if (url.pathname === '/__reload') {
@@ -556,6 +697,58 @@ if (isMain) {
       const run = recordings.get(url.pathname.slice('/__record/'.length));
       if (!run) { sendJson(res, 404, { ok: false, error: 'no recording with that id (the server restarted?)' }); return; }
       sendJson(res, 200, recordStatus(run));
+      return;
+    }
+    // ---- runs → Journey Studio -------------------------------------------
+    // POST /__run {ref} | {suite} → 200 { ok, id, pid, spec, batch } · 409 when
+    // a run is in flight · 400 on nothing to run. GET /__run/<id> → status
+    // ('running'|'ingesting'|'done'|'failed'|'lost'), exitCode, tail, and when
+    // done `studio: { dashboard, results, tests:[{ref, outcome, slug?, url?, error?}] }`.
+    // GET /__runs → the last runs, newest first (survive a planner restart).
+    if (url.pathname === '/__run' && req.method === 'POST') {
+      readJson(req, 10_000).then((body) => {
+        try {
+          const ref = String(body.ref ?? '').trim();
+          const suite = String(body.suite ?? '').trim();
+          let spec;
+          if (ref) {
+            const target = findGraph(String(body.project ?? '').trim(), ref);
+            if (!target) throw new Error(`unknown graph '${ref}' — no graph with that ref`);
+            spec = `graph:${target.ref}`;
+          } else if (suite) {
+            if (!/^[A-Za-z0-9_,:./-]+$/.test(suite)) throw new Error(`suite spec '${suite}' has characters sfpw would not accept`);
+            spec = suite;
+          } else throw new Error('ref or suite: name what to run');
+          const live = [...runs.values()].find((r) => r.status === 'running' || r.status === 'ingesting');
+          if (live) { sendJson(res, 409, { ok: false, running: true, id: live.id, error: `'${live.spec}' is still ${live.status} — one run at a time (they share test-results/)` }); return; }
+          const run = startRun(spec);
+          sendJson(res, run.status === 'failed' ? 400 : 200, { ok: run.status !== 'failed', id: run.id, pid: run.pid, spec: run.spec, batch: run.batch, ...(run.error ? { error: run.error } : {}) });
+        } catch (e) { sendJson(res, 400, { ok: false, error: e.message }); }
+      }).catch((e) => sendJson(res, 400, { ok: false, error: e.message }));
+      return;
+    }
+    if (url.pathname.startsWith('/__run/') && req.method === 'GET') {
+      const run = runs.get(url.pathname.slice('/__run/'.length));
+      if (!run) { sendJson(res, 404, { ok: false, error: 'no run with that id' }); return; }
+      sendJson(res, 200, runStatus(run));
+      return;
+    }
+    if (url.pathname === '/__runs' && req.method === 'GET') {
+      const list = [...runs.values()].sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt))).slice(0, RUNS_KEEP);
+      sendJson(res, 200, { ok: true, studio: STUDIO_PREFIX, runs: list.map((r) => { const s = runStatus(r); delete s.tail; return s; }) });
+      return;
+    }
+    // ---- /studio/… → the mounted Journey Studio (pages, api, batches) ----
+    if (url.pathname === STUDIO_PREFIX) {
+      res.writeHead(301, { Location: `${STUDIO_PREFIX}/`, 'Cache-Control': 'no-store' });
+      res.end();
+      return;
+    }
+    if (url.pathname.startsWith(`${STUDIO_PREFIX}/`)) {
+      let rest;
+      try { rest = decodeURIComponent(url.pathname.slice(STUDIO_PREFIX.length)); }
+      catch { res.writeHead(400); res.end('bad path'); return; }
+      studio(req, res, rest).catch((e) => { try { sendJson(res, 500, { ok: false, error: e.message }); } catch { /* headers sent */ } });
       return;
     }
     if (url.pathname === '/__projects' && req.method === 'GET') {

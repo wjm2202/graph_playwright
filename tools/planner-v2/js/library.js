@@ -189,11 +189,31 @@
     });
     var chosen = Object.keys(picked).sort().join(',');
     if (!chosen) { box.textContent = 'tick a suite to run a group of graphs'; return; }
-    box.innerHTML = 'run locally, or paste into CI (same line):<code class="mono">npx sfpw suite ' + esc(chosen) + '</code>' +
-      '<div style="margin-top:6px"><button class="small primary" id="b_runsuite">Copy the ' + esc(chosen) + ' line</button></div>';
+    var served = P2.net.served();
+    var run = state.runs[chosen];
+    var busy = run && (run.status === 'starting' || run.status === 'running' || run.status === 'ingesting');
+    box.innerHTML = (served ? 'run now, or paste into CI (same line):' : 'run locally, or paste into CI (same line):') +
+      '<code class="mono">npx sfpw suite ' + esc(chosen) + '</code>' +
+      '<div style="margin-top:6px">' +
+      (served
+        ? '<button class="small primary" id="b_runsuite"' + (busy ? ' disabled' : '') + ' title="run these suites now, then review each graph in Journey Studio">' + (busy ? 'running…' : 'Run ' + esc(chosen)) + '</button> ' +
+          '<button class="small" id="b_suitecmd" title="copy the line for CI or a terminal">copy CLI</button> ' +
+          P2.runview.openToggle('2')
+        : '<button class="small primary" id="b_runsuite">Copy the ' + esc(chosen) + ' line</button>') +
+      '</div>' +
+      P2.runview.render(run, { compact: false });
     document.getElementById('b_runsuite').addEventListener('click', function () {
-      P2.ui.copy('npx sfpw suite ' + chosen, 'copied the suite command');
+      if (!served) { P2.ui.copy('npx sfpw suite ' + chosen, 'copied the suite command'); return; }
+      var tab = P2.net.openReview() ? P2.net.openReviewTab(chosen) : null;   // inside the click: allowed
+      P2.ui.toast('running ' + chosen + '…');
+      P2.net.startRun(chosen, { tab: tab }).then(function (r) {
+        if (r.ok) P2.ui.toast('suite finished — review links are under the suites');
+        else P2.ui.toast(r.error || ('run ' + (r.status || 'failed')));
+      });
     });
+    var cmd = document.getElementById('b_suitecmd');
+    if (cmd) cmd.addEventListener('click', function () { P2.ui.copy('npx sfpw suite ' + chosen, 'copied the suite command'); });
+    P2.runview.bind(box);
   }
 
   function render() {

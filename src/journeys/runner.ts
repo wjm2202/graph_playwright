@@ -65,6 +65,10 @@ export interface StepReport {
   actorAlias: string;
   personaId: string;
   name: string;
+  /** Wall-clock start (epoch ms, from deps.clock) — lets a video be cut to
+   *  the acting persona. Optional only for reports built elsewhere
+   *  (pipeline/generate, hand-made fixtures); runJourney always sets it. */
+  startedAt?: number;
   ms: number;
   status: 'ok' | 'soft-flag' | 'failed';
   note?: string;
@@ -178,7 +182,7 @@ export async function runJourney(journey: Journey, deps: RunnerDeps): Promise<Jo
       } catch (e) {
         report.steps.push({
           index: i, kind: 'deny', actorAlias: actor, personaId, name: capability,
-          ms: clock() - t0, status: 'failed', note: (e as Error).message,
+          startedAt: t0, ms: clock() - t0, status: 'failed', note: (e as Error).message,
         });
         throw new JourneyRunError((e as Error).message, report);
       }
@@ -188,6 +192,7 @@ export async function runJourney(journey: Journey, deps: RunnerDeps): Promise<Jo
         actorAlias: actor,
         personaId,
         name: capability,
+        startedAt: t0,
         ms: clock() - t0,
         status: 'ok',
         note: 'refusal proven',
@@ -273,7 +278,7 @@ export async function runJourney(journey: Journey, deps: RunnerDeps): Promise<Jo
       const shot = await screenshot(page, i, s.do, true);
       report.steps.push({
         index: i, kind: 'do', actorAlias: s.actor, personaId, name: s.do,
-        ms: clock() - t0, status: 'failed', note: (e as Error).message,
+        startedAt: t0, ms: clock() - t0, status: 'failed', note: (e as Error).message,
         ...(oracles ? { oracles } : {}),
         ...(shot ? { screenshot: shot } : {}),
       });
@@ -289,7 +294,7 @@ export async function runJourney(journey: Journey, deps: RunnerDeps): Promise<Jo
 
     const pushStep = (status: StepReport['status'], note?: string) =>
       report.steps.push({
-        index: i, kind: 'do', actorAlias: s.actor, personaId, name: s.do, ms, status,
+        index: i, kind: 'do', actorAlias: s.actor, personaId, name: s.do, startedAt: t0, ms, status,
         ...(note ? { note } : {}),
         ...(oracles ? { oracles } : {}),
         ...(shot ? { screenshot: shot } : {}),

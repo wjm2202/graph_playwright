@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { applyImport, storeImport } from '../graph/adoImports';
+import { describeChains, linkCases, type LinkageResult } from '../graph/adoLinkage';
 import { adoCaseToGraph, parseAdoPaste, writeAdoGraph, type AdoCase } from '../graph/fromAdo';
 import { parseAdoFile } from '../graph/fromAdoXlsx';
 import { PersonaRegistry } from '../personas/registry';
@@ -62,6 +63,7 @@ export function run(argv: string[], cli: Cli): number {
       cli.out(`\n✔ draft graph: ${item.graphFile}  (${item.nodes} nodes, ${item.edges} edges)`);
       for (const flag of item.flags) cli.out(`  ⚑ ${flag}`);
     }
+    printChains(cli, linkCases(stored.cases));
     cli.out(`  next: open them in the planner (npm run planner) — confirm the draft? checks, bind roles, then capture`);
     return 0;
   }
@@ -77,13 +79,26 @@ export function run(argv: string[], cli: Cli): number {
       ? path.resolve(cli.cwd, 'journeys', 'graphs')
       : projectGraphsDir(cli.cwd, project);
 
-  for (const tc of cases) {
+  const linkage = linkCases(cases);
+  cases.forEach((tc, index) => {
     const written = writeAdoGraph(adoCaseToGraph(tc, { knownPersonas }), dir);
     cli.out(`\n✔ draft graph: ${written.graphFile}  (${written.graph.nodes.length} nodes, ${written.graph.edges.length} edges)`);
     for (const flag of written.flags) cli.out(`  ⚑ ${flag}`);
-  }
+    for (const flag of linkage.flags[index] ?? []) cli.out(`  ⚑ sequence: ${flag}`);
+  });
+  printChains(cli, linkage);
   cli.out(`  next: open it in the planner (npm run planner) — confirm the draft? checks, bind roles, then capture`);
   return 0;
+}
+
+/** The journeys the cases form, read from their language — one graph per
+ *  case is still written; this tells the human which ones belong together. */
+function printChains(cli: Cli, linkage: LinkageResult): void {
+  const lines = describeChains(linkage);
+  if (!lines.length) return;
+  cli.out(`\n⛓ sequences read from the steps (case #index → continues in):`);
+  for (const line of lines) cli.out(`  ${line}`);
+  cli.out(`  join them with: sfpw compose <host_ref> <sub_ref> (splice) once the drafts are confirmed`);
 }
 
 function projectGraphsDir(root: string, project: string): string {

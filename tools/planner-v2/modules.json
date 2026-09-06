@@ -3,6 +3,7 @@
   "view.js",
   "ops.js",
   "net.js",
+  "runview.js",
   "strip.js",
   "library.js",
   "script.js",

@@ -168,7 +168,7 @@ function buildServerBridge() {
   // mounted folders, and a stale sibling file is harmless).
   execFileSync('npx', [
     'tsc', join(root, 'src/graph/adoImports.ts'), join(root, 'src/graph/evidence.ts'),
-    join(root, 'src/personas/schema.ts'), join(root, 'src/personas/wiring.ts'),
+    join(root, 'src/personas/schema.ts'), join(root, 'src/personas/wiring.ts'), join(root, 'src/studio/slug.ts'),
     '--outDir', out, '--rootDir', join(root, 'src'), '--module', 'commonjs', '--target', 'es2020',
     '--moduleResolution', 'node', '--esModuleInterop', '--skipLibCheck',
   ], { cwd: root, stdio: 'pipe' });

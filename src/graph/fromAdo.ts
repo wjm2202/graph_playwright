@@ -165,6 +165,12 @@ function parsePlainSteps(text: string): AdoStep[] {
 // ---------- mapping: case → draft graph ----------
 
 const ROLE_RE = /^(?:as|logged\s+in\s+as|login\s+as|acting\s+as)\s+(?:a|an|the)?\s*([^,:]+?)\s*[,:]\s*/i;
+/** "As a sales user, create a lead" → "create a lead" — the action without
+ *  its role prefix (what adoCaseToGraph maps; adoLinkage reads the same). */
+export function stripRole(action: string): string {
+  const m = ROLE_RE.exec(action);
+  return m ? action.slice(m[0].length).trim() || action : action;
+}
 /** Real ADO phrasing (ADO Test Plans exports, 2026-09-02): a "pre-req" step that
  *  LISTS who may perform the case, and mid-case "Login with <persona> persona"
  *  steps that switch the actor. Both open a session; the pre-req step itself is
@@ -319,7 +325,11 @@ export function adoCaseToGraph(tc: AdoCase, opts: { graphId?: string; knownPerso
 function draftExpect(step: AdoStep, object: string | undefined, edgeId: string, existing: Expectation[], flags: string[]): Expectation {
   const expected = String(step.expected);
   const id = unique(`check_${slug(trunc(expected, 24)) || edgeId}`, new Set(existing.map((x) => x.id)));
-  const base = { id, after: edgeId, draft: true as const, note: 'draft from ADO — confirm once (planner: draft? button)' };
+  // `note` is the human phrasing of the acceptance criterion
+  // (DESIGN-EXPECTATIONS.md §2) — the Step Expected cell VERBATIM, so the
+  // 60-char `value` guess never becomes the only copy of what the author
+  // meant. It survives confirm-once (gaps.ts only strips 'draft from…' notes).
+  const base = { id, after: edgeId, draft: true as const, note: expected.trim() };
   if (TOAST_RE.test(expected)) {
     const quoted = /["“']([^"”']{2,60})["”']/.exec(expected)?.[1];
     return { ...base, kind: 'ui.toast', value: quoted ?? trunc(expected, 60) };
@@ -414,8 +424,9 @@ function verbOf(action: string): string {
   return w || 'do';
 }
 
-/** The business object in an action phrase — connective words stripped. */
-function objectOf(action: string): string | undefined {
+/** The business object in an action phrase — connective words stripped.
+ *  Exported for adoLinkage.ts (cross-case dataflow reads the same guess). */
+export function objectOf(action: string): string | undefined {
   const text = action.replace(/[.!?:;]+\s*$/, '').trim(); // "Verify Prospect Account is Created." — the period hid the object
   const raw = OBJECT_RE.exec(text)?.[1]?.trim();
   if (!raw) return undefined;

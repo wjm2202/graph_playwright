@@ -230,6 +230,31 @@ test.describe('runJourney orchestration', () => {
     );
   });
 
+  test('every step report carries its wall-clock startedAt (do and deny), from the injected clock', async () => {
+    // The video cut (src/studio/video.ts buildVideoTimeline) needs to know
+    // WHEN each persona was acting, not just for how long.
+    const j = goodJourney();
+    j.seed = [];
+    j.steps = [
+      { actor: 'submitter', do: 'expense.submit' },
+      { deny: { actor: 'submitter', capability: 'expense.approve', target: 'x' } },
+      { actor: 'approver', do: 'expense.approve' },
+    ];
+    const { cast } = fakeCast();
+    const catalog = new StepCatalog()
+      .register('expense.submit', async () => {})
+      .register('expense.approve', async () => {})
+      .registerDeny('expense.approve', () => ({ api: async () => ({ denied: true }) }));
+    let t = 10_000;
+    const clock = () => (t += 1000); // each clock() read advances 1s: t0 then end
+    const report = await runJourney(j, { cast, catalog, clock });
+    expect(report.steps.map((s) => [s.kind, s.personaId, s.startedAt, s.ms])).toEqual([
+      ['do', 'sales_user', 11_000, 1000],
+      ['deny', 'sales_user', 13_000, 1000],
+      ['do', 'admin', 15_000, 1000],
+    ]);
+  });
+
   test('timing.maxDurationMs is a hard ceiling independent of baselines', async () => {
     const j = goodJourney();
     j.seed = [];

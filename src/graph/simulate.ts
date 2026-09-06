@@ -73,12 +73,15 @@ export function simulateReport(graph: ProcessGraph, opts: SimulateOptions = {}):
 
   const steps: StepReport[] = walked.journey.steps.map((step, index) => {
     const ms = baseMs + index * 137;
+    // Steps run back to back from t=0 — the sum of every earlier duration.
+    // Simulated time, not epoch: this report is pure and clock-free.
+    const startedAt = index * baseMs + (137 * index * (index - 1)) / 2;
     if (isDenyStep(step)) {
       const personaId = walked.journey.actors[step.deny.actor];
       if (!personaId) throw new Error(`actor '${step.deny.actor}' missing from journey.actors`);
       return {
         index, kind: 'deny', actorAlias: step.deny.actor, personaId,
-        name: step.deny.capability, ms, status: 'ok', note: 'refusal proven (simulated)',
+        name: step.deny.capability, startedAt, ms, status: 'ok', note: 'refusal proven (simulated)',
       };
     }
     const personaId = walked.journey.actors[step.actor];
@@ -89,7 +92,7 @@ export function simulateReport(graph: ProcessGraph, opts: SimulateOptions = {}):
     }));
     const screenshot = opts.screenshots?.[index];
     return {
-      index, kind: 'do', actorAlias: step.actor, personaId, name: step.do, ms, status: 'ok',
+      index, kind: 'do', actorAlias: step.actor, personaId, name: step.do, startedAt, ms, status: 'ok',
       ...(oracles.length ? { oracles } : {}),
       ...(screenshot ? { screenshot } : {}),
     };

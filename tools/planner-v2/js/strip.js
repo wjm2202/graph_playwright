@@ -30,13 +30,49 @@
       '<span class="grow"></span>' +
       (c.mustFix.length || c.toFinish.length
         ? '<button class="small" id="b_fixnext" title="jump to the next open question">Fix next →</button>'
-        : '<button class="small primary" id="b_run1" title="copy the command that runs this graph">Run this graph</button>');
+        : runControls());
     el.innerHTML = html;
 
     var fix = document.getElementById('b_fixnext');
     if (fix) fix.addEventListener('click', function () { fixNext(model); });
     var run = document.getElementById('b_run1');
-    if (run) run.addEventListener('click', function () { P2.ui.copy(runCommand(), 'copied the run command'); });
+    if (run) run.addEventListener('click', function () { runNow(); });
+    var cmd = document.getElementById('b_runcmd');
+    if (cmd) cmd.addEventListener('click', function () { P2.ui.copy(runCommand(), 'copied the run command'); });
+    P2.runview.bind(el);
+  }
+
+  /** 'graph:<ref>' — the spec the server and the CLI both take. */
+  function runSpec() {
+    return 'graph:' + (state.ref || state.doc.id);
+  }
+
+  /**
+   * Served: the button RUNS the graph (the server spawns the same command,
+   * then Journey Studio ingests it) and the strip shows one pill per test
+   * linking to its review. file://: the button copies the command, as before.
+   */
+  function runControls() {
+    var served = P2.net.served();
+    var run = state.runs[runSpec()];
+    var busy = run && (run.status === 'starting' || run.status === 'running' || run.status === 'ingesting');
+    return P2.runview.render(run, { compact: true }) +
+      (served
+        ? '<button class="small primary" id="b_run1"' + (busy ? ' disabled' : '') + ' title="run this graph now, then review it in Journey Studio">' + (busy ? 'running…' : 'Run this graph') + '</button>' +
+          '<button class="small" id="b_runcmd" title="copy the command that runs this graph (CI, or a terminal)">copy CLI</button>' +
+          P2.runview.openToggle()
+        : '<button class="small primary" id="b_run1" title="copy the command that runs this graph">Run this graph</button>');
+  }
+
+  function runNow() {
+    if (!P2.net.served()) { P2.ui.copy(runCommand(), 'copied the run command'); return; }
+    var spec = runSpec();
+    var tab = P2.net.openReview() ? P2.net.openReviewTab(spec) : null;   // inside the click: allowed
+    P2.ui.toast('running ' + spec + '…');
+    P2.net.startRun(spec, { tab: tab }).then(function (r) {
+      if (r.ok) P2.ui.toast('run finished — review links are in the strip');
+      else P2.ui.toast(r.error || ('run ' + (r.status || 'failed')));
+    });
   }
 
   /** The next thing worth a human's attention, and where it lives. */
@@ -63,5 +99,5 @@
     return 'npx sfpw suite graph:' + ref;
   }
 
-  P2.strip = { render: render, fixNext: fixNext, nextIssue: nextIssue, runCommand: runCommand };
+  P2.strip = { render: render, fixNext: fixNext, nextIssue: nextIssue, runCommand: runCommand, runSpec: runSpec, runNow: runNow };
 })();

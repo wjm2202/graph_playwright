@@ -40,3 +40,7 @@ uploads/
 
 # review screenshots — regenerable (tools/review/drive-planner.mjs, drive-v2.mjs); never tracked
 docs/review-shots/
+
+# Journey Studio output — ingested runs (videos, traces, guide bundles). Regenerable from a run.
+# Root only: tools/studio/ is the vendored tool itself and IS tracked.
+/studio/

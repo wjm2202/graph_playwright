@@ -78,7 +78,7 @@ form, the db/logger flags and the `handoff` hop). Sprint 4.1 then deleted v1.
 | `b_help` ? + `legend` | shapes legend + driving tips | hover titles on every pill/button; a `?` opens the same legend | todo | ○ | ✓ |
 | `b_check` check ✓ + `issues` panel (`iss_close`) | MUST FIX / TO FINISH grouped by element, click-to-jump | the **check strip** (must fix · to finish · hints · captured) + **Fix next**; gaps appear inline on the line they belong to and in the node card | kept | ✓ | ✓ |
 | `f_test` → `order` run order… (`runorder`, `ro_close`) | the sequence a run executes | the script *is* the run order (line numbers); canvas lanes are in chain order | automated | ✓ | ✓ (the line numbers) |
-| `f_test` → `run` copy: run this graph | copy `npx sfpw suite graph:<id>` | **Run this graph** + suites (`npx sfpw suite <name>`); the `spec` entry went with `toSpec` when the generic runner landed (review §4 #3, sprint 1.2) | merged | ✓ (copy) | ✓ |
+| `f_test` → `run` copy: run this graph | copy `npx sfpw suite graph:<id>` | **Run this graph** + suites (`npx sfpw suite <name>`); the `spec` entry went with `toSpec` when the generic runner landed (review §4 #3, sprint 1.2). Served (M3, 2026-09-06): the button RUNS it — `POST /__run`, the server spawns the same command, Journey Studio ingests `test-results/`, and the strip shows one pill per test linking to its review (`/studio/studio.html?batch=…&slug=…`, the studio is mounted on this server) plus the batch dashboard; `b_runcmd` / `b_suitecmd` keep the copy-the-line affordance for CI. file:// still copies | merged | ✓ (copy) | ✓ (runs when served) |
 | `f_project` all projects / `__new` ＋ new project… | filter the library; scaffold a project | Library pane project header; **＋ new project** in the New ▾ and import sheets (`/__projects`) | kept | ○ (new project) | ✓ (library; New ▾ → ＋ New project…) |
 | `f_mode` edit / view | read-only mode hides editing controls | **View** toggle (read-only, for sharing a repainted graph) | todo | ○ | ✓ |
 | `b_undo` ↶ undo / ⌘Z | undo delete / insert / connect | undo stack over the document (every edit, not only structural ones) | todo | ○ | ✓ |
@@ -151,6 +151,9 @@ form, the db/logger flags and the `handoff` hop). Sprint 4.1 then deleted v1.
 | *(new)* `/__recordings` GET | — | journeys under `recordings/<journey>/<persona>-<ts>/` with their captures (manifest first, directory name as the fallback) — the "From a recording" sheet names the journey and hands over `npx sfpw pipeline <journey> --graph`. The planner does NOT run the pipeline | new | ○ | ✓ |
 | *(new)* `/__evidence` GET | — | one run screenshot: `?ref=<graph ref>&file=<ref relative to the graph's root>` → the file under that graph's `evidence/` folder, with its own content type. Anything resolving outside that directory is a 403, an unknown graph or missing file a 404. The card asks for this whenever `snapshot.ref` is a path rather than a `data:` URL (sprint 4.2) | new | ○ | ✓ |
 | *(new)* `/__record` POST · `/__record/`\<id\> GET | — | spawn `npm run record` (`RECORD_PERSONA`/`RECORD_JOURNEY`) for a resolved journey → `{id, pid}`; poll the id for `status` + the last 40 output lines; one recording per journey (409) | new | ✓ (served) | ✓ |
+| *(new)* `/__run` POST · `/__run/`\<id\> GET | — | `{ref}` or `{suite}` → spawn `npx sfpw suite <spec>` (the human's command; `PLANNER_RUN_CMD` stands in for tests), then `journey-studio ingest --from test-results --batch <id>` into `JOURNEY_STUDIO_OUT` (`PLANNER_INGEST_CMD` / `JOURNEY_STUDIO_BIN`), then read Journey Studio's `index.json` + `registry.json` back → `{status, exitCode, tail, studio:{dashboard, results, tests:[{ref, outcome, slug?, url?, error?}]}}` where status is one of running, ingesting, done, failed, lost. One run at a time (409 — they share `test-results/`). A failing test is NOT a failed run: it is ingested, that is the review | new | ○ | ✓ |
+| *(new)* `/__runs` GET | — | the last 50 runs newest first, persisted in `studio/runs.json` so review links survive a planner restart (in-flight ones become `lost`) | new | ○ | ✓ |
+| *(new)* `/studio/…` | — | the vendored Journey Studio, MOUNTED: its pages (`dashboard.html`, `studio.html`, `feedback.html`), `api/*`, `index.json`, and every batch's `guide.json` / `raw.webm` (HTTP Range) answer on this server, same origin — no second process, no port, no CORS. `/studio` 301s to `/studio/`. The handler (`tools/studio/lib/serve.mjs`) gets the path with the prefix stripped; the studio's pages only use relative URLs, which is what makes the mount work | new | ○ | ✓ |
 
 ## 8. `window.planner` test API
 
@@ -202,11 +205,21 @@ missing from this document, on any `New ▾` entry it cannot find, and on any
 **Top bar** — `b_new` (New ▾) with its entries `blank` `paste` `ado` `rec`
 `file` `project`, `b_join`, `b_undo`, `b_save`, `b_saveas`, `b_export`,
 `b_mode`, `b_help`. **Card**: `ncard_close`. **Library rail**: `t_left`
-(hide), `rail_left` (show), `b_runsuite` (copy the ticked suites' `sfpw suite` line).
+(hide), `rail_left` (show), `b_runsuite` (served: run the ticked suites and
+show a pill per graph; file://: copy the `sfpw suite` line), `b_suitecmd`
+(copy that line).
 
 **Check strip** (`strip`) — `b_fixnext` (Fix next →) and `b_run1` (Run this
-graph), never both: the strip has one verb at a time. The left rail's record
-`ledger` and the `suites` list live beside the library.
+graph — served: runs it and shows the review pills; file://: copies the
+command), never both: the strip has one verb at a time. `b_runcmd` copies the
+run command when served; `f_openreview` (and `f_openreview2` in the suites
+box) is the remembered "open the review tab" toggle, on by default: the tab
+is opened AT THE CLICK (a user gesture — what popup blockers permit), shows
+*running…*, and is pointed at the review when the run finishes. The pills are
+`runview.js`: green/red by each test's own outcome, `↗` opens its review in
+the mounted Journey Studio (`/studio/studio.html?batch=…&slug=…`), plus
+*dashboard ↗* and *open review ↗*. The left rail's record `ledger` and the
+`suites` list live beside the library.
 
 **Script pane** — `b_addsession` (+ session, the next role in the chain).
 

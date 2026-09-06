@@ -70,6 +70,18 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
 .chip.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-soft)}
 .chip.muted{color:var(--muted)}
 .strip .grow{flex:1}
+/* run results (runview.js): one pill per test → its review in Journey Studio */
+.runpills{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
+.runpills.compact{max-width:60vw}
+a.chip{text-decoration:none;cursor:pointer}
+a.chip:hover{filter:brightness(0.95)}
+a.chip.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.chip .arrow{opacity:.6;font-size:11px}
+.chip.run b{font-weight:600}
+.runtail{max-width:28vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}
+.runbox .runpills{margin-top:8px}
+.openreview{display:inline-flex;align-items:center;gap:4px;margin-left:6px;white-space:nowrap}
+.openreview input{margin:0}
 /* panes */
 .panes{display:grid;grid-template-columns:260px 1fr;min-height:0}
 .panes.no-left{grid-template-columns:30px 1fr}

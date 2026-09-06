@@ -14,6 +14,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { linkCases, type CaseLink } from './adoLinkage';
 import { adoCaseToGraph, writeAdoGraph, type AdoCase } from './fromAdo';
 import { parseAdoFile } from './fromAdoXlsx';
 
@@ -22,6 +23,11 @@ export interface ImportedCaseSummary {
   id?: string;
   title: string;
   steps: number;
+  /** Records the case's language says it creates / uses / uses without
+   *  creating (adoLinkage.ts) — the hand-offs between cases. */
+  produces?: string[];
+  consumes?: string[];
+  unbound?: string[];
   /** Set once the case has become a graph. */
   graphId?: string;
   importedAt?: string;
@@ -35,6 +41,11 @@ export interface ImportManifest {
   at: string;
   sheet: string;
   cases: ImportedCaseSummary[];
+  /** Which cases continue from which, read from the steps' language
+   *  (adoLinkage.ts). Detection only — graphs stay one per case. */
+  links?: CaseLink[];
+  /** Ordered runs of case indexes the links form (singletons omitted). */
+  chains?: number[][];
 }
 
 const PROJECT_RE = /^[a-z][a-z0-9_-]*$/;
@@ -67,13 +78,26 @@ export function storeImport(
   const id = `${stamp}-${safeName(path.basename(originalName, path.extname(originalName))).toLowerCase()}`;
   const file = `${id}${ext}`;
   fs.writeFileSync(path.join(dir, file), Buffer.from(data));
+  const linkage = linkCases(parsed.cases);
   const manifest: ImportManifest = {
     id,
     file,
     originalName: path.basename(originalName),
     at: now.toISOString(),
     sheet: parsed.sheet,
-    cases: parsed.cases.map((c, index) => ({ index, ...(c.id ? { id: c.id } : {}), title: c.title, steps: c.steps.length })),
+    cases: parsed.cases.map((c, index) => {
+      const p = linkage.profiles[index]!;
+      return {
+        index,
+        ...(c.id ? { id: c.id } : {}),
+        title: c.title,
+        steps: c.steps.length,
+        ...(p.produces.length ? { produces: p.produces } : {}),
+        ...(p.consumes.length ? { consumes: p.consumes } : {}),
+        ...(p.unbound.length ? { unbound: p.unbound } : {}),
+      };
+    }),
+    ...(linkage.links.length ? { links: linkage.links, chains: linkage.chains } : {}),
   };
   fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify(manifest, null, 2) + '\n');
   return { manifest, cases: parsed.cases, skippedSheets: parsed.skippedSheets };
@@ -131,6 +155,10 @@ export function applyImport(
     if (!tc || !summary) throw new Error(`case #${index} is not in import '${importId}' (it holds ${cases.length})`);
     if (summary.graphId) throw new Error(`case #${index} '${summary.title}' was already imported as '${summary.graphId}'`);
   }
+  // Linkage is read over the WHOLE import, not just the chosen cases: a case
+  // imported today may continue from one skipped (or imported) yesterday,
+  // and the flag says so either way.
+  const linkage = linkCases(cases);
   for (const index of wanted) {
     const tc = cases[index]!;
     const summary = manifest.cases[index]!;
@@ -139,9 +167,10 @@ export function applyImport(
     const written = writeAdoGraph(drafted, graphsDir);
     summary.graphId = written.graph.id;
     summary.importedAt = at;
+    const flags = [...written.flags, ...(linkage.flags[index] ?? []).map((f) => `sequence: ${f}`)];
     results.push({
       index, title: tc.title, graphId: written.graph.id, graphFile: written.graphFile,
-      nodes: written.graph.nodes.length, edges: written.graph.edges.length, flags: written.flags,
+      nodes: written.graph.nodes.length, edges: written.graph.edges.length, flags,
     });
   }
   const dir = importsDir(root, project);

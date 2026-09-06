@@ -43,6 +43,25 @@ test.beforeAll(async () => {
     "console.log('▶ RECORDING ' + process.env.RECORD_JOURNEY + ' as ' + process.env.RECORD_PERSONA);\n" +
     "if (process.env.RECORD_JOURNEY === 'hold_flow') setTimeout(() => process.exit(0), 5000);\n");
 
+  // A run that never touches an org: PLANNER_RUN_CMD writes a Playwright-
+  // shaped results.json (one annotated passing test, one failing) into the
+  // sandbox test-results/; PLANNER_INGEST_CMD is the REAL vendored Journey
+  // Studio (zero deps, ffprobe optional) so the index the server reads back is
+  // the genuine article. 'hold' keeps the run alive so a second POST 409s.
+  fs.mkdirSync(path.join(tmp, 'test-results'), { recursive: true });
+  fs.writeFileSync(path.join(tmp, 'fake-run.mjs'),
+    "import fs from 'node:fs'; import path from 'node:path';\n" +
+    "const spec = process.argv[2]; console.log('▶ RUN ' + spec + ' batch=' + process.env.RUN_BATCH);\n" +
+    "if (spec === 'hold') { setTimeout(() => process.exit(0), 5000); } else {\n" +
+    "const tr = " + JSON.stringify(path.join(tmp, 'test-results')) + ";\n" +
+    "const video = path.join(tr, 'v.webm'); fs.writeFileSync(video, Buffer.alloc(16));\n" +
+    "const ann = (ref) => [{ type: 'guide', description: JSON.stringify({ objective: ref.replace('/', '--') + '--default', title: ref, category: 'runp', journeyRef: ref }) }];\n" +
+    "const res = (status) => [{ status, duration: 5, startTime: new Date().toISOString(), steps: [], attachments: [{ name: 'video', contentType: 'video/webm', path: video }], ...(status === 'failed' ? { error: { message: 'expected 1 got 2' }, errors: [{ message: 'expected 1 got 2' }] } : {}) }];\n" +
+    "const report = { suites: [{ title: 'e2e/graphs.spec.ts', file: 'e2e/graphs.spec.ts', specs: [\n" +
+    "  { title: 'runp/tiny_flow', file: 'e2e/graphs.spec.ts', tests: [{ annotations: ann('runp/tiny_flow'), results: res('passed') }] },\n" +
+    "  { title: 'runp/broken', file: 'e2e/graphs.spec.ts', tests: [{ annotations: ann('runp/broken'), results: res('failed') }] } ] }] };\n" +
+    "fs.writeFileSync(path.join(tr, 'results.json'), JSON.stringify(report)); process.exit(spec.includes('fail') ? 1 : 0); }\n");
+
   // Presence must come from the SANDBOX .env alone. The server also honors
   // real process.env (a feature in production), and playwright.config.ts
   // dotenv-loads the repo .env into THIS process — so a developer's .env
@@ -54,6 +73,9 @@ test.beforeAll(async () => {
     env: {
       ...cleanEnv, PLANNER_ROOT: tmp, PLANNER_PORT: '0', PLANNER_NO_REBUILD: '1',
       PLANNER_RECORD_CMD: `node ${path.join(tmp, 'fake-record.mjs')}`,
+      PLANNER_RUN_CMD: `node ${path.join(tmp, 'fake-run.mjs')}`,
+      PLANNER_TEST_RESULTS: path.join(tmp, 'test-results'),
+      JOURNEY_STUDIO_OUT: 'studio/guides',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -283,7 +305,7 @@ test('graphs: POST saves a valid graph into the project (atomic), 409s on an exi
 
 test('capabilities: the page can tell a current server from a stale one', async () => {
   const j = await (await fetch(`${base}/__capabilities`)).json();
-  expect(j).toEqual({ version: 7, imports: true, graphs: true, projects: true, personas: true, accounts: true, library: true, record: true, recordings: true, evidence: true });
+  expect(j).toEqual({ version: 8, imports: true, graphs: true, projects: true, personas: true, accounts: true, library: true, record: true, recordings: true, evidence: true, runs: true, studio: true });
 });
 
 // S4.1 — one planner, two dead names. The old files are deleted, so the old
@@ -657,5 +679,111 @@ test.describe('/__evidence', () => {
     const missing = await fetch(`${base}/__evidence?ref=evidence_demo&file=${encodeURIComponent('evidence/evidence_demo/run_1/absent.jpg')}`);
     expect(missing.status).toBe(404);
     expect((await missing.json()).error).toContain('no evidence file');
+  });
+});
+
+// ── M3: run a graph, ingest it into Journey Studio, link to the review ────
+test.describe('runs → Journey Studio', () => {
+  test('POST /__run resolves the graph, runs it, ingests, and answers with review links', async () => {
+    expect((await makeProject('runp')).status).toBe(200);
+    expect((await saveGraph('runp', twoSessionGraph('tiny_flow'))).status).toBe(200);
+
+    const r = await fetch(`${base}/__run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: 'runp/tiny_flow' }),
+    });
+    expect(r.status).toBe(200);
+    const started = await r.json();
+    expect(started).toMatchObject({ ok: true, spec: 'graph:runp/tiny_flow' });
+    expect(started.batch).toMatch(/^run-\d{8}-\d{6}-graph-runp-tiny_flow$/);
+    expect(started.id).toMatch(/^run_/);
+
+    await expect.poll(async () => (await (await fetch(`${base}/__run/${started.id}`)).json()).status, { timeout: 20_000 })
+      .toBe('done');
+    const st = await (await fetch(`${base}/__run/${started.id}`)).json();
+    expect(st).toMatchObject({ ok: true, spec: 'graph:runp/tiny_flow', batch: started.batch, status: 'done', exitCode: 0 });
+    expect(st.tail[0]).toBe(`▶ RUN graph:runp/tiny_flow batch=${started.batch}`);
+    // Journey Studio's own output, read back: the passing test became a guide with OUR slug —
+    // and the links are same-origin paths under the planner's /studio/ mount
+    expect(st.studio.dashboard).toBe(`/studio/dashboard.html?batch=${started.batch}`);
+    expect(st.studio.results).toMatchObject({ passed: 1, failed: 1 });
+    const byRef = Object.fromEntries(st.studio.tests.map((t: { ref: string }) => [t.ref, t]));
+    expect(byRef['runp/tiny_flow']).toMatchObject({
+      outcome: 'passed', slug: 'runp--tiny_flow--default',
+      url: `/studio/studio.html?batch=${started.batch}&slug=runp--tiny_flow--default`,
+    });
+    // the failing test is listed with its error; no studio page until Journey Studio learns includeFailed (M2)
+    expect(byRef['runp/broken']).toMatchObject({ outcome: 'failed' });
+    expect(byRef['runp/broken'].error).toContain('expected 1 got 2');
+    // on disk: the batch folder Journey Studio wrote, under the sandbox root
+    expect(fs.existsSync(path.join(tmp, 'studio', 'guides', started.batch, 'runp--tiny_flow--default', 'guide.json'))).toBe(true);
+    // and the run survives in runs.json for the library rail
+    const runs = await (await fetch(`${base}/__runs`)).json();
+    expect(runs.studio).toBe('/studio');
+    expect(runs.runs[0]).toMatchObject({ id: started.id, status: 'done' });
+    expect(runs.runs[0].tail).toBeUndefined();
+    expect(JSON.parse(fs.readFileSync(path.join(tmp, 'studio', 'runs.json'), 'utf8'))[0].id).toBe(started.id);
+  });
+
+  test('a suite spec runs as-is; a failing Playwright exit is still ingested (that is the review)', async () => {
+    const r = await fetch(`${base}/__run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ suite: 'smoke-fail' }),
+    });
+    expect(r.status).toBe(200);
+    const started = await r.json();
+    expect(started.spec).toBe('smoke-fail');
+    await expect.poll(async () => (await (await fetch(`${base}/__run/${started.id}`)).json()).status, { timeout: 20_000 })
+      .toBe('done');
+    const st = await (await fetch(`${base}/__run/${started.id}`)).json();
+    expect(st.exitCode).toBe(1);
+    expect(st.studio.tests.length).toBe(2);
+  });
+
+  test('one run at a time (409), unknown graph / empty body / odd suite spec are 400', async () => {
+    const hold = await (await fetch(`${base}/__run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ suite: 'hold' }),
+    })).json();
+    expect(hold.ok).toBe(true);
+    const second = await fetch(`${base}/__run`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ suite: 'smoke' }),
+    });
+    expect(second.status).toBe(409);
+    expect(await second.json()).toMatchObject({ ok: false, running: true, id: hold.id });
+    await expect.poll(async () => (await (await fetch(`${base}/__run/${hold.id}`)).json()).status, { timeout: 20_000 })
+      .not.toBe('running');
+
+    for (const body of [{ ref: 'nope/missing' }, {}, { suite: 'smoke; rm -rf /' }]) {
+      const bad = await fetch(`${base}/__run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      expect(bad.status, JSON.stringify(body)).toBe(400);
+    }
+    expect((await fetch(`${base}/__run/run_nope`)).status).toBe(404);
+  });
+
+  test('the mounted studio serves the ingested batch on the SAME origin: pages, api, guide.json, video Range', async () => {
+    const runs = await (await fetch(`${base}/__runs`)).json();
+    const done = runs.runs.find((r: { status: string; spec: string }) => r.status === 'done' && r.spec === 'graph:runp/tiny_flow');
+    expect(done).toBeTruthy();
+    const batch = done.batch as string;
+    // /studio → /studio/ → the dashboard, live from tools/studio/web
+    const r301 = await fetch(`${base}/studio`, { redirect: 'manual' });
+    expect(r301.status).toBe(301);
+    expect(r301.headers.get('location')).toBe('/studio/');
+    const dash = await fetch(`${base}/studio/`);
+    expect(dash.status).toBe(200);
+    expect(await dash.text()).toMatch(/dashboard/i);
+    const page = await (await fetch(`${base}/studio/studio.html?batch=${batch}&slug=runp--tiny_flow--default`)).text();
+    expect(page).toContain("q.get('slug')");
+    expect(page).not.toMatch(/['"`]\/api\//); // relative api paths, or the mount would break
+    const health = await (await fetch(`${base}/studio/api/health`)).json();
+    expect(health.ok).toBe(true);
+    expect(health.features).toContain('mount');
+    const idx = await (await fetch(`${base}/studio/index.json`)).json();
+    expect(idx.batches.map((b: { id: string }) => b.id)).toContain(batch);
+    const guide = await (await fetch(`${base}/studio/${batch}/runp--tiny_flow--default/guide.json`)).json();
+    expect(guide.journeyRef).toBe('runp/tiny_flow');
+    const range = await fetch(`${base}/studio/${batch}/runp--tiny_flow--default/raw.webm`, { headers: { range: 'bytes=0-3' } });
+    expect(range.status).toBe(206);
+    // the studio's own routes never reach the planner's, and vice versa
+    expect((await fetch(`${base}/studio/__library`)).status).toBe(404);
+    expect((await fetch(`${base}/api/health`)).status).toBe(404);
   });
 });

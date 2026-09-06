@@ -9,13 +9,15 @@
  *
  * Routes (tools/serve-planner.mjs): /__capabilities /__library /__envstatus
  * /__graphs /__personas /__personas/add /__projects /__record + /__record/<id>
- * /__evidence.
+ * /__evidence /__run + /__run/<id> /__runs, and the mounted Journey Studio
+ * under /studio/ (pages, api, batch files — same origin).
  * Live reload is injected by the server itself; the page only exposes
  * `window.plannerHoldReload` so a reload cannot close a sheet mid-edit.
  */
 (function () {
   var P2 = window.P2;
   var state = P2.state;
+  var esc = P2.esc;
 
   function served() { return P2.served() && !!window.fetch; }
 
@@ -292,6 +294,102 @@
   }
 
   /**
+   * Run a graph or a suite through the dev server (POST /__run), then poll
+   * /__run/<id> until Journey Studio has ingested it. The page never runs
+   * Playwright itself: the server spawns the SAME `npx sfpw suite <spec>` a
+   * human types, then `journey-studio ingest`, and hands back links.
+   *   spec: 'graph:<ref>' or 'smoke,sod' (suite names)
+   */
+  function startRun(spec, opts) {
+    if (!served()) return Promise.resolve({ ok: false, error: 'running needs the dev server — run: npm run planner' });
+    var body = /^graph:/.test(spec) ? { ref: spec.slice(6) } : { suite: spec };
+    var tab = opts && opts.tab;   // a tab opened AT THE CLICK (user gesture) — navigated when done
+    state.runs[spec] = { status: 'starting', tail: [] };
+    P2.bus.emit('change', { op: 'run' });
+    return postJson('/__run', body).then(function (res) {
+      if (res.status !== 200 || !res.json || !res.json.ok) {
+        var err = (res.json && res.json.error) || 'the run did not start';
+        state.runs[spec] = { status: 'failed', error: err, tail: [] };
+        P2.bus.emit('change', { op: 'run' });
+        return { ok: false, error: err, busy: !!(res.json && res.json.running) };
+      }
+      state.runs[spec] = { id: res.json.id, batch: res.json.batch, status: 'running', tail: [] };
+      P2.bus.emit('change', { op: 'run' });
+      return pollRun(spec, res.json.id).then(function (r) { settleTab(tab, r); return r; });
+    }).then(null, function (e) { settleTab(tab, { ok: false, error: String(e && e.message || e) }); throw e; });
+  }
+
+  /**
+   * "open review": popup blockers allow window.open() only inside a user
+   * gesture, so the tab is opened when Run is CLICKED, shows a waiting page,
+   * and is pointed at the review once the run has finished (same origin —
+   * /studio/…). Returns null when the browser refused.
+   */
+  function openReviewTab(spec) {
+    var w = null;
+    try { w = window.open('', '_blank'); } catch (e) { w = null; }
+    if (!w) return null;
+    try {
+      w.document.title = 'running ' + spec + '…';
+      w.document.body.innerHTML = '<div style="font:14px system-ui;padding:32px;color:#444"><b>running ' + esc(spec) + '…</b><br><br>this tab will show the review in Journey Studio when the run finishes.<br><span style="color:#888">(you can close it — the links stay in the planner)</span></div>';
+    } catch (e) { /* cross-origin about:blank quirks — harmless */ }
+    return w;
+  }
+  function settleTab(tab, r) {
+    if (!tab) return;
+    try {
+      if (tab.closed) return;
+      var url = r && r.studio && reviewUrl(r.studio);
+      if (r && r.ok && url) { tab.location.href = url; return; }
+      tab.document.body.innerHTML = '<div style="font:14px system-ui;padding:32px;color:#a33"><b>' + (r && r.ok ? 'nothing to review' : 'run ' + esc((r && r.status) || 'failed')) + '</b><br><br>' + esc((r && r.error) || 'the planner has the details') + '</div>';
+    } catch (e) { /* the tab is gone */ }
+  }
+  /** Which page a finished run opens: the one test's review, else the batch dashboard. */
+  function reviewUrl(studio) {
+    var linked = (studio.tests || []).filter(function (t) { return t.url; });
+    return linked.length === 1 ? linked[0].url : studio.dashboard;
+  }
+
+  function pollRun(spec, id) {
+    return new Promise(function (done) {
+      var tick = function () {
+        getJson('/__run/' + id).then(function (j) {
+          if (!j || !j.ok) { state.runs[spec] = { status: 'failed', error: 'lost track of the run', tail: [] }; P2.bus.emit('change', { op: 'run' }); done({ ok: false }); return; }
+          state.runs[spec] = j;
+          P2.bus.emit('change', { op: 'run' });
+          if (j.status === 'running' || j.status === 'ingesting') { setTimeout(tick, POLL_MS); return; }
+          done({ ok: j.status === 'done', status: j.status, studio: j.studio || null });
+        });
+      };
+      setTimeout(tick, POLL_MS);
+    });
+  }
+
+  /** Earlier runs (survive a planner restart) → state.runs for specs not in flight. */
+  function refreshRuns() {
+    if (!served()) return Promise.resolve(null);
+    return getJson('/__runs').then(function (j) {
+      if (!j || !j.ok) return j;
+      (j.runs || []).slice().reverse().forEach(function (r) {
+        var cur = state.runs[r.spec];
+        if (cur && (cur.status === 'running' || cur.status === 'ingesting' || cur.status === 'starting')) return;
+        state.runs[r.spec] = r;
+      });
+      P2.bus.emit('change', { op: 'run' });
+      return j;
+    });
+  }
+
+  /** Remembered per browser: open the review tab when a run finishes (default on). */
+  function openReview(set) {
+    try {
+      if (set !== undefined) localStorage.setItem('planner.openReview', set ? '1' : '0');
+      var v = localStorage.getItem('planner.openReview');
+      return v === null ? true : v === '1';
+    } catch (e) { return true; }
+  }
+
+  /**
    * A node's `snapshot.ref` → something an <img> can load, or '' when this
    * page cannot reach it (sprint 4.2: run evidence is a FILE under the
    * graph's `evidence/` folder, not a base64 blob in the document).
@@ -326,6 +424,11 @@
     addPersonas: addPersonas,
     newProject: newProject,
     startRecording: startRecording,
+    startRun: startRun,
+    refreshRuns: refreshRuns,
+    openReviewTab: openReviewTab,
+    reviewUrl: reviewUrl,
+    openReview: openReview,
     credentialsFor: credentialsFor,
     getJson: getJson,
     postJson: postJson,

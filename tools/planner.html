@@ -6743,10 +6743,12 @@ exports.parseAdoCsv = parseAdoCsv;
 exports.casesFromRows = casesFromRows;
 exports.parseStepsField = parseStepsField;
 exports.parseAdoPaste = parseAdoPaste;
+exports.stripRole = stripRole;
 exports.adoCaseToGraph = adoCaseToGraph;
 exports.writeAdoGraph = writeAdoGraph;
 exports.slug = slug;
 exports.verbIo = verbIo;
+exports.objectOf = objectOf;
 /**
  * S5 — ado:import: an Azure DevOps test plan → a DRAFT process graph the
  * human corrects instead of authors.
@@ -6899,6 +6901,12 @@ function parsePlainSteps(text) {
 }
 // ---------- mapping: case → draft graph ----------
 const ROLE_RE = /^(?:as|logged\s+in\s+as|login\s+as|acting\s+as)\s+(?:a|an|the)?\s*([^,:]+?)\s*[,:]\s*/i;
+/** "As a sales user, create a lead" → "create a lead" — the action without
+ *  its role prefix (what adoCaseToGraph maps; adoLinkage reads the same). */
+function stripRole(action) {
+    const m = ROLE_RE.exec(action);
+    return m ? action.slice(m[0].length).trim() || action : action;
+}
 /** Real ADO phrasing (ADO Test Plans exports, 2026-09-02): a "pre-req" step that
  *  LISTS who may perform the case, and mid-case "Login with <persona> persona"
  *  steps that switch the actor. Both open a session; the pre-req step itself is
@@ -7057,7 +7065,11 @@ function draftExpect(step, object, edgeId, existing, flags) {
     var _a;
     const expected = String(step.expected);
     const id = unique(`check_${slug(trunc(expected, 24)) || edgeId}`, new Set(existing.map((x) => x.id)));
-    const base = { id, after: edgeId, draft: true, note: 'draft from ADO — confirm once (planner: draft? button)' };
+    // `note` is the human phrasing of the acceptance criterion
+    // (DESIGN-EXPECTATIONS.md §2) — the Step Expected cell VERBATIM, so the
+    // 60-char `value` guess never becomes the only copy of what the author
+    // meant. It survives confirm-once (gaps.ts only strips 'draft from…' notes).
+    const base = { id, after: edgeId, draft: true, note: expected.trim() };
     if (TOAST_RE.test(expected)) {
         const quoted = (_a = /["“']([^"”']{2,60})["”']/.exec(expected)) === null || _a === void 0 ? void 0 : _a[1];
         return { ...base, kind: 'ui.toast', value: quoted !== null && quoted !== void 0 ? quoted : trunc(expected, 60) };
@@ -7155,7 +7167,8 @@ function verbOf(action) {
     const w = slug(action.split(/\s+/)[0]);
     return w || 'do';
 }
-/** The business object in an action phrase — connective words stripped. */
+/** The business object in an action phrase — connective words stripped.
+ *  Exported for adoLinkage.ts (cross-case dataflow reads the same guess). */
 function objectOf(action) {
     var _a, _b;
     const text = action.replace(/[.!?:;]+\s*$/, '').trim(); // "Verify Prospect Account is Created." — the period hid the object
@@ -8133,6 +8146,18 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
 .chip.ok{border-color:var(--ok);color:var(--ok);background:var(--ok-soft)}
 .chip.muted{color:var(--muted)}
 .strip .grow{flex:1}
+/* run results (runview.js): one pill per test → its review in Journey Studio */
+.runpills{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
+.runpills.compact{max-width:60vw}
+a.chip{text-decoration:none;cursor:pointer}
+a.chip:hover{filter:brightness(0.95)}
+a.chip.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.chip .arrow{opacity:.6;font-size:11px}
+.chip.run b{font-weight:600}
+.runtail{max-width:28vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle}
+.runbox .runpills{margin-top:8px}
+.openreview{display:inline-flex;align-items:center;gap:4px;margin-left:6px;white-space:nowrap}
+.openreview input{margin:0}
 /* panes */
 .panes{display:grid;grid-template-columns:260px 1fr;min-height:0}
 .panes.no-left{grid-template-columns:30px 1fr}
@@ -8523,6 +8548,9 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
     msel: [],
     /** sessionId → {id, status, tail} for in-flight `npm run record` runs. */
     recording: {},
+    /** run spec ('graph:<ref>' | suite names) → the latest /__run for it:
+     *  {id, batch, status, exitCode?, error?, tail, studio?} (in flight or last). */
+    runs: {},
   };
 
   var handlers = {};
@@ -9888,13 +9916,15 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
  *
  * Routes (tools/serve-planner.mjs): /__capabilities /__library /__envstatus
  * /__graphs /__personas /__personas/add /__projects /__record + /__record/<id>
- * /__evidence.
+ * /__evidence /__run + /__run/<id> /__runs, and the mounted Journey Studio
+ * under /studio/ (pages, api, batch files — same origin).
  * Live reload is injected by the server itself; the page only exposes
  * `window.plannerHoldReload` so a reload cannot close a sheet mid-edit.
  */
 (function () {
   var P2 = window.P2;
   var state = P2.state;
+  var esc = P2.esc;
 
   function served() { return P2.served() && !!window.fetch; }
 
@@ -10171,6 +10201,102 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
   }
 
   /**
+   * Run a graph or a suite through the dev server (POST /__run), then poll
+   * /__run/<id> until Journey Studio has ingested it. The page never runs
+   * Playwright itself: the server spawns the SAME `npx sfpw suite <spec>` a
+   * human types, then `journey-studio ingest`, and hands back links.
+   *   spec: 'graph:<ref>' or 'smoke,sod' (suite names)
+   */
+  function startRun(spec, opts) {
+    if (!served()) return Promise.resolve({ ok: false, error: 'running needs the dev server — run: npm run planner' });
+    var body = /^graph:/.test(spec) ? { ref: spec.slice(6) } : { suite: spec };
+    var tab = opts && opts.tab;   // a tab opened AT THE CLICK (user gesture) — navigated when done
+    state.runs[spec] = { status: 'starting', tail: [] };
+    P2.bus.emit('change', { op: 'run' });
+    return postJson('/__run', body).then(function (res) {
+      if (res.status !== 200 || !res.json || !res.json.ok) {
+        var err = (res.json && res.json.error) || 'the run did not start';
+        state.runs[spec] = { status: 'failed', error: err, tail: [] };
+        P2.bus.emit('change', { op: 'run' });
+        return { ok: false, error: err, busy: !!(res.json && res.json.running) };
+      }
+      state.runs[spec] = { id: res.json.id, batch: res.json.batch, status: 'running', tail: [] };
+      P2.bus.emit('change', { op: 'run' });
+      return pollRun(spec, res.json.id).then(function (r) { settleTab(tab, r); return r; });
+    }).then(null, function (e) { settleTab(tab, { ok: false, error: String(e && e.message || e) }); throw e; });
+  }
+
+  /**
+   * "open review": popup blockers allow window.open() only inside a user
+   * gesture, so the tab is opened when Run is CLICKED, shows a waiting page,
+   * and is pointed at the review once the run has finished (same origin —
+   * /studio/…). Returns null when the browser refused.
+   */
+  function openReviewTab(spec) {
+    var w = null;
+    try { w = window.open('', '_blank'); } catch (e) { w = null; }
+    if (!w) return null;
+    try {
+      w.document.title = 'running ' + spec + '…';
+      w.document.body.innerHTML = '<div style="font:14px system-ui;padding:32px;color:#444"><b>running ' + esc(spec) + '…</b><br><br>this tab will show the review in Journey Studio when the run finishes.<br><span style="color:#888">(you can close it — the links stay in the planner)</span></div>';
+    } catch (e) { /* cross-origin about:blank quirks — harmless */ }
+    return w;
+  }
+  function settleTab(tab, r) {
+    if (!tab) return;
+    try {
+      if (tab.closed) return;
+      var url = r && r.studio && reviewUrl(r.studio);
+      if (r && r.ok && url) { tab.location.href = url; return; }
+      tab.document.body.innerHTML = '<div style="font:14px system-ui;padding:32px;color:#a33"><b>' + (r && r.ok ? 'nothing to review' : 'run ' + esc((r && r.status) || 'failed')) + '</b><br><br>' + esc((r && r.error) || 'the planner has the details') + '</div>';
+    } catch (e) { /* the tab is gone */ }
+  }
+  /** Which page a finished run opens: the one test's review, else the batch dashboard. */
+  function reviewUrl(studio) {
+    var linked = (studio.tests || []).filter(function (t) { return t.url; });
+    return linked.length === 1 ? linked[0].url : studio.dashboard;
+  }
+
+  function pollRun(spec, id) {
+    return new Promise(function (done) {
+      var tick = function () {
+        getJson('/__run/' + id).then(function (j) {
+          if (!j || !j.ok) { state.runs[spec] = { status: 'failed', error: 'lost track of the run', tail: [] }; P2.bus.emit('change', { op: 'run' }); done({ ok: false }); return; }
+          state.runs[spec] = j;
+          P2.bus.emit('change', { op: 'run' });
+          if (j.status === 'running' || j.status === 'ingesting') { setTimeout(tick, POLL_MS); return; }
+          done({ ok: j.status === 'done', status: j.status, studio: j.studio || null });
+        });
+      };
+      setTimeout(tick, POLL_MS);
+    });
+  }
+
+  /** Earlier runs (survive a planner restart) → state.runs for specs not in flight. */
+  function refreshRuns() {
+    if (!served()) return Promise.resolve(null);
+    return getJson('/__runs').then(function (j) {
+      if (!j || !j.ok) return j;
+      (j.runs || []).slice().reverse().forEach(function (r) {
+        var cur = state.runs[r.spec];
+        if (cur && (cur.status === 'running' || cur.status === 'ingesting' || cur.status === 'starting')) return;
+        state.runs[r.spec] = r;
+      });
+      P2.bus.emit('change', { op: 'run' });
+      return j;
+    });
+  }
+
+  /** Remembered per browser: open the review tab when a run finishes (default on). */
+  function openReview(set) {
+    try {
+      if (set !== undefined) localStorage.setItem('planner.openReview', set ? '1' : '0');
+      var v = localStorage.getItem('planner.openReview');
+      return v === null ? true : v === '1';
+    } catch (e) { return true; }
+  }
+
+  /**
    * A node's `snapshot.ref` → something an <img> can load, or '' when this
    * page cannot reach it (sprint 4.2: run evidence is a FILE under the
    * graph's `evidence/` folder, not a base64 blob in the document).
@@ -10205,10 +10331,92 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
     addPersonas: addPersonas,
     newProject: newProject,
     startRecording: startRecording,
+    startRun: startRun,
+    refreshRuns: refreshRuns,
+    openReviewTab: openReviewTab,
+    reviewUrl: reviewUrl,
+    openReview: openReview,
     credentialsFor: credentialsFor,
     getJson: getJson,
     postJson: postJson,
   };
+})();
+
+/* ==== planner-v2 module: runview.js ==== */
+/**
+ * P2/runview — what a run looks like once the server has it (M3,
+ * docs/SCOPE-JOURNEY-STUDIO-INTEGRATION.md §3.3). Shared by the check strip
+ * (one graph) and the suites box (several graphs): a status chip while the
+ * run is in flight, then ONE PILL PER TEST — green/red by its own outcome —
+ * that opens that test's review in Journey Studio in a new tab, plus the
+ * batch's dashboard. A run's `status` is the machinery; a test's `outcome`
+ * is the verdict. Both are shown, never conflated.
+ */
+(function () {
+  var P2 = window.P2;
+  var state = P2.state;
+  var esc = P2.esc;
+
+  function link(href, cls, text, title) {
+    return '<a class="chip ' + cls + '" href="' + esc(href) + '" target="_blank" rel="noopener" title="' + esc(title) + '">' + text + '</a>';
+  }
+
+  function pill(t) {
+    var cls = t.outcome === 'passed' ? 'ok' : t.outcome === 'failed' ? 'bad' : t.outcome === 'flaky' ? 'warn' : 'muted';
+    var mark = t.outcome === 'passed' ? '✓' : t.outcome === 'failed' ? '✗' : t.outcome === 'flaky' ? '⚡' : '○';
+    var label = mark + ' ' + esc(t.ref || t.title || '?');
+    if (t.url) return link(t.url, cls + ' review', label + ' <span class="arrow">↗</span>', 'review ' + (t.ref || '') + ' in Journey Studio (' + t.outcome + ')');
+    var why = t.error ? String(t.error) : t.outcome === 'skipped' ? 'skipped — no page to review' : 'no review page (no video for this test)';
+    return '<span class="chip ' + cls + '" title="' + esc(why) + '">' + label + '</span>';
+  }
+
+  /** The in-flight tail, last line only — enough to see it moving. */
+  function tailLine(run) {
+    var t = run.tail || [];
+    return t.length ? '<span class="hint mono runtail" title="' + esc(t.slice(-8).join('\n')) + '">' + esc(t[t.length - 1]) + '</span>' : '';
+  }
+
+  /**
+   * @param run   state.runs[spec] or undefined
+   * @param opts  { compact } — the strip has one line; the suites box can wrap
+   */
+  function render(run, opts) {
+    if (!run) return '';
+    var compact = opts && opts.compact;
+    var st = run.status;
+    if (st === 'starting' || st === 'running' || st === 'ingesting') {
+      return '<span class="chip warn run"><b>' + (st === 'ingesting' ? 'ingesting' : 'running') + '…</b></span>' + tailLine(run);
+    }
+    if (st === 'failed' || st === 'lost') {
+      return '<span class="chip bad run" title="' + esc(run.error || '') + '"><b>run ' + st + '</b> ' + esc((run.error || '').slice(0, 80)) + '</span>';
+    }
+    var studio = run.studio;
+    if (!studio) return '<span class="chip muted run">done — nothing ingested</span>';
+    var tests = studio.tests || [];
+    var open = P2.net.reviewUrl(studio);
+    var html = '<span class="runpills' + (compact ? ' compact' : '') + '">' +
+      tests.map(pill).join('') +
+      link(studio.dashboard, 'muted', 'dashboard <span class="arrow">↗</span>', 'this run in Journey Studio') +
+      (open ? link(open, 'primary review-open', 'open review <span class="arrow">↗</span>', 'open this run\'s review in a new tab') : '') +
+      '</span>';
+    return html;
+  }
+
+  /** The "open review when done" toggle, shared by the strip and the suites box. */
+  /** `suffix` keeps ids unique when both hosts are on the page (the `b_graphcard2` convention). */
+  function openToggle(suffix) {
+    return '<label class="hint openreview" title="when a run finishes, the planner opens its review in a new tab">' +
+      '<input type="checkbox" id="f_openreview' + (suffix || '') + '"' + (P2.net.openReview() ? ' checked' : '') + '> open review</label>';
+  }
+
+  /** Wire the toggle openToggle() emits — call after innerHTML. */
+  function bind(root) {
+    var el = root || document;
+    var tog = el.querySelector('#f_openreview, #f_openreview2');
+    if (tog) tog.addEventListener('change', function () { P2.net.openReview(tog.checked); });
+  }
+
+  P2.runview = { render: render, pill: pill, openToggle: openToggle, bind: bind };
 })();
 
 /* ==== planner-v2 module: strip.js ==== */
@@ -10244,13 +10452,49 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
       '<span class="grow"></span>' +
       (c.mustFix.length || c.toFinish.length
         ? '<button class="small" id="b_fixnext" title="jump to the next open question">Fix next →</button>'
-        : '<button class="small primary" id="b_run1" title="copy the command that runs this graph">Run this graph</button>');
+        : runControls());
     el.innerHTML = html;
 
     var fix = document.getElementById('b_fixnext');
     if (fix) fix.addEventListener('click', function () { fixNext(model); });
     var run = document.getElementById('b_run1');
-    if (run) run.addEventListener('click', function () { P2.ui.copy(runCommand(), 'copied the run command'); });
+    if (run) run.addEventListener('click', function () { runNow(); });
+    var cmd = document.getElementById('b_runcmd');
+    if (cmd) cmd.addEventListener('click', function () { P2.ui.copy(runCommand(), 'copied the run command'); });
+    P2.runview.bind(el);
+  }
+
+  /** 'graph:<ref>' — the spec the server and the CLI both take. */
+  function runSpec() {
+    return 'graph:' + (state.ref || state.doc.id);
+  }
+
+  /**
+   * Served: the button RUNS the graph (the server spawns the same command,
+   * then Journey Studio ingests it) and the strip shows one pill per test
+   * linking to its review. file://: the button copies the command, as before.
+   */
+  function runControls() {
+    var served = P2.net.served();
+    var run = state.runs[runSpec()];
+    var busy = run && (run.status === 'starting' || run.status === 'running' || run.status === 'ingesting');
+    return P2.runview.render(run, { compact: true }) +
+      (served
+        ? '<button class="small primary" id="b_run1"' + (busy ? ' disabled' : '') + ' title="run this graph now, then review it in Journey Studio">' + (busy ? 'running…' : 'Run this graph') + '</button>' +
+          '<button class="small" id="b_runcmd" title="copy the command that runs this graph (CI, or a terminal)">copy CLI</button>' +
+          P2.runview.openToggle()
+        : '<button class="small primary" id="b_run1" title="copy the command that runs this graph">Run this graph</button>');
+  }
+
+  function runNow() {
+    if (!P2.net.served()) { P2.ui.copy(runCommand(), 'copied the run command'); return; }
+    var spec = runSpec();
+    var tab = P2.net.openReview() ? P2.net.openReviewTab(spec) : null;   // inside the click: allowed
+    P2.ui.toast('running ' + spec + '…');
+    P2.net.startRun(spec, { tab: tab }).then(function (r) {
+      if (r.ok) P2.ui.toast('run finished — review links are in the strip');
+      else P2.ui.toast(r.error || ('run ' + (r.status || 'failed')));
+    });
   }
 
   /** The next thing worth a human's attention, and where it lives. */
@@ -10277,7 +10521,7 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
     return 'npx sfpw suite graph:' + ref;
   }
 
-  P2.strip = { render: render, fixNext: fixNext, nextIssue: nextIssue, runCommand: runCommand };
+  P2.strip = { render: render, fixNext: fixNext, nextIssue: nextIssue, runCommand: runCommand, runSpec: runSpec, runNow: runNow };
 })();
 
 /* ==== planner-v2 module: library.js ==== */
@@ -10472,11 +10716,31 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
     });
     var chosen = Object.keys(picked).sort().join(',');
     if (!chosen) { box.textContent = 'tick a suite to run a group of graphs'; return; }
-    box.innerHTML = 'run locally, or paste into CI (same line):<code class="mono">npx sfpw suite ' + esc(chosen) + '</code>' +
-      '<div style="margin-top:6px"><button class="small primary" id="b_runsuite">Copy the ' + esc(chosen) + ' line</button></div>';
+    var served = P2.net.served();
+    var run = state.runs[chosen];
+    var busy = run && (run.status === 'starting' || run.status === 'running' || run.status === 'ingesting');
+    box.innerHTML = (served ? 'run now, or paste into CI (same line):' : 'run locally, or paste into CI (same line):') +
+      '<code class="mono">npx sfpw suite ' + esc(chosen) + '</code>' +
+      '<div style="margin-top:6px">' +
+      (served
+        ? '<button class="small primary" id="b_runsuite"' + (busy ? ' disabled' : '') + ' title="run these suites now, then review each graph in Journey Studio">' + (busy ? 'running…' : 'Run ' + esc(chosen)) + '</button> ' +
+          '<button class="small" id="b_suitecmd" title="copy the line for CI or a terminal">copy CLI</button> ' +
+          P2.runview.openToggle('2')
+        : '<button class="small primary" id="b_runsuite">Copy the ' + esc(chosen) + ' line</button>') +
+      '</div>' +
+      P2.runview.render(run, { compact: false });
     document.getElementById('b_runsuite').addEventListener('click', function () {
-      P2.ui.copy('npx sfpw suite ' + chosen, 'copied the suite command');
+      if (!served) { P2.ui.copy('npx sfpw suite ' + chosen, 'copied the suite command'); return; }
+      var tab = P2.net.openReview() ? P2.net.openReviewTab(chosen) : null;   // inside the click: allowed
+      P2.ui.toast('running ' + chosen + '…');
+      P2.net.startRun(chosen, { tab: tab }).then(function (r) {
+        if (r.ok) P2.ui.toast('suite finished — review links are under the suites');
+        else P2.ui.toast(r.error || ('run ' + (r.status || 'failed')));
+      });
     });
+    var cmd = document.getElementById('b_suitecmd');
+    if (cmd) cmd.addEventListener('click', function () { P2.ui.copy('npx sfpw suite ' + chosen, 'copied the suite command'); });
+    P2.runview.bind(box);
   }
 
   function render() {
@@ -14351,6 +14615,7 @@ body.view input,body.view select,body.view textarea{pointer-events:none;backgrou
       P2.net.refreshLibrary();
       P2.net.refreshEnv();
       P2.net.refreshPersonas();
+      P2.net.refreshRuns();
       resumeImport();
     }
   }
